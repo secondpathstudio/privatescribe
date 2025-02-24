@@ -1,0 +1,298 @@
+import React, { useEffect } from 'react'
+import { useForm } from 'react-hook-form'
+import { format, getDate, set } from 'date-fns'
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from './ui/form'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
+import { Calendar } from './ui/calendar'
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+import { Button } from './ui/button'
+import { CalendarIcon } from 'lucide-react'
+import { Textarea } from './ui/textarea'
+import Microphone from './microphone'
+import { Input } from './ui/input'
+import MarkdownEditor from './md-editor'
+import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
+
+type Props = {
+    handleSubmit: (e: React.FormEvent) => Promise<void>;
+}
+
+const NoteForm = ({handleSubmit} : Props) => {
+    const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
+    const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
+    const [markdown, setMarkdown] = React.useState('');
+    const [isTranscribing, setIsTranscribing] = React.useState(false);
+
+    const getDateString = () => {
+        const date = new Date();
+        return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
+    }
+
+    const form = useForm({
+        defaultValues: {
+            patientId: getDateString(),
+            noteType: 'visit',
+            encounterDate: new Date(),
+            noteContentRaw: '',
+            noteContentMarkdown: '',
+            providerId: '',
+            version: 1,
+            status: 'draft',
+        }
+    });
+
+    const transcribeRecording = async (blob: Blob) => {
+        // get transcription from whisper
+        setIsTranscribing(true);
+        const formData = new FormData();
+        formData.append('file', blob, 'recording.webm'); // Use WebM if you're recording with MediaRecorder
+
+        console.log('Uploading audio for transcription...', blob);
+        try {
+            const response = await fetch('http://127.0.0.1:5000/transcribe', {
+            method: 'POST',
+            headers: {
+                // Authorization: token,
+            },
+            body: formData,
+            });
+
+            if (!response.ok) {
+            throw new Error(`Server error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('Transcription Result:', result);
+            form.setValue('noteContentRaw', result.raw_transcript);
+
+            // Format the transcription in Markdown
+            getMarkdown(result.raw_transcript);
+        } catch (error: any) {
+            console.error('Upload failed:', error);
+            alert(`Upload failed: ${error.message}`);
+        }
+        setIsTranscribing(false);
+    }
+
+    const getMarkdown = async (rawTranscript: string) => {
+        // get markdown from ollama
+        setGettingMarkdown(true);
+        form.setValue('noteContentMarkdown', '');
+        mdxEditorRef.current?.setMarkdown('');
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/getMarkdown', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    // Authorization: token,
+                },
+                body: JSON.stringify({ 
+                    raw_transcript: rawTranscript,
+                    visit_details: {
+                        patient_id: form.getValues('patientId'),
+                        encounter_date: form.getValues('encounterDate'),
+                        note_type: form.getValues('noteType'),
+                        ProviderId: form.getValues('providerId'),
+                    }
+                 }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            form.setValue('noteContentMarkdown', result.formatted_markdown);
+            mdxEditorRef.current?.setMarkdown(result.formatted_markdown);
+        } catch (error: any) {
+            console.error('Failed to get markdown:', error);
+        } 
+        setGettingMarkdown(false);
+    }
+
+  return (
+    <Form {...form}>
+    <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-2 gap-4">
+            <fieldset className="flex flex-col gap-2">
+                <FormField 
+                    control={form.control} 
+                    name="noteType" 
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Note Type</FormLabel>
+                            <FormControl>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <SelectTrigger>
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="visit">Visit</SelectItem>
+                                        <SelectItem value="procedure">Progress Note</SelectItem>
+                                        <SelectItem value="lab">Lab</SelectItem>
+                                        <SelectItem value="imaging">Imaging</SelectItem>
+                                        <SelectItem value="discharge">Discharge</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+                <FormField 
+                    control={form.control} 
+                    name="patientId" 
+                    render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                            <FormLabel>Patient ID</FormLabel>
+                            <FormControl>
+                                <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+            </fieldset>
+            <fieldset className="flex flex-col gap-2">
+                <FormField 
+                    control={form.control} 
+                    name="encounterDate" 
+                    render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                            <FormLabel>Encounter Date</FormLabel>
+                            <FormControl>
+                                <Popover>
+                                    <PopoverTrigger asChild>
+                                        <Button variant="outline" color="primary" size="sm">
+                                            {field.value ? format(field.value, "PPP") : <span>Select a date</span>}
+                                            <CalendarIcon className="w-4 h-4 mr-2" />
+                                        </Button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-auto p-0">
+                                        <Calendar
+                                            mode="single"
+                                            selected={field.value}
+                                            onSelect={field.onChange}
+                                            disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
+                                        />
+                                    </PopoverContent>
+                                </Popover>
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+                <FormField 
+                    control={form.control} 
+                    name="providerId" 
+                    render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                            <FormLabel>Provider ID</FormLabel>
+                            <FormControl>
+                                <Input disabled placeholder="Provider ID" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+            </fieldset>
+        </div>
+
+        {/* Microphone Component */}
+        <div className="flex justify-between items-center mt-4">
+            <Microphone onRecordingFinished={transcribeRecording} />
+        </div>
+
+        {/* animation for server processing */}
+        {isTranscribing && (
+        <div className="flex flex-col w-full justify-center items-center mt-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500">
+            </div>
+            <p className="text-primary">Transcribing...</p>
+        </div>
+        )}
+
+        {gettingMarkdown && (
+        <div className="flex flex-col justify-center items-center mt-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-400"></div>
+            <p className="text-primary">Formatting...</p>
+        </div>
+        )}
+
+
+        {/* Tabs Component for Raw Transcript and Markdown Editor */}
+        {/* only show tabs when there is a raw transcript and markdown */}
+        {form.getValues("noteContentRaw") != '' && form.getValues("noteContentMarkdown") != '' && (
+        <Tabs defaultValue="transcript" className="w-full mt-4">
+            <TabsList className="flex w-full">
+                <TabsTrigger className='grow' value="transcript">Raw Transcript</TabsTrigger>
+                <TabsTrigger className='grow' value="markdown">Markdown Editor</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="transcript">
+                <FormField 
+                    control={form.control} 
+                    name="noteContentRaw" 
+                    render={({ field }) => (
+                        <FormItem className="flex flex-col mt-4">
+                            <FormLabel>Raw Transcription</FormLabel>
+                            <FormControl>
+                                <Textarea {...field} disabled />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
+            </TabsContent>
+
+            <TabsContent value="markdown">
+                    <MarkdownEditor 
+                        className="w-full mt-4"
+                        plugins={[
+                            headingsPlugin(),
+                            quotePlugin(),
+                            listsPlugin(),
+                            toolbarPlugin({
+                                toolbarClassName: "flex gap-2 w-full",
+                                toolbarContents: () => (
+                                    <>
+                                        <UndoRedo />
+                                        <BoldItalicUnderlineToggles />
+                                        <ListsToggle />
+                                    </>
+                                )
+                            })
+                        ]}
+                        editorRef={mdxEditorRef}
+                        placeholder="Formatted note will appear here after dictation..."
+                        readOnly={gettingMarkdown}
+                        markdown={form.getValues("noteContentMarkdown")}
+                        onChange={(value) => {
+                            form.setValue("noteContentMarkdown", value);
+                            setMarkdown(value);
+                            console.log("Setting markdown to:", value);
+                        }}
+                    />
+            </TabsContent>
+        </Tabs>
+        )}
+        
+        {/* Save Button */}
+        {form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
+        <Button 
+            type="submit"
+            className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50"
+            disabled={form.formState.isSubmitting || !form.formState.isValid}
+        >
+            🛟 Save Note
+        </Button>
+        )}
+    </form>
+</Form>
+
+  )
+}
+
+export default NoteForm
