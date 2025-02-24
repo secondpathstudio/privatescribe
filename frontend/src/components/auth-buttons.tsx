@@ -4,6 +4,12 @@ import { Avatar, AvatarFallback} from "./ui/avatar";
 export default function AuthButtons() {
     //handle auth state
 
+    const logout = () => {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        window.location.href = "/login"; // Redirect
+      };
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger>
@@ -23,10 +29,16 @@ export default function AuthButtons() {
                     <a className='cursor-pointer' href="/notes">Notes</a>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                    <a className='cursor-pointer' href="/profile">Profile</a>
+                    <a className='cursor-pointer' href="/users">Users</a>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                    <button className="cursor-pointer" onClick={() => console.log('handle logout')}>Logout</button>
+                    <a className='cursor-pointer' href="/login">Login</a>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <a className='cursor-pointer' href="/signup">Sign Up</a>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                    <button className="cursor-pointer" onClick={logout}>Logout</button>
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

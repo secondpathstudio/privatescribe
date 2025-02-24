@@ -8,7 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
 import { Button } from './ui/button'
 import { CalendarIcon } from 'lucide-react'
 import { Textarea } from './ui/textarea'
-import Microphone from './microphone'
+import Microphone from './recording/microphone'
 import { Input } from './ui/input'
 import MarkdownEditor from './md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
@@ -50,7 +50,7 @@ const NoteForm = ({handleSubmit} : Props) => {
 
         console.log('Uploading audio for transcription...', blob);
         try {
-            const response = await fetch('http://127.0.0.1:5000/transcribe', {
+            const response = await fetch('http://127.0.0.1:5000/api/transcribe', {
             method: 'POST',
             headers: {
                 // Authorization: token,
@@ -82,7 +82,7 @@ const NoteForm = ({handleSubmit} : Props) => {
         mdxEditorRef.current?.setMarkdown('');
 
         try {
-            const response = await fetch('http://127.0.0.1:5000/getMarkdown', {
+            const response = await fetch('http://127.0.0.1:5000/api/getMarkdown', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

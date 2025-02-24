@@ -1,6 +1,7 @@
 // Import necessary modules and components
 import { useEffect, useState, useRef } from "react";
 import { Button } from '@/components/ui/button';
+import VolumeMeter from "./volume-meter";
 
   
   // Export the MicrophoneComponent function component
@@ -11,6 +12,7 @@ import { Button } from '@/components/ui/button';
   const [volumeLevel, setVolumeLevel] = useState(0);
   const isRecordingRef = useRef(false);
   const audioChunksRef = useRef<Blob[]>([]);
+  const [paused, setPaused] = useState(false);
 
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -62,6 +64,18 @@ import { Button } from '@/components/ui/button';
     setIsRecording(true);
   };
 
+  //pause recording
+  const pauseRecording = () => {
+    mediaRecorderRef.current?.pause();
+    setPaused(true);
+  };
+
+  //resume recording
+  const resumeRecording = () => {
+    mediaRecorderRef.current?.resume();
+    setPaused(false);
+  };
+
   const stopRecording = () => {
     mediaRecorderRef.current?.stop();
     mediaRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
@@ -74,41 +88,8 @@ import { Button } from '@/components/ui/button';
     <div className="flex flex-col justify-center w-full">
       <div className="w-full">
         <div className="flex items-center w-full">
-          {isRecording ? (
-            // Button for stopping recording
-            <div className="flex flex-col items-center w-full">
-              <div className="text-center">Recording...</div>
-              <div style={{
-                  width: "100%",
-                  height: "10px",
-                  background: "gray",
-                  marginTop: "10px",
-                  marginBottom: "10px",
-              }}>
-                  <div style={{
-                      width: `${(volumeLevel / 255) * 100}%`, 
-                      height: "100%", 
-                      background: "green",
-                      transition: "width 0.1s ease-out"
-                  }} />
-              </div>
-              <Button
-                type="button"
-                onClick={stopRecording}
-                className="text-white gap-2 m-auto flex items-center justify-center bg-red-400 hover:bg-red-500 w-60 h-10 focus:outline-none rounded-lg"
-                >
-                <svg
-                  className="h-6 w-6"
-                  viewBox="0 0 24 24"
-                  xmlns="http://www.w3.org/2000/svg"
-                  >
-                  <path fill="white" d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                </svg>
-                Stop Recording
-              </Button>
-            </div>
-          ) : (
-            // Button for starting recording
+          {!isRecording && (
+            // Button for start recording
             <Button
               type='button'
               onClick={startRecording}
@@ -125,6 +106,42 @@ import { Button } from '@/components/ui/button';
                 />
               </svg>
             </Button>
+          )}
+          {isRecording && !paused && (
+            // Button for pause recording
+            <div className="flex flex-col items-center w-full">
+              <div className="text-center">Recording...</div>
+              <VolumeMeter volumeLevel={volumeLevel} />
+              <Button
+                type="button"
+                onClick={pauseRecording}
+                className="text-white gap-2 m-auto flex items-center justify-center bg-red-400 hover:bg-red-500 w-60 h-10 focus:outline-none rounded-lg"
+                >
+                Pause Recording
+              </Button>
+            </div>
+          )}
+          {isRecording && paused && (
+            // Button for resume recording
+            <div className="flex flex-col items-center w-full">
+              <div className="text-center animate-pulse">Recording paused...</div>
+              <div className="flex items-center justify-center gap-2 w-full">
+                <Button
+                  type="button"
+                  onClick={resumeRecording}
+                  className="text-white gap-2 m-auto flex items-center justify-center bg-green-400 hover:bg-green-500 w-60 h-10 focus:outline-none rounded-lg"
+                  >
+                  Resume Recording
+                </Button>
+                <Button
+                  type="button"
+                  onClick={stopRecording}
+                  className="text-white gap-2 m-auto flex items-center justify-center bg-red-400 hover:bg-red-500 w-60 h-10 focus:outline-none rounded-lg"
+                  >
+                  End Recording
+                </Button>
+              </div>
+            </div>
           )}
         </div>
           {audioBlob && (
