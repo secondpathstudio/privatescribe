@@ -1,15 +1,10 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { Avatar, AvatarFallback} from "./ui/avatar";
 import { useAuth } from "@/context/auth-context";
+import { Link } from "react-router";
 
 export default function AuthButtons() {
     const auth = useAuth();
-
-    const logout = () => {
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        window.location.href = "/login"; // Redirect
-      };
 
     return (
         <DropdownMenu>
@@ -27,19 +22,19 @@ export default function AuthButtons() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                    <a className='cursor-pointer' href="/notes">Notes</a>
+                    <Link className='cursor-pointer' to="/notes">Notes</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                    <a className='cursor-pointer' href="/users">Users</a>
+                    <Link className='cursor-pointer' to="/users">Users</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                    <a className='cursor-pointer' href="/login">Login</a>
+                    <Link className='cursor-pointer' to="/login">Login</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                    <a className='cursor-pointer' href="/signup">Sign Up</a>
+                    <Link className='cursor-pointer' to="/signup">Sign Up</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                    <button className="cursor-pointer" onClick={logout}>Logout</button>
+                    <button className="cursor-pointer" onClick={() => auth.logout()}>Logout</button>
                 </DropdownMenuItem>
             </DropdownMenuContent>
         </DropdownMenu>

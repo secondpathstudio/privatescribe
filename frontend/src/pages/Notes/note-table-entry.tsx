@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { Link } from 'react-router'
 
 const NoteTableEntry = () => {
   return (
@@ -12,9 +13,9 @@ const NoteTableEntry = () => {
             </div>
             <div className='mt-4'>
             <Button asChild>
-                <a href='/charts/1'>
+                <Link to='/notes/1'>
                 View
-                </a>
+                </Link>
             </Button>
             </div>
         </div>

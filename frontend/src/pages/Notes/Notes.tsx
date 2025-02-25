@@ -1,6 +1,7 @@
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Button } from '@/components/ui/button'
 import NoteTableEntry from './note-table-entry'
+import { Link } from 'react-router'
 
 const Notes = () => {
   return (
@@ -15,9 +16,9 @@ const Notes = () => {
 
       <h1 className='text-4xl font-bold mt-6'>All Notes</h1>
       <Button asChild className='inline-flex pl-2 gap-2 mt-4'>
-        <a href='/notes/new'>
+        <Link to='/notes/new'>
           📝 Create Note
-        </a>
+        </Link>
       </Button>
         
       <div>

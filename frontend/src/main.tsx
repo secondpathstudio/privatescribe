@@ -12,6 +12,7 @@ import Users from './pages/Users/Users.tsx'
 import Login from './pages/Login/Login.tsx'
 import RequireAuth from './components/auth/RequireAuth.tsx'
 import { AuthProvider } from './context/auth-context.tsx'
+import SingleNote from './pages/Notes/SingleNote/SingleNote.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -23,6 +24,7 @@ createRoot(document.getElementById('root')!).render(
           
           <Route path="notes">
             <Route index  element={<RequireAuth><Notes /></RequireAuth>} />
+            <Route path=":id" element={<RequireAuth><SingleNote /></RequireAuth>} />
             <Route path="new" element={<RequireAuth><NewNote /></RequireAuth>} />
           </Route>
           
