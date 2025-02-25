@@ -14,6 +14,7 @@ import MarkdownEditor from './md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { useAuth } from '../context/auth-context'
+import PirateWheel from './PirateWheel'
 
 type Props = {
     handleSubmit: (e: React.FormEvent) => Promise<void>;
@@ -41,6 +42,7 @@ const NoteForm = ({handleSubmit} : Props) => {
             noteContentRaw: '',
             noteContentMarkdown: '',
             providerId: auth.user?.id,
+            providerName: auth.user?.firstName + ' ' + auth.user?.lastName,
             version: 1,
             status: 'draft',
         }
@@ -57,7 +59,7 @@ const NoteForm = ({handleSubmit} : Props) => {
             const response = await fetch('http://127.0.0.1:5000/api/transcribe', {
             method: 'POST',
             headers: {
-                // Authorization: token,
+                "Authorization": `Bearer ${auth.token}`,
             },
             body: formData,
             });
@@ -90,7 +92,7 @@ const NoteForm = ({handleSubmit} : Props) => {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    // Authorization: token,
+                    'Authorization': `Bearer ${auth.token}`,
                 },
                 body: JSON.stringify({ 
                     raw_transcript: rawTranscript,
@@ -190,12 +192,16 @@ const NoteForm = ({handleSubmit} : Props) => {
                 />
                 <FormField 
                     control={form.control} 
-                    name="providerId" 
+                    name="providerName" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Provider ID</FormLabel>
+                            <FormLabel>Provider</FormLabel>
                             <FormControl>
-                                <Input disabled placeholder="Provider ID" {...field} />
+                                <Input 
+                                    disabled 
+                                    placeholder="Provider Name"
+                                    {...field}
+                                />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
@@ -206,21 +212,22 @@ const NoteForm = ({handleSubmit} : Props) => {
 
         {/* Microphone Component */}
         <div className="flex justify-between items-center mt-4">
-            <Microphone onRecordingFinished={transcribeRecording} />
+            <Microphone 
+                onRecordingFinished={transcribeRecording}
+            />
         </div>
 
         {/* animation for server processing */}
         {isTranscribing && (
         <div className="flex flex-col w-full justify-center items-center mt-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500">
-            </div>
+            <PirateWheel isRotating={true} />
             <p className="text-primary">Transcribing...</p>
         </div>
         )}
 
-        {gettingMarkdown && (
+        {!gettingMarkdown && (
         <div className="flex flex-col justify-center items-center mt-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-400"></div>
+            <PirateWheel isRotating={true} />
             <p className="text-primary">Formatting...</p>
         </div>
         )}
@@ -285,13 +292,28 @@ const NoteForm = ({handleSubmit} : Props) => {
         
         {/* Save Button */}
         {form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
-        <Button 
-            type="submit"
-            className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50"
-            disabled={form.formState.isSubmitting || !form.formState.isValid}
-        >
-            🛟 Save Note
-        </Button>
+        <div className='flex justify-center items-center gap-4'>
+            <Button 
+                type="submit"
+                className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50"
+                disabled={form.formState.isSubmitting || !form.formState.isValid}
+            >
+                🛟 Save Note
+            </Button>
+            <Button 
+                type="button"
+                variant={'outline'}
+                className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50 hover:bg-red-500 cursor-pointer"
+                onClick={() => {
+                    form.reset();
+                    setMarkdown('');
+                    mdxEditorRef.current?.setMarkdown('');
+                    //TODO reset microphone
+                }}
+            >
+                Reset
+            </Button>
+        </div>
         )}
     </form>
 </Form>

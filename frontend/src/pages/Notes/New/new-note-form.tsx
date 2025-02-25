@@ -1,9 +1,11 @@
 import NoteForm from "@/components/note-form"
+import { useAuth } from "@/context/auth-context"
 
 const NewNoteForm = () => {
+  const auth = useAuth();
+
   const handleNoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('submit note');
 
     //send to server
   }

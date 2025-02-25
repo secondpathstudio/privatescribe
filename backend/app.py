@@ -306,6 +306,7 @@ def convert_audio(audio_data, format):
     return wav_io
 
 @app.route('/api/transcribe', methods=['POST'])
+@jwt_required()
 def transcribe():
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
@@ -332,6 +333,7 @@ def transcribe():
     })
 
 @app.route('/api/getMarkdown', methods=['POST'])
+@jwt_required()
 def getMarkdown():
     transcript = request.json['raw_transcript']
     visit_details = request.json['visit_details']
@@ -340,10 +342,11 @@ def getMarkdown():
     
     # Format transcript with Ollama LLM
     formatted_markdown = ollama.chat(model="llama3.2", messages=[
-        {"role": "system", "content": "You are an expert medical note assistant. Take the provided text of a conversation between a doctor and a patient. Your task is to format this conversation into a structured medical note in Markdown format with sections like Visit Details, Chief Complaint, History of Present Illness, and Physical Exam. Be concise but complete, only return the formatted markdown without any extra labels or titles."},
+        {"role": "system", "content": "You are an expert medical note assistant. Take the provided text of a conversation between a doctor and a patient. Your task is to format this conversation into a structured medical note in Markdown format with sections like Visit Details, Chief Complaint, History of Present Illness, and Physical Exam. Be concise but complete, only return the formatted markdown without any extra labels or titles. do not include the patient's name or any other identifying information. Do not include three backticks before and after the markdown. Do not include the word markdown."},
         {"role": "user", "content": f"Here are the visit details: \n\n{visit_details}. Here is the transcript to format:\n\n{transcript}."}
     ])["message"]["content"]
 
+    print("Formatted markdown: " + formatted_markdown)
     
     return jsonify({
         "formatted_markdown": formatted_markdown

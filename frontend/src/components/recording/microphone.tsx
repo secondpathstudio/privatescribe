@@ -5,7 +5,13 @@ import VolumeMeter from "./volume-meter";
 
   
   // Export the MicrophoneComponent function component
-  export default function Microphone({ onRecordingFinished } : { onRecordingFinished: (blob: Blob) => void }) {
+  export default function Microphone({ 
+    onRecordingFinished,
+    
+  } : { 
+    onRecordingFinished: (blob: Blob) => void 
+    
+  }) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder>(null);
