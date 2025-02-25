@@ -28,6 +28,9 @@ export default function AuthButtons() {
                     <Link className='cursor-pointer' to="/users">Users</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                    <Link className='cursor-pointer' to="/templates">Templates</Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                     <Link className='cursor-pointer' to="/login">Login</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
