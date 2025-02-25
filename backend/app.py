@@ -151,8 +151,14 @@ def login():
         
         return jsonify({
             "access_token": access_token,
-            "refresh_token": refresh_token
-            })
+            "refresh_token": refresh_token,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "firstName": user.firstName,
+                "lastName": user.lastName,
+                "lastLogin": user.lastLogin
+            }}), 200
 
     return jsonify({"error": "Invalid username or password"}), 401
 

@@ -1,8 +1,9 @@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "./ui/dropdown-menu";
 import { Avatar, AvatarFallback} from "./ui/avatar";
+import { useAuth } from "@/context/auth-context";
 
 export default function AuthButtons() {
-    //handle auth state
+    const auth = useAuth();
 
     const logout = () => {
         localStorage.removeItem("access_token");
@@ -15,14 +16,14 @@ export default function AuthButtons() {
             <DropdownMenuTrigger>
                 <Avatar>
                     <AvatarFallback className="bg-gray-500">
-                        User
+                        {auth.user ? auth.user.firstName[0] : 'U'}{auth.user ? auth.user.lastName[0] : 'S'}
                     </AvatarFallback>
                 </Avatar>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
                 <DropdownMenuLabel>
-                    <div>User Name</div>
-                    <div className="font-normal text-xs">User Email</div>
+                    <div>{auth.user?.firstName} {auth.user?.lastName}</div>
+                    <div className="font-normal text-xs">{auth.user?.email}</div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>

@@ -13,17 +13,21 @@ import { Input } from './ui/input'
 import MarkdownEditor from './md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
+import { useAuth } from '../context/auth-context'
 
 type Props = {
     handleSubmit: (e: React.FormEvent) => Promise<void>;
 }
 
 const NoteForm = ({handleSubmit} : Props) => {
+    const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
     const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
     const [markdown, setMarkdown] = React.useState('');
     const [isTranscribing, setIsTranscribing] = React.useState(false);
 
+    console.log('auth', auth);
+    
     const getDateString = () => {
         const date = new Date();
         return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
@@ -36,7 +40,7 @@ const NoteForm = ({handleSubmit} : Props) => {
             encounterDate: new Date(),
             noteContentRaw: '',
             noteContentMarkdown: '',
-            providerId: '',
+            providerId: auth.user?.id,
             version: 1,
             status: 'draft',
         }

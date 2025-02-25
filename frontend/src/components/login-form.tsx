@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/auth-context";
+import { redirect } from "react-router";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -40,8 +41,8 @@ export default function LoginForm() {
 
         if (response.ok) {
             console.log("Login successful:", data);
-            auth.login(data.access_token, data.refresh_token);
-            window.location.href = "/notes"; // Redirect
+            auth.login(data.access_token, data.refresh_token, data.user);
+            redirect("/notes");
         } else {
             alert(data.error || "Login failed");
         }
