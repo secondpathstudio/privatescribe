@@ -13,7 +13,7 @@ const PirateWheel = ({ isRotating }: Props) => {
     viewBox="0 0 500 500"
     width={150}
     height={150}
-    className={isRotating ? 'animate-spin' : ''}>
+    className={isRotating ? 'animate-spin duration-1000' : ''}>
   {/* <!-- Background (transparent) --> */}
   
   {/* <!-- Outer rim with double ring design --> */}

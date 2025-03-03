@@ -9,14 +9,17 @@ from flask_migrate import Migrate
 from faster_whisper import WhisperModel
 import ollama
 import os
+from dotenv import load_dotenv
 from pydub import AudioSegment
 import io
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
 
+load_dotenv()
+
 # Secret key for JWT encoding/decoding
-app.config['SECRET_KEY'] = 'aixodnglxuid8g93n2fn8g9d0sn2l0ggxyh3k1'  # Use a secure key in production
+app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')  # Use a secure key in production
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)  # Access tokens expire after 1 hour
 
 # SQLite Database configuration
@@ -57,12 +60,15 @@ class User(db.Model):
 # Note model
 class Note(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    patientId = db.Column(db.Integer, nullable=False)
+    providerId = db.Column(db.String(36), nullable=False)
+    providerName = db.Column(db.String(100), nullable=False)
+    encounterDate = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     createdAt = db.Column(db.DateTime, default=datetime.utcnow)
     updatedAt = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    rawNoteTranscript = db.Column(db.Text, nullable=False)
-    formattedMarkdown = db.Column(db.Text, nullable=False)
-    patientId = db.Column(db.Integer, nullable=False)
-    visitType = db.Column(db.String(50), nullable=False)
+    noteContentRaw = db.Column(db.Text, nullable=False)
+    noteContentMarkdown = db.Column(db.Text, nullable=False)
+    noteType = db.Column(db.String(50), nullable=False)
     
     # Foreign key: Link the note to a user
     userId = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False) 
@@ -176,9 +182,14 @@ def create_note():
     data = request.get_json()
 
     # Validate required fields
-    if not all(k in data for k in ('rawNoteTranscript', 'formattedMarkdown', 'patientId', 'visitType')):
+    if not all(k in data for k in (
+        'rawNoteTranscript', 
+        'formattedMarkdown', 
+        'patientId', 
+        'encounterDate',
+        'noteType')):
         return jsonify({"error": "Missing required fields"}), 400
-
+    
     # Get the current user from the JWT
     current_user = get_jwt_identity()
 
@@ -188,8 +199,13 @@ def create_note():
         formattedMarkdown=data['formattedMarkdown'],
         patientId=data['patientId'],
         visitType=data['visitType'],
+        encounterDate=data['encounterDate'],
+        createdAt=datetime.now(),
+        updatedAt=datetime.now(),
         userId=current_user  # Link the note to the current user (UUID)
     )
+    
+    print('adding note' + new_note)
 
     # Add the note to the database
     db.session.add(new_note)

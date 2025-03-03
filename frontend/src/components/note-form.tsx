@@ -17,10 +17,10 @@ import { useAuth } from '../context/auth-context'
 import PirateWheel from './PirateWheel'
 
 type Props = {
-    handleSubmit: (e: React.FormEvent) => Promise<void>;
+    addNewNote: (form: any) => Promise<void>;
 }
 
-const NoteForm = ({handleSubmit} : Props) => {
+const NoteForm = ({addNewNote} : Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
     const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
@@ -37,16 +37,22 @@ const NoteForm = ({handleSubmit} : Props) => {
     const form = useForm({
         defaultValues: {
             patientId: getDateString(),
-            noteType: 'visit',
+            providerId: auth.user?.id,
+            providerName: auth.user?.firstName + ' ' + auth.user?.lastName,
             encounterDate: new Date(),
             noteContentRaw: '',
             noteContentMarkdown: '',
-            providerId: auth.user?.id,
-            providerName: auth.user?.firstName + ' ' + auth.user?.lastName,
+            noteType: 'visit',
             version: 1,
             status: 'draft',
         }
     });
+
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault()
+
+        addNewNote(form);
+    }
 
     const transcribeRecording = async (blob: Blob) => {
         // get transcription from whisper
@@ -225,7 +231,7 @@ const NoteForm = ({handleSubmit} : Props) => {
         </div>
         )}
 
-        {!gettingMarkdown && (
+        {gettingMarkdown && (
         <div className="flex flex-col justify-center items-center mt-4">
             <PirateWheel isRotating={true} />
             <p className="text-primary">Formatting...</p>
@@ -235,7 +241,7 @@ const NoteForm = ({handleSubmit} : Props) => {
 
         {/* Tabs Component for Raw Transcript and Markdown Editor */}
         {/* only show tabs when there is a raw transcript and markdown */}
-        {form.getValues("noteContentRaw") != '' && form.getValues("noteContentMarkdown") != '' && (
+        {form.getValues("noteContentRaw") != '' && (
         <Tabs defaultValue="transcript" className="w-full mt-4">
             <TabsList className="flex w-full">
                 <TabsTrigger className='grow' value="transcript">Raw Transcript</TabsTrigger>
@@ -295,8 +301,8 @@ const NoteForm = ({handleSubmit} : Props) => {
         <div className='flex justify-center items-center gap-4'>
             <Button 
                 type="submit"
-                className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50"
-                disabled={form.formState.isSubmitting || !form.formState.isValid}
+                className="flex gap-2 max-w-md mx-auto mt-4 w-full bg-green-500 disabled:bg-gray-400"
+                disabled={markdown === ''}
             >
                 🛟 Save Note
             </Button>
