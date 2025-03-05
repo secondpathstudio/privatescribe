@@ -26,6 +26,7 @@ const NoteForm = ({addNewNote} : Props) => {
     const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
     const [markdown, setMarkdown] = React.useState('');
     const [isTranscribing, setIsTranscribing] = React.useState(false);
+    const [microphoneKey, setMicrophoneKey] = React.useState(0);
 
     console.log('auth', auth);
     
@@ -51,7 +52,7 @@ const NoteForm = ({addNewNote} : Props) => {
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
 
-        addNewNote(form);
+        addNewNote({...form, encounterDate: form.getValues('encounterDate').toISOString()});
     }
 
     const transcribeRecording = async (blob: Blob) => {
@@ -71,11 +72,19 @@ const NoteForm = ({addNewNote} : Props) => {
             });
 
             if (!response.ok) {
-            throw new Error(`Server error: ${response.status}`);
+                throw new Error(`Server error: ${response.status}`);
             }
 
             const result = await response.json();
             console.log('Transcription Result:', result);
+
+            //handle if transcription is empty
+            if (result.raw_transcript === '') {
+                alert('Transcription unable to identify speech. Please try again.');
+                setIsTranscribing(false);
+                return;
+            }
+
             form.setValue('noteContentRaw', result.raw_transcript);
 
             // Format the transcription in Markdown
@@ -219,6 +228,7 @@ const NoteForm = ({addNewNote} : Props) => {
         {/* Microphone Component */}
         <div className="flex justify-between items-center mt-4">
             <Microphone 
+                key={microphoneKey}
                 onRecordingFinished={transcribeRecording}
             />
         </div>
@@ -227,14 +237,14 @@ const NoteForm = ({addNewNote} : Props) => {
         {isTranscribing && (
         <div className="flex flex-col w-full justify-center items-center mt-4">
             <PirateWheel isRotating={true} />
-            <p className="text-primary">Transcribing...</p>
+            <p className="text-primary">Transcribing audio...</p>
         </div>
         )}
 
         {gettingMarkdown && (
         <div className="flex flex-col justify-center items-center mt-4">
             <PirateWheel isRotating={true} />
-            <p className="text-primary">Formatting...</p>
+            <p className="text-primary">Creating formatted note...</p>
         </div>
         )}
 
@@ -314,7 +324,7 @@ const NoteForm = ({addNewNote} : Props) => {
                     form.reset();
                     setMarkdown('');
                     mdxEditorRef.current?.setMarkdown('');
-                    //TODO reset microphone
+                    setMicrophoneKey(microphoneKey + 1);
                 }}
             >
                 Reset

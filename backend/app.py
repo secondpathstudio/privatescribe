@@ -60,7 +60,7 @@ class User(db.Model):
 # Note model
 class Note(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    patientId = db.Column(db.Integer, nullable=False)
+    patientId = db.Column(db.String, nullable=False)
     providerId = db.Column(db.String(36), nullable=False)
     providerName = db.Column(db.String(100), nullable=False)
     encounterDate = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
@@ -177,14 +177,19 @@ def refresh():
 
 # API route to create a note (requires authentication)
 @app.route('/api/notes', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_note():
     data = request.get_json()
+    
+    encounter_date = datetime.now()
+    if 'encounterDate' in data:
+            encounter_date = datetime.fromisoformat(data['encounterDate'].replace("Z", ""))
 
     # Validate required fields
     if not all(k in data for k in (
-        'rawNoteTranscript', 
-        'formattedMarkdown', 
+        'noteContentRaw', 
+        'noteContentMarkdown', 
         'patientId', 
         'encounterDate',
         'noteType')):
@@ -195,17 +200,19 @@ def create_note():
 
     # Create a new note instance
     new_note = Note(
-        rawNoteTranscript=data['rawNoteTranscript'],
-        formattedMarkdown=data['formattedMarkdown'],
+        noteContentRaw=data['noteContentRaw'],
+        noteContentMarkdown=data['noteContentMarkdown'],
         patientId=data['patientId'],
-        visitType=data['visitType'],
-        encounterDate=data['encounterDate'],
+        noteType=data['noteType'],
+        encounterDate=encounter_date,
         createdAt=datetime.now(),
         updatedAt=datetime.now(),
+        providerId=data['providerId'],
+        providerName=data['providerName'],
         userId=current_user  # Link the note to the current user (UUID)
     )
     
-    print('adding note' + new_note)
+    print('adding note', new_note)
 
     # Add the note to the database
     db.session.add(new_note)
@@ -215,10 +222,10 @@ def create_note():
         "id": new_note.id,
         "createdAt": new_note.createdAt,
         "updatedAt": new_note.updatedAt,
-        "rawNoteTranscript": new_note.rawNoteTranscript,
-        "formattedMarkdown": new_note.formattedMarkdown,
+        "noteContentRaw": new_note.noteContentRaw,
+        "noteContentMarkdown": new_note.noteContentMarkdown,
         "patientId": new_note.patientId,
-        "visitType": new_note.visitType,
+        "noteType": new_note.noteType,
         "userId": new_note.userId
     }), 201
 
