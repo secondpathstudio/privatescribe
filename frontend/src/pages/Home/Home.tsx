@@ -1,4 +1,3 @@
-import AuthButtons from "@/components/auth-buttons";
 import { Github } from "lucide-react";
 
 export default function Home() {
@@ -7,7 +6,7 @@ export default function Home() {
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
       <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
         <h1 className="max-w-screen-md text-4xl sm:text-6xl font-bold text-center sm:text-left">
-          Open-source, AI-powered medical dictation.
+          Fully local, private AI transcription.
         </h1>
 
         <div className="flex gap-4 items-center flex-col sm:flex-row">

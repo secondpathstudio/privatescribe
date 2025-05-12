@@ -1,14 +1,12 @@
 @import "tailwindcss";
+@import '@mdxeditor/editor/style.css';
 
 @plugin "tailwindcss-animate";
-
-@custom-variant dark (&:is(.dark *));
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ... */
 
 :root {
 
@@ -219,13 +217,4 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
 
   --color-sidebar: var(--sidebar);
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
 }

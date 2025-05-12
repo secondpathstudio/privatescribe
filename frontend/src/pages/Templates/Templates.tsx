@@ -15,7 +15,7 @@ const Templates = () => {
 
       <h1 className='text-4xl font-bold mt-6'>All Templates</h1>
       <Button asChild className='inline-flex pl-2 gap-2 mt-4'>
-        <Link to='/notes/new'>
+        <Link to='/templates/new'>
           📝 Create Template
         </Link>
       </Button>

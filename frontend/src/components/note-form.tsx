@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
-import { format, getDate, set } from 'date-fns'
+import { format } from 'date-fns'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from './ui/form'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Calendar } from './ui/calendar'
@@ -15,20 +15,49 @@ import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, M
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
 import { useAuth } from '../context/auth-context'
 import PirateWheel from './PirateWheel'
+import { useNavigate } from 'react-router'
 
-type Props = {
-    addNewNote: (form: any) => Promise<void>;
-}
 
-const NoteForm = ({addNewNote} : Props) => {
+const NoteForm = () => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
     const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
     const [markdown, setMarkdown] = React.useState('');
     const [isTranscribing, setIsTranscribing] = React.useState(false);
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
+    const [savingNote, setSavingNote] = React.useState(false);
 
-    console.log('auth', auth);
+    const handleAddNewNote = async (form: any) => {
+        setSavingNote(true);
+        const formValues = form.getValues();
+        console.log('submitting note', formValues);
+        const navigate = useNavigate();
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/api/notes', {
+                method: 'POST',
+                headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify(formValues)
+            });
+
+            if (!response.ok) {
+                throw new Error('Network request failed with status ' + response.status);
+            } else {
+                //note created
+                //redirect to new note
+                const data = await response.json();
+                console.log('Note created:', data);
+                navigate(`/notes/${data.id}`);
+            }
+        } catch (error) {
+            alert('Error submitting note. Please try again.');
+            console.log('Error submitting note: ', error)
+        }
+        setSavingNote(false);
+    }
     
     const getDateString = () => {
         const date = new Date();
@@ -48,12 +77,6 @@ const NoteForm = ({addNewNote} : Props) => {
             status: 'draft',
         }
     });
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault()
-
-        addNewNote({...form, encounterDate: form.getValues('encounterDate').toISOString()});
-    }
 
     const transcribeRecording = async (blob: Blob) => {
         // get transcription from whisper
@@ -135,7 +158,7 @@ const NoteForm = ({addNewNote} : Props) => {
 
   return (
     <Form {...form}>
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleAddNewNote}>
         <div className="grid grid-cols-2 gap-4">
             <fieldset className="flex flex-col gap-2">
                 <FormField 
@@ -306,8 +329,14 @@ const NoteForm = ({addNewNote} : Props) => {
         </Tabs>
         )}
         
-        {/* Save Button */}
-        {form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
+        {/* Buttons */}
+        {savingNote && (
+            <div className="flex flex-col w-full justify-center items-center mt-4">
+                <PirateWheel isRotating={true} />
+                <p className="text-primary">Saving note...</p>
+            </div>
+        )}
+        {!savingNote && form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
         <div className='flex justify-center items-center gap-4'>
             <Button 
                 type="submit"

@@ -14,12 +14,15 @@ import RequireAuth from './components/auth/RequireAuth.tsx'
 import { AuthProvider } from './context/auth-context.tsx'
 import SingleNote from './pages/Notes/SingleNote/SingleNote.tsx'
 import Templates from './pages/Templates/Templates.tsx'
+import NewTemplate from './pages/Templates/New/NewTemplate.tsx'
+import Neobrutal from './neobrutalist.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
     <BrowserRouter>
       <Routes>
+        <Route path="/neo" element={<Neobrutal />} />
         <Route element={<RootLayout />}>
           <Route path="/" element={<App />} />
           
@@ -29,7 +32,11 @@ createRoot(document.getElementById('root')!).render(
             <Route path="new" element={<RequireAuth><NewNote /></RequireAuth>} />
           </Route>
           
-          <Route path="/templates" element={<RequireAuth><Templates /></RequireAuth>} />
+          <Route path="/templates">
+            <Route index element={<RequireAuth><Templates /></RequireAuth>} />
+            <Route path="new" element={<RequireAuth><NewTemplate /></RequireAuth>} />
+            <Route path=":id" element={<RequireAuth><SingleNote /></RequireAuth>} />
+          </Route>
           <Route path="/signup" element={<SignUp />} />
           <Route path="/login" element={<Login />} />
           <Route path="/users" element={<Users />} />

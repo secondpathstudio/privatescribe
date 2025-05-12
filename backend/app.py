@@ -69,6 +69,7 @@ class Note(db.Model):
     noteContentRaw = db.Column(db.Text, nullable=False)
     noteContentMarkdown = db.Column(db.Text, nullable=False)
     noteType = db.Column(db.String(50), nullable=False)
+    version = db.Column(db.Integer(), nullable=False, default=1)
     
     # Foreign key: Link the note to a user
     userId = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False) 
@@ -209,6 +210,7 @@ def create_note():
         updatedAt=datetime.now(),
         providerId=data['providerId'],
         providerName=data['providerName'],
+        version=data['version'],
         userId=current_user  # Link the note to the current user (UUID)
     )
     
@@ -226,11 +228,13 @@ def create_note():
         "noteContentMarkdown": new_note.noteContentMarkdown,
         "patientId": new_note.patientId,
         "noteType": new_note.noteType,
-        "userId": new_note.userId
+        "userId": new_note.userId,
+        "version": new_note.version
     }), 201
 
 # API route to get a single note by ID (requires authentication)
 @app.route('/api/notes/<int:id>', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_note(id):
     note = Note.query.get(id)
@@ -248,15 +252,20 @@ def get_note(id):
         "id": note.id,
         "createdAt": note.createdAt,
         "updatedAt": note.updatedAt,
-        "rawNoteTranscript": note.rawNoteTranscript,
-        "formattedMarkdown": note.formattedMarkdown,
+        "encounterDate": note.encounterDate,
+        "noteContentRaw": note.noteContentRaw,
+        "noteContentMarkdown": note.noteContentMarkdown,
         "patientId": note.patientId,
-        "visitType": note.visitType,
-        "userId": note.userId
+        "providerId": note.providerId,
+        "providerName": note.providerName,
+        "noteType": note.noteType,
+        "userId": note.userId,
+        "version": note.version
     })
 
 # API route to update a note by ID (requires authentication)
 @app.route('/api/notes/<int:id>', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_note(id):
     note = Note.query.get(id)
@@ -273,10 +282,9 @@ def update_note(id):
     data = request.get_json()
 
     # Update note attributes if provided
-    note.rawNoteTranscript = data.get('rawNoteTranscript', note.rawNoteTranscript)
-    note.formattedMarkdown = data.get('formattedMarkdown', note.formattedMarkdown)
+    note.noteContentMarkdown = data.get('noteContentMarkdown', note.noteContentMarkdown)
     note.patientId = data.get('patientId', note.patientId)
-    note.visitType = data.get('visitType', note.visitType)
+    note.noteType = data.get('noteType', note.noteType)
 
     # Commit the changes to the database
     db.session.commit()
@@ -284,16 +292,19 @@ def update_note(id):
     return jsonify({
         "id": note.id,
         "createdAt": note.createdAt,
-        "updatedAt": note.updatedAt,
-        "rawNoteTranscript": note.rawNoteTranscript,
-        "formattedMarkdown": note.formattedMarkdown,
+        "updatedAt": datetime.now(),
+        "encounterDate": encounter_date,
+        "noteContentRaw": note.noteContentRaw,
+        "noteContentMarkdown": note.noteContentMarkdown,
         "patientId": note.patientId,
-        "visitType": note.visitType,
-        "userId": note.userId
+        "noteType": note.noteType,
+        "userId": note.userId,
+        "version": note.version + 1
     })
 
 # API route to get all notes for a specific userId (requires authentication)
 @app.route('/api/notes/user/<string:userId>', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_notes_for_user(userId):
     # Get the current user from the JWT
@@ -311,10 +322,11 @@ def get_notes_for_user(userId):
         "id": note.id,
         "createdAt": note.createdAt,
         "updatedAt": note.updatedAt,
-        "rawNoteTranscript": note.rawNoteTranscript,
-        "formattedMarkdown": note.formattedMarkdown,
+        "encounterDate": note.encounterDate,
+        "noteContentRaw": note.noteContentRaw,
+        "noteContentMarkdown": note.noteContentMarkdown,
         "patientId": note.patientId,
-        "visitType": note.visitType,
+        "noteType": note.noteType,
         "userId": note.userId
     } for note in notes]
 

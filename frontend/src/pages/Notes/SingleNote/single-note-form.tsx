@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { FormEvent, ReactEventHandler, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { format } from 'date-fns'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
@@ -8,34 +8,31 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button'
 import { CalendarIcon } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
-import Microphone from '@/components/recording/microphone'
 import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
-import { useNavigate } from 'react-router'
 
+type Props = {
+    note: any;
+}
 
-const NewNoteForm = () => {
+const SingleNoteForm = ({ note }: Props) => {
     const auth = useAuth();
-    const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
-    const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
-    const [markdown, setMarkdown] = React.useState('');
-    const [isTranscribing, setIsTranscribing] = React.useState(false);
-    const [microphoneKey, setMicrophoneKey] = React.useState(0);
+    const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [savingNote, setSavingNote] = React.useState(false);
 
-    const handleAddNewNote = async (form: any) => {
+    const handleUpdateNote = async (e: FormEvent, form: any) => {
+        e.preventDefault();
         setSavingNote(true);
         const formValues = form.getValues();
         console.log('submitting note', formValues);
-        const navigate = useNavigate();
 
         try {
-            const response = await fetch('http://127.0.0.1:5000/api/notes', {
-                method: 'POST',
+            const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}`, {
+                method: 'PUT',
                 headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${auth.token}`,
@@ -49,8 +46,7 @@ const NewNoteForm = () => {
                 //note created
                 //redirect to new note
                 const data = await response.json();
-                console.log('Note created:', data);
-                navigate(`/notes/${data.id}`);
+                console.log('Note updated:', data);
             }
         } catch (error) {
             alert('Error submitting note. Please try again.');
@@ -66,99 +62,22 @@ const NewNoteForm = () => {
 
     const form = useForm({
         defaultValues: {
-            patientId: getDateString(),
-            providerId: auth.user?.id,
-            providerName: auth.user?.firstName + ' ' + auth.user?.lastName,
-            encounterDate: new Date(),
-            noteContentRaw: '',
-            noteContentMarkdown: '',
-            noteType: 'visit',
-            version: 1,
-            status: 'draft',
+            patientId: note?.patientId,
+            providerId: note?.providerId,
+            providerName: note?.providerName,
+            encounterDate: note?.encounterDate,
+            noteContentRaw: note?.noteContentRaw,
+            noteContentMarkdown: note?.noteContentMarkdown,
+            noteType: note?.noteType,
+            version: note?.version,
+            createdAt: note?.createdAt,
+            updatedAt: note?.updatedAt,
         }
     });
 
-    const transcribeRecording = async (blob: Blob) => {
-        // get transcription from whisper
-        setIsTranscribing(true);
-        const formData = new FormData();
-        formData.append('file', blob, 'recording.webm'); // Use WebM if you're recording with MediaRecorder
-
-        console.log('Uploading audio for transcription...', blob);
-        try {
-            const response = await fetch('http://127.0.0.1:5000/api/transcribe', {
-            method: 'POST',
-            headers: {
-                "Authorization": `Bearer ${auth.token}`,
-            },
-            body: formData,
-            });
-
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
-            }
-
-            const result = await response.json();
-            console.log('Transcription Result:', result);
-
-            //handle if transcription is empty
-            if (result.raw_transcript === '') {
-                alert('Transcription unable to identify speech. Please try again.');
-                setIsTranscribing(false);
-                return;
-            }
-
-            form.setValue('noteContentRaw', result.raw_transcript);
-
-            // Format the transcription in Markdown
-            getMarkdown(result.raw_transcript);
-        } catch (error: any) {
-            console.error('Upload failed:', error);
-            alert(`Upload failed: ${error.message}`);
-        }
-        setIsTranscribing(false);
-    }
-
-    const getMarkdown = async (rawTranscript: string) => {
-        // get markdown from ollama
-        setGettingMarkdown(true);
-        form.setValue('noteContentMarkdown', '');
-        mdxEditorRef.current?.setMarkdown('');
-
-        try {
-            const response = await fetch('http://127.0.0.1:5000/api/getMarkdown', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${auth.token}`,
-                },
-                body: JSON.stringify({ 
-                    raw_transcript: rawTranscript,
-                    visit_details: {
-                        patient_id: form.getValues('patientId'),
-                        encounter_date: form.getValues('encounterDate'),
-                        note_type: form.getValues('noteType'),
-                        ProviderId: form.getValues('providerId'),
-                    }
-                 }),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
-            }
-
-            const result = await response.json();
-            form.setValue('noteContentMarkdown', result.formatted_markdown);
-            mdxEditorRef.current?.setMarkdown(result.formatted_markdown);
-        } catch (error: any) {
-            console.error('Failed to get markdown:', error);
-        } 
-        setGettingMarkdown(false);
-    }
-
   return (
     <Form {...form}>
-    <form onSubmit={handleAddNewNote}>
+    <form onSubmit={(e) => handleUpdateNote(e, form)}>
         <div className="grid grid-cols-2 gap-4">
             <fieldset className="flex flex-col gap-2">
                 <FormField 
@@ -248,30 +167,6 @@ const NewNoteForm = () => {
             </fieldset>
         </div>
 
-        {/* Microphone Component */}
-        <div className="flex justify-between items-center mt-4">
-            <Microphone 
-                key={microphoneKey}
-                onRecordingFinished={transcribeRecording}
-            />
-        </div>
-
-        {/* animation for server processing */}
-        {isTranscribing && (
-        <div className="flex flex-col w-full justify-center items-center mt-4">
-            <PirateWheel isRotating={true} />
-            <p className="text-primary">Transcribing audio...</p>
-        </div>
-        )}
-
-        {gettingMarkdown && (
-        <div className="flex flex-col justify-center items-center mt-4">
-            <PirateWheel isRotating={true} />
-            <p className="text-primary">Creating formatted note...</p>
-        </div>
-        )}
-
-
         {/* Tabs Component for Raw Transcript and Markdown Editor */}
         {/* only show tabs when there is a raw transcript and markdown */}
         {form.getValues("noteContentRaw") != '' && (
@@ -316,13 +211,9 @@ const NewNoteForm = () => {
                             })
                         ]}
                         editorRef={mdxEditorRef}
-                        placeholder="Formatted note will appear here after dictation..."
-                        readOnly={gettingMarkdown}
                         markdown={form.getValues("noteContentMarkdown")}
                         onChange={(value) => {
                             form.setValue("noteContentMarkdown", value);
-                            setMarkdown(value);
-                            console.log("Setting markdown to:", value);
                         }}
                     />
             </TabsContent>
@@ -341,7 +232,6 @@ const NewNoteForm = () => {
             <Button 
                 type="submit"
                 className="flex gap-2 max-w-md mx-auto mt-4 w-full bg-green-500 disabled:bg-gray-400"
-                disabled={markdown === ''}
             >
                 🛟 Save Note
             </Button>
@@ -351,9 +241,7 @@ const NewNoteForm = () => {
                 className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50 hover:bg-red-500 cursor-pointer"
                 onClick={() => {
                     form.reset();
-                    setMarkdown('');
-                    mdxEditorRef.current?.setMarkdown('');
-                    setMicrophoneKey(microphoneKey + 1);
+                    mdxEditorRef.current?.setMarkdown(note?.noteContentMarkdown);
                 }}
             >
                 Reset
@@ -366,4 +254,4 @@ const NewNoteForm = () => {
   )
 }
 
-export default NewNoteForm
+export default SingleNoteForm

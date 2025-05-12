@@ -1,31 +1,39 @@
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
-import { useParams } from 'react-router'
 import { useEffect, useState } from 'react'
+import SingleNoteForm from './single-note-form'
+import { useParams } from 'react-router'
 import { useAuth } from '@/context/auth-context'
 
-const SingleNote = () => {
-    const auth = useAuth();
-    const { id } = useParams()
-    const [note, setNote] = useState(null)
 
-    useEffect(() => {
-        fetch(`http://127.0.0.1:5000/api/notes/${id}`, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${auth.token}`,
-            },
-        })
-        .then(response => response.json())
-        .then(data => {
-            setNote(data)
-        })
-        .catch(error => {
-            console.error("Error:", error)
-            alert("Note not found")
-        })
-    }, [id])
+
+const SingleNote = () => {
+  const [note, setNote] = useState<any>(null)
+  const { id } = useParams()
+  const auth = useAuth();
+
+  useEffect(() => {
+    const fetchNote = async () => {
+      console.log('fetching note', id)
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/api/notes/${id}`, {
+          method: 'GET',
+          headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${auth.token}`,
+          },
+      });
+        const data = await response.json()
+        console.log('received note data', data)
+        setNote(data)
+      }
+      catch (error) {
+        console.error(error)
+      }
+    }
+
+    fetchNote()
+  }, [id])
 
 
   return (
@@ -37,14 +45,17 @@ const SingleNote = () => {
               href: '/notes',
             },
             {
-              label: `Note ${id}`,
+              label: "New Note",
             },
           ]}
           />
+        <h1 className='text-4xl font-bold mt-6'>Note {note?.id}</h1>
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
-              Note ID: {id}
+              {note && 
+              <SingleNoteForm note={note} />
+              }
             </CardTitle>
           </CardHeader>
         </Card>
