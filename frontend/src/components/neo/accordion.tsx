@@ -1,8 +1,5 @@
-import React, {useState, useRef} from 'react'
+import React, { useState } from 'react'
 import NeoAccordionItem from './accordion-item';
-import NeoButton from './neo-button';
-
-type Props = {}
 
 
 const NeoAccordion = () => {
@@ -14,15 +11,15 @@ const NeoAccordion = () => {
     },
     {
       question: "Is my data private and secure?",
-      answer: "Absolutely. Our solution runs completely offline and locally. Your audio never leaves your device unless you explicitly choose to share it, ensuring maximum privacy and security for sensitive content."
+      answer: "Absolutely. Our solution runs completely offline and locally. Your audio, final transcription, and all the data in-between never leave your device unless you explicitly choose to share them, ensuring maximum privacy and security for sensitive content."
     },
     {
       question: "What do paid tiers offer over the free version?",
-      answer: "Paid tiers include access to more accurate transcription models, additional language packs, priority support, and enterprise features like custom fine-tuning. Higher tiers receive more frequent model updates and deployment assistance."
+      answer: "Paid tiers include access to more accurate transcription models and technical support. Enterprise and custom solutions are available to receive more frequent model updates including custom models fine-tuned to your exact workflow or niche, deployment assistance, and priority support."
     },
     {
       question: "Can I use this for my business?",
-      answer: "Yes! The MIT license allows commercial use. We offer scalable options from the Developer tier for small businesses to Enterprise for organizations needing custom solutions, deployment assistance, and SLA guarantees."
+      answer: "Yes! The MIT license allows commercial use of this project. You can use our open source engine for any purpose, including commercial applications. Not a developer and github repos are gibberish? Paid tiers offer additional features and support for business use cases including full deployment."
     }
   ];
 
@@ -49,13 +46,13 @@ const NeoAccordion = () => {
           ))}
         </div>
         
-        <div className="mt-16 text-center">
+        {/* <div className="mt-16 text-center">
           <div className="inline-block p-8 mb-8">
             <h3 className="text-xl font-bold mb-4">Still have questions?</h3>
             <p className="mb-6">Check out our <span className="underline font-semibold cursor-pointer hover:text-white transition-colors">documentation</span> or join our <span className="underline font-semibold cursor-pointer hover:text-indigo-600 transition-colors">GitHub discussions</span>.</p>
             <NeoButton label="Contact Us" />
           </div>
-        </div>
+        </div> */}
       </div>
     </section>
   );

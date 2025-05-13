@@ -29,7 +29,12 @@ const NeoPricingCard = (props: Props) => {
         }>
         <div>
         <h3 className="text-2xl font-black mb-2">{props.title}</h3>
-            <div className="text-4xl font-black mb-6">${props.price}<span className="text-xl">/{props.pricePeriod}</span></div>
+            <div className="text-4xl font-black mb-6">
+                {props.title === "ENTERPRISE" && (
+                    <span className='text-sm'>starting at </span>
+                )}
+                ${props.price}<span className="text-xl">/{props.pricePeriod}</span>
+            </div>
         </div>
         <ul className="mb-6">
         {props.features?.map((feature, index) => (

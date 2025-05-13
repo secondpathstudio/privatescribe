@@ -15,15 +15,15 @@ import { AuthProvider } from './context/auth-context.tsx'
 import SingleNote from './pages/Notes/SingleNote/SingleNote.tsx'
 import Templates from './pages/Templates/Templates.tsx'
 import NewTemplate from './pages/Templates/New/NewTemplate.tsx'
-import Neobrutal from './neobrutalist.tsx'
+import NeobrutalHome from './components/neo/neobrutal-home.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
     <BrowserRouter>
       <Routes>
-        <Route path="/neo" element={<Neobrutal />} />
         <Route element={<RootLayout />}>
+          <Route path="/neo" element={<NeobrutalHome />} />
           <Route path="/" element={<App />} />
           
           <Route path="notes">
