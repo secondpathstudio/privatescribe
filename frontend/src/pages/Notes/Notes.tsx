@@ -1,10 +1,8 @@
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
-import { Button } from '@/components/ui/button'
 import NoteTableEntry from './note-table-entry'
-import { Link } from 'react-router'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth-context'
-import NeoButton from '@/components/neo/neo-button'
+import NeoLinkButton from '@/components/neo/neo-link-button'
 
 const Notes = () => {
   const [notes, setNotes] = useState([]);
@@ -51,12 +49,8 @@ const Notes = () => {
       />
 
       <div className='flex justify-between items-center'>
-      <h1 className='text-4xl font-bold mt-6'>All Notes</h1>
-      <NeoButton backgroundColor='#fd3777' textColor='#ffffff'>
-        <Link to='/notes/new'>
-          📝 Create Note
-        </Link>
-      </NeoButton>
+        <h1 className='text-4xl font-bold mt-6'>All Notes</h1>
+        <NeoLinkButton route='/notes/new' label='📝 Create Note' backgroundColor='#fd3777' textColor='#ffffff' />
       </div>
         
       <div>
