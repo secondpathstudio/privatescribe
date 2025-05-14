@@ -3,6 +3,7 @@ import { Slot } from "@radix-ui/react-slot"
 import { ChevronRight, MoreHorizontal } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { Link } from "react-router"
 
 const Breadcrumbs = ({notes} : {
   notes: {
@@ -17,7 +18,7 @@ const Breadcrumbs = ({notes} : {
           <React.Fragment key={index}>
           <BreadcrumbItem>
             {note.href ? (
-              <a href={note.href}>{note.label}</a>
+              <Link to={note.href}>{note.label}</Link>
             ) : (
               <BreadcrumbPage>{note.label}</BreadcrumbPage>  
             )}
