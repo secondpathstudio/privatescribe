@@ -49,7 +49,7 @@ const SingleNote = () => {
             },
           ]}
           />
-        <h1 className='text-4xl font-bold mt-6'>Note {note?.id}</h1>
+        <h1 className='text-4xl font-black mt-6'>Note {note?.id}</h1>
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
