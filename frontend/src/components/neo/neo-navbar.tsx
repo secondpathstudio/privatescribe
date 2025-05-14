@@ -1,5 +1,3 @@
-import React from 'react'
-import NeoButton from './neo-button'
 import PrivateScribeLogo from './private-scribe-logo'
 import AuthButtons from '../auth-buttons'
 import { useLocation } from 'react-router'
@@ -10,7 +8,7 @@ const NeoNavbar = (props: Props) => {
   const location = useLocation();
   
   return (
-    <nav className="bg-white border-b-4 border-black p-4">
+    <nav className="bg-white border-b-4 border-black p-4 px-6">
         <div className="container mx-auto flex justify-between items-center">
           <div className="font-black text-3xl">
             <a href="/">
