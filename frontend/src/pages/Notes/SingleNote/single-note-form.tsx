@@ -14,6 +14,7 @@ import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, M
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
+import NeoButton from '@/components/neo/neo-button'
 
 type Props = {
     note: any;
@@ -228,24 +229,23 @@ const SingleNoteForm = ({ note }: Props) => {
             </div>
         )}
         {!savingNote && form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
-        <div className='flex justify-center items-center gap-4'>
-            <Button 
+        <div className='flex justify-between items-center gap-4 mt-4'>
+            <NeoButton 
                 type="submit"
-                className="flex gap-2 max-w-md mx-auto mt-4 w-full bg-green-500 disabled:bg-gray-400"
+                backgroundColor='#fd3777'
+                textColor='#ffffff'
             >
-                🛟 Save Note
-            </Button>
-            <Button 
+                Save Note
+            </NeoButton>
+            <NeoButton 
                 type="button"
-                variant={'outline'}
-                className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50 hover:bg-red-500 cursor-pointer"
                 onClick={() => {
                     form.reset();
                     mdxEditorRef.current?.setMarkdown(note?.noteContentMarkdown);
                 }}
             >
                 Reset
-            </Button>
+            </NeoButton>
         </div>
         )}
     </form>
