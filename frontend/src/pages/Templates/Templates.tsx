@@ -1,5 +1,5 @@
+import NeoLinkButton from '@/components/neo/neo-link-button'
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
-import { Button } from '@/components/ui/button'
 import { Link } from 'react-router'
 
 const Templates = () => {
@@ -13,12 +13,14 @@ const Templates = () => {
         ]}
       />
 
-      <h1 className='text-4xl font-bold mt-6'>All Templates</h1>
-      <Button asChild className='inline-flex pl-2 gap-2 mt-4'>
-        <Link to='/templates/new'>
-          📝 Create Template
-        </Link>
-      </Button>
+      <div className='flex justify-between items-center'>
+        <h1 className='text-4xl font-bold mt-6'>All Templates</h1>
+        <NeoLinkButton 
+          route='/templates/new' 
+          label='📝 Create Template'
+          backgroundColor='#fd3777' 
+          textColor='#ffffff' />
+      </div>
         
       <div>
         Templates
