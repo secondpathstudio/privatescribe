@@ -4,6 +4,7 @@ import NoteTableEntry from './note-table-entry'
 import { Link } from 'react-router'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth-context'
+import NeoButton from '@/components/neo/neo-button'
 
 const Notes = () => {
   const [notes, setNotes] = useState([]);
@@ -49,12 +50,14 @@ const Notes = () => {
         ]}
       />
 
+      <div className='flex justify-between items-center'>
       <h1 className='text-4xl font-bold mt-6'>All Notes</h1>
-      <Button asChild className='inline-flex pl-2 gap-2 mt-4'>
+      <NeoButton backgroundColor='#fd3777' textColor='#ffffff'>
         <Link to='/notes/new'>
           📝 Create Note
         </Link>
-      </Button>
+      </NeoButton>
+      </div>
         
       <div>
         {loading && <p>Loading...</p>}
