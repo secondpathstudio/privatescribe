@@ -3,15 +3,16 @@ import React from 'react'
 type Props = {
     // Define any props you want to pass to the button here
     onClick?: () => void;
-    label: string;
+    label?: string;
     backgroundColor?: string;
     textColor?: string;
+    children?: React.ReactNode;
 }
 
 const NeoButton = (props: Props) => {
   return (
     <button 
-        className={`cursor-pointer font-bold text-lg py-3 px-6 uppercase tracking-wider bg-white text-black border-4 border-black relative`} 
+        className={`cursor-pointer font-bold text-lg py-3 px-6 min-h-16 uppercase tracking-wider bg-white text-black border-4 border-black relative`} 
         style={{
             boxShadow: "8px 8px 0px 0px #000000",
             transition: "transform 0.1s, box-shadow 0.1s",
@@ -32,6 +33,7 @@ const NeoButton = (props: Props) => {
         }}
     >
         {props.label}
+        {props.children}
     </button>
   )
 }

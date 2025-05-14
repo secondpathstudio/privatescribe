@@ -1,5 +1,6 @@
 import React from 'react'
 import NeoButton from './neo-button'
+import { GithubIcon } from 'lucide-react'
 
 type Props = {}
 
@@ -19,7 +20,11 @@ const NeoHero = (props: Props) => {
               </p>
               <div className="flex flex-wrap gap-4">
                 <NeoButton label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
-                <a href="#features"><NeoButton label="Learn More" /></a>
+                <a href="#">
+                  <NeoButton>
+                    <GithubIcon />
+                  </NeoButton>
+                </a>
               </div>
             </div>
             <div className="relative">
