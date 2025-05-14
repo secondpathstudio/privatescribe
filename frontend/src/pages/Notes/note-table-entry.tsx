@@ -27,12 +27,10 @@ const NoteTableEntry = (props: Props) => {
             <h2 className='text-xl font-bold'>{props.note.patientId}</h2>
             <p className='text-gray-600'>Chief Complaint + {props.note.noteContentMarkdown.slice(0,15)}</p>
             </div>
-            <div className='mt-4'>
-              <NeoLinkButton 
-                route={`/notes/${props.note.id}`}
-                label='View'
-              />
-            </div>
+            <NeoLinkButton 
+              route={`/notes/${props.note.id}`}
+              label='View'
+            />
         </div>
         </div>
     </Card>
