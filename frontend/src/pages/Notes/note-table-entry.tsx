@@ -1,4 +1,5 @@
 import NeoButton from '@/components/neo/neo-button';
+import NeoLinkButton from '@/components/neo/neo-link-button';
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card';
 import { Link } from 'react-router'
@@ -27,11 +28,10 @@ const NoteTableEntry = (props: Props) => {
             <p className='text-gray-600'>Chief Complaint + {props.note.noteContentMarkdown.slice(0,15)}</p>
             </div>
             <div className='mt-4'>
-            <NeoButton>
-                <Link to={`/notes/${props.note.id}`}>
-                View
-                </Link>
-            </NeoButton>
+              <NeoLinkButton 
+                route={`/notes/${props.note.id}`}
+                label='View'
+              />
             </div>
         </div>
         </div>

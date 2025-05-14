@@ -49,8 +49,13 @@ const Notes = () => {
       />
 
       <div className='flex justify-between items-center'>
-        <h1 className='text-4xl font-bold mt-6'>All Notes</h1>
-        <NeoLinkButton route='/notes/new' label='📝 Create Note' backgroundColor='#fd3777' textColor='#ffffff' />
+        <h1 className='text-4xl font-black mt-6'>All Notes</h1>
+        <NeoLinkButton 
+          route='/notes/new' 
+          label='📝 Create Note' 
+          backgroundColor='#fd3777' 
+          textColor='#ffffff'
+          />
       </div>
         
       <div>

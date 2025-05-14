@@ -29,7 +29,7 @@ export default function AuthButtons() {
                 Templates
             </NeoDropdownItem>
             <NeoDropdownItem id="menu-3" className="border-t-4 hover:border-t-4 border-black bg-[#5d1d91] text-white">
-                <button className="flex items-center cursor-pointer" onClick={() => auth.logout()}>
+                <button className="flex items-center cursor-pointer w-full h-full p-3" onClick={() => auth.logout()}>
                     <span>LOGOUT</span>
                 </button>
             </NeoDropdownItem>

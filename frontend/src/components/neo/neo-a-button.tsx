@@ -1,5 +1,4 @@
 import React from 'react'
-import { Link } from 'react-router';
 
 type Props = {
     // Define any props you want to pass to the button here

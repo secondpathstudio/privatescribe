@@ -29,7 +29,7 @@ const NeoDropdownItem: React.FC<NeoDropdownItemProps> = ({
       >
         <Link
           to={route}
-          className='w-full h-full block py-3 px-3'
+          className='w-full h-full block p-3'
         >
           {children}
         </Link>
@@ -40,7 +40,7 @@ const NeoDropdownItem: React.FC<NeoDropdownItemProps> = ({
   // If no href is provided, render as a div
   return (
     <div
-      className={`cursor-pointer font-bold text-lg py-3 px-3 uppercase tracking-wider hover:bg-[#fd3777] hover:text-white overflow-auto ${className}`}
+      className={`cursor-pointer font-bold text-lg uppercase tracking-wider hover:bg-[#fd3777] hover:text-white overflow-auto ${className}`}
       style={{
         borderBottom: isLast ? "none" : "2px solid black",
         // background: isSelected ? "#f0f0f0" : "#ffffff",
