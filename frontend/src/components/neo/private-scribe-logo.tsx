@@ -7,6 +7,7 @@ const PrivateScribeLogo = () => {
         Private
       </span>
       <span className='text-[#fd3777]'>Scribe</span>
+      .ai
     </div>
   );
 };
