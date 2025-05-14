@@ -1,4 +1,4 @@
-import NeoPricingCard from './pricing-card';
+import NeoPricingCard from './neo-pricing-card';
 import NeoAccordion from './accordion';
 import NeoCTA from './neo-cta';
 import NeoFooter from './neo-footer';
@@ -63,14 +63,13 @@ const NeobrutalHome = () => {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-20 -z-10 border-b-4 border-black relative" style={{
+      <section id="pricing" className="py-20 border-b-4 border-black relative" style={{
         background: "linear-gradient(to top, #2b0f54, #5d1d91)",
       }}>
         
-        <div className="container mx-auto px-4 z-10">
+        <div className="container mx-auto px-4">
           <h2 className="text-4xl font-black mb-12 text-center text-white">PRICING PLANS</h2>
           <div className="grid md:grid-cols-3 gap-8">
-        {/* Pricing Card 1 */}
           <NeoPricingCard
             title='PERSONAL'
             price='0'
@@ -84,8 +83,7 @@ const NeobrutalHome = () => {
             ]}
             buttonText='Try Free'
           />
-        
-        {/* Pricing Card 2 - Recommended */}
+      
           <NeoPricingCard
             title='CUSTOM MODELS'
             price='0' //199
@@ -100,8 +98,6 @@ const NeobrutalHome = () => {
             textColor='white'
           />
         
-        
-        {/* Pricing Card 3 */}
           <NeoPricingCard
             title='ENTERPRISE'
             price='0' //1999

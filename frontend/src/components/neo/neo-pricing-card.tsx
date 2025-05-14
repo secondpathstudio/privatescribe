@@ -1,4 +1,5 @@
 import React from 'react'
+import NeoButton from './neo-button';
 
 type Props = {
     title: string;
@@ -43,27 +44,9 @@ const NeoPricingCard = (props: Props) => {
         </li>
         ))}
         </ul>
-        <button 
-        className="cursor-pointer font-bold text-lg py-3 px-6 uppercase tracking-wider bg-white text-black border-4 border-black w-full relative" 
-        style={{
-            boxShadow: "8px 8px 0px 0px #000000",
-            transition: "transform 0.1s, box-shadow 0.1s"
-            }}
-            onMouseDown={(e) => {
-            e.currentTarget.style.transform = "translate(4px, 4px)";
-            e.currentTarget.style.boxShadow = "4px 4px 0px 0px #000000";
-            }}
-            onMouseUp={(e) => {
-            e.currentTarget.style.transform = "translate(0px, 0px)";
-            e.currentTarget.style.boxShadow = "8px 8px 0px 0px #000000";
-            }}
-            onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translate(0px, 0px)";
-            e.currentTarget.style.boxShadow = "8px 8px 0px 0px #000000";
-            }}
-        >
-        {props.buttonText}
-        </button>
+        <NeoButton
+            label={props.buttonText}
+        />
     </div>
   )
 }
