@@ -22,7 +22,7 @@ const NeoHero = (props: Props) => {
               </p>
               <div className="flex flex-wrap gap-4">
                 <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
-                <NeoAnchorButton href="www.github.com" backgroundColor='#ffffff' textColor="#000000">
+                <NeoAnchorButton href="http://www.github.com" backgroundColor='#ffffff' textColor="#000000">
                   <GithubIcon />
                 </NeoAnchorButton>
               </div>
