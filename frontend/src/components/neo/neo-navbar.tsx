@@ -1,10 +1,14 @@
 import React from 'react'
 import NeoButton from './neo-button'
 import PrivateScribeLogo from './private-scribe-logo'
+import AuthButtons from '../auth-buttons'
+import { useLocation } from 'react-router'
 
 type Props = {}
 
 const NeoNavbar = (props: Props) => {
+  const location = useLocation();
+  
   return (
     <nav className="bg-white border-b-4 border-black p-4">
         <div className="container mx-auto flex justify-between items-center">
@@ -14,12 +18,14 @@ const NeoNavbar = (props: Props) => {
               <PrivateScribeLogo />
             </a>
           </div>
-          <div className="hidden md:flex space-x-6">
-            <a href="#features" className="font-bold hover:underline">Features</a>
-            <a href="#pricing" className="font-bold hover:underline">Pricing</a>
-            <a href="#faq" className="font-bold hover:underline">FAQ</a>
-          </div>
-          <NeoButton label="Sign Up" />
+          {location.pathname === '/' && (
+            <div className="hidden md:flex space-x-6">
+              <a href="#features" className="font-bold hover:underline">Features</a>
+              <a href="#pricing" className="font-bold hover:underline">Pricing</a>
+              <a href="#faq" className="font-bold hover:underline">FAQ</a>
+            </div>
+          )}
+          <AuthButtons />
         </div>
       </nav>
   )
