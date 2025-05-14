@@ -2,18 +2,30 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Avatar, AvatarFallback} from "./ui/avatar";
 import { useAuth } from "@/context/auth-context";
 import { Link } from "react-router";
+import NeoButton from "./neo/neo-button";
 
 export default function AuthButtons() {
     const auth = useAuth();
 
+    if (!auth.user) {
+        return (
+            <a href="/login">
+                <NeoButton
+                    label="Login"
+                    backgroundColor="#fd3777"
+                    textColor="#ffffff"
+                />
+            </a>
+    )}
+
     return (
         <DropdownMenu>
             <DropdownMenuTrigger>
-                <Avatar>
-                    <AvatarFallback className="bg-gray-500">
-                        {auth.user ? auth.user.firstName[0] : 'U'}{auth.user ? auth.user.lastName[0] : 'S'}
-                    </AvatarFallback>
-                </Avatar>
+                <NeoButton
+                    label={`${auth.user?.firstName}`}
+                    backgroundColor="#fd3777"
+                    textColor="#ffffff"
+                    />
             </DropdownMenuTrigger>
             <DropdownMenuContent>
                 <DropdownMenuLabel>
@@ -29,12 +41,6 @@ export default function AuthButtons() {
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                     <Link className='cursor-pointer' to="/templates">Templates</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                    <Link className='cursor-pointer' to="/login">Login</Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                    <Link className='cursor-pointer' to="/signup">Sign Up</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                     <button className="cursor-pointer" onClick={() => auth.logout()}>Logout</button>
