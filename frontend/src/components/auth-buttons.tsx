@@ -22,21 +22,13 @@ export default function AuthButtons() {
             username={auth.user.firstName}
             onChange={(id: string) => console.log(`Selected item with ID: ${id}`)}
         >
-            <NeoDropdownItem id="menu-1">
-                <Link to="/notes">
-                    <div className="flex items-center">
-                        <span>Notes</span>
-                    </div>
-                </Link>
+            <NeoDropdownItem id="menu-1" route="/notes">
+                Notes
             </NeoDropdownItem>
-            <NeoDropdownItem id="menu-2">
-                <Link to="/templates">
-                    <div className="flex items-center">
-                        <span>Templates</span>
-                    </div>
-                </Link>
+            <NeoDropdownItem id="menu-2" route='/templates'>
+                Templates
             </NeoDropdownItem>
-            <NeoDropdownItem id="menu-3" className="border-t-4 hover:border-t-4 border-black">
+            <NeoDropdownItem id="menu-3" className="border-t-4 hover:border-t-4 border-black bg-[#5d1d91] text-white">
                 <button className="flex items-center cursor-pointer" onClick={() => auth.logout()}>
                     <span>LOGOUT</span>
                 </button>

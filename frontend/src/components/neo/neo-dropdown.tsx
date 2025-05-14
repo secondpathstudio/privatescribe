@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect, ReactNode } from 'react';
+import { Link } from 'react-router';
 
 // Dropdown Item component - simplified without onClick handler
 interface NeoDropdownItemProps {
+  route?: string;
   children: ReactNode;
   id: string;
   className?: string;
@@ -9,11 +11,33 @@ interface NeoDropdownItemProps {
 }
 
 const NeoDropdownItem: React.FC<NeoDropdownItemProps> = ({
+  route,
   children,
   id,
   className,
   isLast = false
 }) => {
+
+  if (route && route !== "") {
+    return (
+      <div
+      className={`cursor-pointer font-bold text-lg uppercase tracking-wider hover:bg-[#fd3777] hover:text-white overflow-auto ${className}`}
+          style={{
+            borderBottom: isLast ? "none" : "2px solid black",
+          }}
+          data-id={id} // Add data attribute for identification in parent
+      >
+        <Link
+          to={route}
+          className='w-full h-full block py-3 px-3'
+        >
+          {children}
+        </Link>
+      </div>
+    );
+  }
+  
+  // If no href is provided, render as a div
   return (
     <div
       className={`cursor-pointer font-bold text-lg py-3 px-3 uppercase tracking-wider hover:bg-[#fd3777] hover:text-white overflow-auto ${className}`}
