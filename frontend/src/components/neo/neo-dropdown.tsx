@@ -78,6 +78,8 @@ const NeoDropdown: React.FC<NeoDropdownProps> = (props) => {
     };
     
     document.addEventListener('mousedown', handleClickOutside);
+    
+    // Cleanup event listeners on component unmount
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
@@ -153,7 +155,6 @@ const NeoDropdown: React.FC<NeoDropdownProps> = (props) => {
           {dropdownItems.map((child, index) => {
             return React.cloneElement(child, {
               key: index,
-              isSelected: child.props.id === selectedId,
               isLast: index === dropdownItems.length - 1,
             });
           })}

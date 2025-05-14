@@ -7,11 +7,13 @@ type Props = {
     backgroundColor?: string;
     textColor?: string;
     children?: React.ReactNode;
+    type?: "button" | "submit" | "reset";
 }
 
 const NeoButton = (props: Props) => {
   return (
     <button 
+        type={props.type || "button"}
         className={`cursor-pointer font-bold text-lg py-3 px-6 min-h-16 uppercase tracking-wider bg-white text-black border-4 border-black relative`} 
         style={{
             boxShadow: "8px 8px 0px 0px #000000",

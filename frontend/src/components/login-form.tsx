@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/auth-context";
 import { redirect } from "react-router";
+import NeoButton from "./neo/neo-button";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -55,22 +56,24 @@ export default function LoginForm() {
   return (
     <div className="flex justify-center items-center min-h-screen">
       <Card className="w-96">
-        <CardHeader>
-          <CardTitle>Login</CardTitle>
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-black">LOGIN</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email">EMAIL</Label>
               <Input id="email" type="email" {...register("email")} />
               {errors.email && <p className="text-red-500 text-sm">{errors.email.message}</p>}
             </div>
             <div>
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">PASSWORD</Label>
               <Input id="password" type="password" {...register("password")} />
               {errors.password && <p className="text-red-500 text-sm">{errors.password.message}</p>}
             </div>
-            <Button type="submit" className="w-full">Login</Button>
+            <div className="flex justify-center items-center">
+              <NeoButton label="Login" backgroundColor="#fd3777" textColor="#ffffff" type="submit" />
+            </div>
           </form>
         </CardContent>
       </Card>
