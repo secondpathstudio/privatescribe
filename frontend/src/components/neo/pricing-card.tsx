@@ -19,10 +19,10 @@ type Props = {
 const NeoPricingCard = (props: Props) => {
   return (
     <div 
-        className="border-4 border-black p-6 flex flex-col justify-between" 
+        className="border-6 border-black p-6 flex flex-col justify-between" 
         style={
             {
-                boxShadow: "8px 8px 0px 0px #000000",
+                // boxShadow: "8px 8px 0px 0px #000000",
                 background: props.backgroundColor || "white",
                 color: props.textColor || "black",
             }

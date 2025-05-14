@@ -1,4 +1,6 @@
+import NeoButton from '@/components/neo/neo-button';
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card';
 import { Link } from 'react-router'
 
 type Props = {
@@ -14,7 +16,7 @@ type Props = {
 
 const NoteTableEntry = (props: Props) => {
   return (
-    <div className='mt-6'>
+    <Card className='mt-6'>
         <div className='bg-white shadow-md rounded-md'>
         <div className='p-4 flex justify-between items-center'>
             <div>
@@ -25,15 +27,15 @@ const NoteTableEntry = (props: Props) => {
             <p className='text-gray-600'>Chief Complaint + {props.note.noteContentMarkdown.slice(0,15)}</p>
             </div>
             <div className='mt-4'>
-            <Button asChild>
+            <NeoButton>
                 <Link to={`/notes/${props.note.id}`}>
                 View
                 </Link>
-            </Button>
+            </NeoButton>
             </div>
         </div>
         </div>
-    </div>
+    </Card>
   )
 }
 

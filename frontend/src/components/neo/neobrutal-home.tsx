@@ -3,6 +3,7 @@ import NeoAccordion from './accordion';
 import NeoCTA from './neo-cta';
 import NeoFooter from './neo-footer';
 import NeoHero from './neo-hero';
+import NeoFeatureCard from './neo-feature-card';
 
 const NeobrutalHome = () => {
   return (
@@ -31,41 +32,32 @@ const NeobrutalHome = () => {
         <div className="container mx-auto px-4">
           <h2 className="text-4xl font-black mb-12 text-center">AWESOME FEATURES</h2>
           <div className="grid md:grid-cols-3 gap-8">
-            {/* Feature Card 1 */}
-            <div className="border-4 border-black p-6" style={{
-              background: "linear-gradient(to bottom right, #00ffff, white)",
-              boxShadow: "8px 8px 0px 0px #000000"
-            }}>
-              <div className="flex items-center mb-4">
-                <div className="mr-4 text-3xl">🔒</div>
-                <h3 className="text-2xl font-black">Fully Private</h3>
-              </div>
-              <p>Fully private AI transcription - your data is yours and only yours.</p>
-            </div>
+            <NeoFeatureCard
+              emoji="🔒"
+              title="Fully Private"
+              description="Fully private AI transcription - your data is yours and only yours."
+              style={{
+                background: "linear-gradient(to bottom right, #00ffff, white)",
+              }}
+            />
             
-            {/* Feature Card 2 */}
-            <div className="border-4 border-black p-6" style={{
-              background: "linear-gradient(to bottom right, #ff00ff, white)",
-              boxShadow: "8px 8px 0px 0px #000000"
-            }}>
-              <div className="flex items-center mb-4">
-                <div className="mr-4 text-3xl">🛠️</div>
-                <h3 className="text-2xl font-black">Customizable Templates</h3>
-              </div>
-                <p>Quickly change tasks or specialization with easily customizable transcription templates.</p>
-            </div>
+            <NeoFeatureCard
+              emoji="🛠️"
+              title="Customizable Templates"
+              description="Quickly change tasks or specialization with easily customizable transcription templates."
+              style={{
+                background: "linear-gradient(to bottom right, #ff00ff, white)",
+              }}
+            />
             
-            {/* Feature Card 3 */}
-            <div className="border-4 border-black p-6" style={{
-              background: "linear-gradient(to bottom right, #ff9900, white)",
-              boxShadow: "8px 8px 0px 0px #000000"
-            }}>
-              <div className="flex items-center mb-4">
-                <div className="mr-4 text-3xl">🔌</div>
-                <h3 className="text-2xl font-black">Completely Offline</h3>
-              </div>
-                <p>Experience all the benefits of a full-featured AI transcription service, completely offline.</p>
-            </div>
+            <NeoFeatureCard
+              emoji="🔌"
+              title="Completely Offline"
+              description="Experience all the benefits of a full-featured AI transcription service, completely offline."
+              style={{
+                background: "linear-gradient(to bottom right, #ff9900, white)",
+              }}
+            />
           </div>
         </div>
       </section>
@@ -96,7 +88,7 @@ const NeobrutalHome = () => {
         {/* Pricing Card 2 - Recommended */}
           <NeoPricingCard
             title='CUSTOM MODELS'
-            price='199'
+            price='0' //199
             pricePeriod='yr'
             features={[
               "Access to premium, fine-tuned transcription models",
@@ -112,7 +104,7 @@ const NeobrutalHome = () => {
         {/* Pricing Card 3 */}
           <NeoPricingCard
             title='ENTERPRISE'
-            price='1999'
+            price='0' //1999
             pricePeriod='yr'
             features={[
               "Custom model training for specific use cases",
