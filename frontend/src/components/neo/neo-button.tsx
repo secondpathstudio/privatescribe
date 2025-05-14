@@ -21,6 +21,7 @@ const NeoButton = (props: Props) => {
             background: props.backgroundColor || "#ffffff",
             color: props.textColor || "#000000",
         }}
+        onClick={props.onClick}
         onMouseDown={(e) => {
         e.currentTarget.style.transform = "translate(4px, 4px)";
         e.currentTarget.style.boxShadow = "4px 4px 0px 0px #000000";
