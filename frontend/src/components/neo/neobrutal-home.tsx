@@ -19,7 +19,7 @@ const NeobrutalHome = () => {
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {['🏥 Healthcare', '🧑‍⚖️ Legal', '🧠 Mental Health', '📔 Personal'].map((item, index) => (
-              <div key={index} className="border-4 border-black p-4 font-bold text-xl text-center bg-white" style={{boxShadow: "4px 4px 0px 0px rgba(0,0,0,1)"}}>
+              <div key={index} className="border-4 border-black p-4 font-bold text-xl text-center bg-white">
                 {item}
               </div>
             ))}
