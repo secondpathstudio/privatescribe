@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
 import { useNavigate } from 'react-router'
+import NeoButton from '@/components/neo/neo-button'
 
 
 const NewNoteForm = () => {
@@ -67,12 +68,12 @@ const NewNoteForm = () => {
     const form = useForm({
         defaultValues: {
             patientId: getDateString(),
-            providerId: auth.user?.id,
-            providerName: auth.user?.firstName + ' ' + auth.user?.lastName,
-            encounterDate: new Date(),
-            noteContentRaw: '',
-            noteContentMarkdown: '',
-            noteType: 'visit',
+            authorId: auth.user?.id,
+            authorName: auth.user?.firstName + ' ' + auth.user?.lastName,
+            transcriptDate: new Date(),
+            transcriptContentRaw: '',
+            transcriptContentMarkdown: '',
+            transcriptTemplate: 'visit',
             version: 1,
             status: 'draft',
         }
@@ -163,10 +164,10 @@ const NewNoteForm = () => {
             <fieldset className="flex flex-col gap-2">
                 <FormField 
                     control={form.control} 
-                    name="noteType" 
+                    name="transcriptTemplate" 
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Note Type</FormLabel>
+                            <FormLabel>Note Template</FormLabel>
                             <FormControl>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                     <SelectTrigger>
@@ -202,7 +203,7 @@ const NewNoteForm = () => {
             <fieldset className="flex flex-col gap-2">
                 <FormField 
                     control={form.control} 
-                    name="encounterDate" 
+                    name="transcriptDate" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
                             <FormLabel>Encounter Date</FormLabel>
@@ -230,7 +231,7 @@ const NewNoteForm = () => {
                 />
                 <FormField 
                     control={form.control} 
-                    name="providerName" 
+                    name="authorName" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
                             <FormLabel>Provider</FormLabel>
@@ -274,7 +275,7 @@ const NewNoteForm = () => {
 
         {/* Tabs Component for Raw Transcript and Markdown Editor */}
         {/* only show tabs when there is a raw transcript and markdown */}
-        {form.getValues("noteContentRaw") != '' && (
+        {form.getValues("transcriptContentRaw") != '' && (
         <Tabs defaultValue="transcript" className="w-full mt-4">
             <TabsList className="flex w-full">
                 <TabsTrigger className='grow' value="transcript">Raw Transcript</TabsTrigger>
@@ -284,7 +285,7 @@ const NewNoteForm = () => {
             <TabsContent value="transcript">
                 <FormField 
                     control={form.control} 
-                    name="noteContentRaw" 
+                    name="transcriptContentRaw" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col mt-4">
                             <FormLabel>Raw Transcription</FormLabel>
@@ -318,9 +319,9 @@ const NewNoteForm = () => {
                         editorRef={mdxEditorRef}
                         placeholder="Formatted note will appear here after dictation..."
                         readOnly={gettingMarkdown}
-                        markdown={form.getValues("noteContentMarkdown")}
+                        markdown={form.getValues("transcriptContentMarkdown")}
                         onChange={(value) => {
-                            form.setValue("noteContentMarkdown", value);
+                            form.setValue("transcriptContentMarkdown", value);
                             setMarkdown(value);
                             console.log("Setting markdown to:", value);
                         }}
@@ -336,19 +337,16 @@ const NewNoteForm = () => {
                 <p className="text-primary">Saving note...</p>
             </div>
         )}
-        {!savingNote && form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
+        {!savingNote && form.getValues("transcriptContentRaw") && form.getValues("transcriptContentMarkdown") && (
         <div className='flex justify-center items-center gap-4'>
-            <Button 
+            <NeoButton 
                 type="submit"
-                className="flex gap-2 max-w-md mx-auto mt-4 w-full bg-green-500 disabled:bg-gray-400"
                 disabled={markdown === ''}
             >
-                🛟 Save Note
-            </Button>
-            <Button 
+                Save Note
+            </NeoButton>
+            <NeoButton 
                 type="button"
-                variant={'outline'}
-                className="flex gap-2 max-w-md mx-auto mt-4 w-full disabled:opacity-50 hover:bg-red-500 cursor-pointer"
                 onClick={() => {
                     form.reset();
                     setMarkdown('');
@@ -357,7 +355,7 @@ const NewNoteForm = () => {
                 }}
             >
                 Reset
-            </Button>
+            </NeoButton>
         </div>
         )}
     </form>
