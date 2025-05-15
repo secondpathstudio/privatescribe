@@ -1,12 +1,12 @@
 import React, { FormEvent, ReactEventHandler, useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useForm, useFormState } from 'react-hook-form'
 import { format } from 'date-fns'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { CalendarIcon } from 'lucide-react'
+import { CalendarIcon, Trash, Trash2 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
@@ -24,6 +24,24 @@ const SingleNoteForm = ({ note }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [savingNote, setSavingNote] = React.useState(false);
+    
+    const form = useForm({
+        defaultValues: {
+            patientId: note?.patientId,
+            providerId: note?.providerId,
+            providerName: note?.providerName,
+            encounterDate: note?.encounterDate,
+            noteContentRaw: note?.noteContentRaw,
+            noteContentMarkdown: note?.noteContentMarkdown,
+            noteType: note?.noteType,
+            version: note?.version,
+            createdAt: note?.createdAt,
+            updatedAt: note?.updatedAt,
+        }
+    });
+
+    const formState = useFormState({
+        control: form.control,})
 
     const handleUpdateNote = async (e: FormEvent, form: any) => {
         e.preventDefault();
@@ -61,20 +79,7 @@ const SingleNoteForm = ({ note }: Props) => {
         return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
     }
 
-    const form = useForm({
-        defaultValues: {
-            patientId: note?.patientId,
-            providerId: note?.providerId,
-            providerName: note?.providerName,
-            encounterDate: note?.encounterDate,
-            noteContentRaw: note?.noteContentRaw,
-            noteContentMarkdown: note?.noteContentMarkdown,
-            noteType: note?.noteType,
-            version: note?.version,
-            createdAt: note?.createdAt,
-            updatedAt: note?.updatedAt,
-        }
-    });
+    
 
   return (
     <Form {...form}>
@@ -194,29 +199,40 @@ const SingleNoteForm = ({ note }: Props) => {
             </TabsContent>
 
             <TabsContent value="markdown">
-                    <MarkdownEditor 
-                        className="w-full mt-4"
-                        plugins={[
-                            headingsPlugin(),
-                            quotePlugin(),
-                            listsPlugin(),
-                            toolbarPlugin({
-                                toolbarClassName: "flex gap-2 w-full",
-                                toolbarContents: () => (
-                                    <>
-                                        <UndoRedo />
-                                        <BoldItalicUnderlineToggles />
-                                        <ListsToggle />
-                                    </>
-                                )
-                            })
-                        ]}
-                        editorRef={mdxEditorRef}
-                        markdown={form.getValues("noteContentMarkdown")}
-                        onChange={(value) => {
-                            form.setValue("noteContentMarkdown", value);
-                        }}
-                    />
+                <FormField
+                    control={form.control}
+                    name="noteContentMarkdown"
+                    render={({ field }) => (
+                        <FormItem className="w-full mt-4">
+                            <FormControl>
+                                <MarkdownEditor 
+                                    className="w-full"
+                                    plugins={[
+                                        headingsPlugin(),
+                                        quotePlugin(),
+                                        listsPlugin(),
+                                        toolbarPlugin({
+                                            toolbarClassName: "flex gap-2 w-full",
+                                            toolbarContents: () => (
+                                                <>
+                                                    <UndoRedo />
+                                                    <BoldItalicUnderlineToggles />
+                                                    <ListsToggle />
+                                                </>
+                                            )
+                                        })
+                                    ]}
+                                    editorRef={mdxEditorRef}
+                                    markdown={field.value}
+                                    onChange={(value) => {
+                                        field.onChange(value);
+                                    }}
+                                />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
             </TabsContent>
         </Tabs>
         )}
@@ -237,15 +253,24 @@ const SingleNoteForm = ({ note }: Props) => {
             >
                 Save Note
             </NeoButton>
-            <NeoButton 
-                type="button"
-                onClick={() => {
-                    form.reset();
-                    mdxEditorRef.current?.setMarkdown(note?.noteContentMarkdown);
-                }}
-            >
-                Reset
-            </NeoButton>
+            <div className='flex gap-4 items-center'>
+                <NeoButton 
+                    type="button"
+                    disabled={!formState.isDirty}
+                    onClick={() => {
+                        form.reset();
+                        mdxEditorRef.current?.setMarkdown(note?.noteContentMarkdown);
+                    }}
+                >
+                    Reset
+                </NeoButton>
+                <NeoButton 
+                    type="button"
+                    onClick={() => console.log('delete note')}
+                >
+                    <Trash2 />
+                </NeoButton>
+            </div>
         </div>
         )}
     </form>
