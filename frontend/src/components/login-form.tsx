@@ -62,12 +62,12 @@ export default function LoginForm() {
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
-              <Label htmlFor="email">EMAIL</Label>
+              <Label htmlFor="email" className="font-black">EMAIL</Label>
               <Input id="email" type="email" {...register("email")} />
               {errors.email && <p className="text-red-500 text-sm">{errors.email.message}</p>}
             </div>
             <div>
-              <Label htmlFor="password">PASSWORD</Label>
+              <Label htmlFor="password" className="font-black">PASSWORD</Label>
               <Input id="password" type="password" {...register("password")} />
               {errors.password && <p className="text-red-500 text-sm">{errors.password.message}</p>}
             </div>
