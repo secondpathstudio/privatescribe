@@ -16,7 +16,7 @@ const NewNote = () => {
             },
           ]}
           />
-        <h1 className='text-4xl font-bold mt-6'>Create Note</h1>
+        <h1 className='text-4xl font-black mt-6'>Create Note</h1>
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
