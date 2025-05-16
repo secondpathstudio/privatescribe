@@ -1,5 +1,3 @@
-import React from 'react'
-import NeoButton from './neo-button'
 import { GithubIcon } from 'lucide-react'
 import NeoLinkButton from './neo-link-button'
 import NeoAnchorButton from './neo-a-button'
@@ -12,15 +10,15 @@ const NeoHero = (props: Props) => {
         background: "linear-gradient(to right, #2b0f54, #5d1d91, #fd3777)"
       }}>
         <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-2 gap-12 items-center">
+          <div className="grid xl:grid-cols-2 gap-12 items-center text-center xl:text-left">
             <div>
               <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
-                100% PRIVATE<br />AI TRANSCRIPTION
+                100% PRIVATE AI TRANSCRIPTION
               </h1>
               <p className="text-xl text-white mb-8">
                 Leverage artificial intelligence for rapid, fully customizable offline transcription without worrying about data leaks or privacy concerns. Your data never leaves your device.
               </p>
-              <div className="flex flex-wrap gap-4">
+              <div className="flex flex-wrap gap-4 xl:justify-start justify-center items-center">
                 <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
                 <NeoAnchorButton href="http://www.github.com" backgroundColor='#ffffff' textColor="#000000">
                   <GithubIcon />
