@@ -21,9 +21,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(localStorage.getItem("access_token"));
   const [user, setUser] = useState<User | null>(localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") as string) : null);
 
-  useEffect(() => {
-    console.log('user changed', user);
-  }, [user])
+  // useEffect(() => {
+  //   console.log('user changed', user);
+  // }, [user])
 
   const login = (newToken: string, refreshToken: string, user: User) => {
     console.log('user logging in', user);
