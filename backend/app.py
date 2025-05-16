@@ -582,7 +582,7 @@ def get_notes_for_user(user_id):
         
     return jsonify(notes_list)
 
-# API route to create a note (requires authentication)
+# API route to create a template (requires authentication)
 @app.route('/api/templates', methods=['POST'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
@@ -624,6 +624,45 @@ def create_template():
         "version": new_template.version
     }), 201
 
+# API route to get all templates for a specific userId (requires authentication)
+@app.route('/api/templates/user/<string:user_id>', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def templates(user_id):
+    print("Getting templates for userId: " + user_id)
+    
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+
+    # Ensure the user is authorized to access notes for the given authorId
+    if current_user != user_id:
+        return jsonify({"error": "Not authorized to access templates for this user"}), 403
+
+    templates = Template.query.filter_by(author_id=user_id).all()
+    if not templates:
+        return jsonify([]), 200
+
+    template_list = []
+    
+    try:
+        for template in templates:            
+            # Create template object
+            template_data = {
+                "id": template.id,
+                "createdAt": template.created_at,
+                "updatedAt": template.updated_at,
+                "authorId": template.author_id,
+                "isDeleted": template.is_deleted,
+                "isDeletedTimestamp": template.is_deleted_timestamp,
+            }
+            
+            template_list.append(template_data)
+    except Exception as e:
+        # Log the error
+        print(f"Error getting templates: {str(e)}")
+        notes_list = []
+        
+    return jsonify(template_list)
 
 # Function to convert audio to WAV format (if needed)
 def convert_audio(audio_data, format):
