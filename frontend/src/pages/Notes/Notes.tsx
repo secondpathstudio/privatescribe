@@ -22,6 +22,7 @@ const Notes = () => {
         });
 
         if (!response.ok) {
+          console.log('Invalid server response: ', response)
           throw new Error('Network request failed with status ' + response.status);
         } else {
           const data = await response.json();
