@@ -1,17 +1,9 @@
-import React, { FormEvent, ReactEventHandler, useEffect } from 'react'
+import React, { FormEvent } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
-import { format } from 'date-fns'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Calendar } from '@/components/ui/calendar'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Button } from '@/components/ui/button'
-import { CalendarIcon, Trash2 } from 'lucide-react'
-import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
@@ -45,7 +37,6 @@ const SingleTemplateForm = ({ template }: Props) => {
         e.preventDefault();
         setUpdating(true);
         const formValues = form.getValues();
-        console.log('submitting note', formValues);
 
         try {
             const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}`, {

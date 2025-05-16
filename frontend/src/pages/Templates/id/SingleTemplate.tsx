@@ -54,7 +54,7 @@ const SingleTemplate = () => {
           <CardHeader>
             <CardTitle>
               {template && 
-              <SingleTemplateForm note={template} />
+              <SingleTemplateForm template={template} />
               }
             </CardTitle>
           </CardHeader>

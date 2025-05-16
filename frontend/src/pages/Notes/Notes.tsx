@@ -1,5 +1,5 @@
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
-import NoteTableEntry from './note-table-entry'
+import NoteTableEntry from './NoteTableEntry'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth-context'
 import NeoLinkButton from '@/components/neo/neo-link-button'

@@ -1,8 +1,5 @@
-import NeoButton from '@/components/neo/neo-button';
 import NeoLinkButton from '@/components/neo/neo-link-button';
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card';
-import { Link } from 'react-router'
 
 type Props = {
   note: {
