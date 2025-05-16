@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { FormEvent, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { format } from 'date-fns'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
@@ -32,10 +32,13 @@ const NewNoteForm = ({templates}: Props) => {
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
 
-    const handleAddNewNote = async (form: any) => {
+    const handleAddNewNote = async (e: FormEvent, form: any) => {
+        e.preventDefault();
         setSavingNote(true);
         const formValues = form.getValues();
+
         console.log('submitting note', formValues);
+        return;
         const navigate = useNavigate();
 
         try {
@@ -79,6 +82,7 @@ const NewNoteForm = ({templates}: Props) => {
         }
     });
 
+    //update local state for template name when selected template id changes
     useEffect(() => {
     const currentTemplateId = form.watch('noteTemplate');
     if (currentTemplateId && templates) {
@@ -88,6 +92,8 @@ const NewNoteForm = ({templates}: Props) => {
       }
     }
   }, [form.watch('noteTemplate'), templates]);
+
+  //TODO validate that template is chosen before recording
 
     const transcribeRecording = async (blob: Blob) => {
         // get transcription from whisper
@@ -113,16 +119,16 @@ const NewNoteForm = ({templates}: Props) => {
             console.log('Transcription Result:', result);
 
             //handle if transcription is empty
-            if (result.raw_transcript === '') {
+            if (result.raw_note === '') {
                 alert('Transcription unable to identify speech. Please try again.');
                 setIsTranscribing(false);
                 return;
             }
 
-            form.setValue('noteContentRaw', result.raw_transcript);
+            form.setValue('noteContentRaw', result.raw_note);
 
             // Format the transcription in Markdown
-            getMarkdown(result.raw_transcript);
+            getMarkdown(result.raw_note);
         } catch (error: any) {
             console.error('Upload failed:', error);
             alert(`Upload failed: ${error.message}`);
@@ -130,7 +136,7 @@ const NewNoteForm = ({templates}: Props) => {
         setIsTranscribing(false);
     }
 
-    const getMarkdown = async (rawTranscript: string) => {
+    const getMarkdown = async (rawNote: string) => {
         // get markdown from ollama
         setGettingMarkdown(true);
         form.setValue('noteContentMarkdown', '');
@@ -144,12 +150,12 @@ const NewNoteForm = ({templates}: Props) => {
                     'Authorization': `Bearer ${auth.token}`,
                 },
                 body: JSON.stringify({ 
-                    raw_transcript: rawTranscript,
+                    raw_note: rawNote,
                     note_details: {
                         note_date: form.getValues('noteDate'),
-                        note_type: form.getValues('noteType'),
                         author_id: form.getValues('authorId'),
-                        note_template: form.getValues('noteTemplate'),
+                        template_id: form.getValues('noteTemplate'),
+                        participants: form.getValues('participants')
                     }
                  }),
             });
@@ -169,7 +175,7 @@ const NewNoteForm = ({templates}: Props) => {
 
   return (
     <Form {...form}>
-    <form onSubmit={handleAddNewNote}>
+    <form onSubmit={(e) => handleAddNewNote(e, form)}>
         <div className="grid grid-cols-2 gap-4">
             <fieldset className="flex flex-col gap-2">
                 <FormField 
@@ -348,7 +354,6 @@ const NewNoteForm = ({templates}: Props) => {
                         onChange={(value) => {
                             form.setValue("noteContentMarkdown", value);
                             setMarkdown(value);
-                            console.log("Setting markdown to:", value);
                         }}
                     />
             </TabsContent>

@@ -61,6 +61,7 @@ import VolumeMeter from "./volume-meter";
     mediaRecorderRef.current.onstop = () => {
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Can also use 'audio/wav'
       setAudioBlob(audioBlob);
+      console.log(audioBlob)
       onRecordingFinished(audioBlob);
       isRecordingRef.current = false;
       audioContext.close();

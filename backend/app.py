@@ -837,19 +837,41 @@ def transcribe():
 @app.route('/api/getMarkdown', methods=['POST'])
 @jwt_required()
 def getMarkdown():
-    note = request.json['raw_note']
-    visit_details = request.json['visit_details']
+    request_data = request.get_json()
     
-    print("Generating markdown: " + note)
+    if not request_data:
+        return jsonify({"error": "No JSON data provided"}), 400
     
+    # Extract raw_note and note_details
+    raw_note = request_data.get('raw_note')
+    note_details = request_data.get('note_details', {})
+    
+    # Validate required fields
+    if not all(k in note_details for k in (
+        'note_date', 
+        'author_id',
+        'template_id',
+        'participants')):
+        return jsonify({"error": "Missing required fields in note_details"}), 400
+    
+    # Fetch template
+    template = None
+    if 'template_id' in note_details and note_details['template_id']:
+        template = Template.query.get(note_details['template_id'])
+        if not template:
+            return jsonify({"message": f"Template with ID {note_details['template_id']} not found"}), 400
+    else:
+        return jsonify({"error": "Invalid template_id"}), 400
+    
+    #TODO add author + participant names?
     # Format note with Ollama LLM
     formatted_markdown = ollama.chat(model="llama3.2", messages=[
-        {"role": "system", "content": """You are an expert medical note assistant. Take the provided text of a conversation between a doctor and a patient. 
-         Your task is to format this conversation into a structured medical note in Markdown format with sections like Visit Details, Chief Complaint, 
-         History of Present Illness, and Physical Exam. Be concise but complete, only return the formatted markdown without any extra labels or titles. do 
-         not include the patient's name or any other identifying information. Do not include three backticks before and after the markdown. 
+        {"role": "system", "content": f"""You are an expert note transcriptionist creating a transcription for an audio recording to match {template.content}. 
+         Take the provided text of a conversation between people. 
+         Your task is to format this conversation into a structured note in Markdown format to match {template.content}. Please format any dates in MM/DD/YYYY.
+         Be concise but complete, only return the formatted markdown without any extra labels or titles. Do not include three backticks before and after the markdown. 
          Do not include the word markdown."""},
-        {"role": "user", "content": f"Here are the visit details: \n\n{visit_details}. Here is the note to format:\n\n{note}."}
+        {"role": "user", "content": f"Here are the note details: \n\n{note_details}. Here is the note to format:\n\n{raw_note}."}
     ])["message"]["content"]
 
     print("Formatted markdown: " + formatted_markdown)
