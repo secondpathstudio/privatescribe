@@ -44,6 +44,7 @@ export default function UsersTable({ users }: { users: User[] }) {
       <TableHeader>
         <TableRow>
           {[
+            { key: "id", label: "ID" },
             { key: "createdAt", label: "Created At" },
             { key: "email", label: "Email" },
             { key: "firstName", label: "First Name" },
@@ -61,6 +62,7 @@ export default function UsersTable({ users }: { users: User[] }) {
       <TableBody>
         {data.map((user) => (
           <TableRow key={user.id}>
+            <TableCell className="text-xs">{user.id}</TableCell>
             <TableCell>{user.createdAt}</TableCell>
             <TableCell>{user.email}</TableCell>
             <TableCell>{user.firstName}</TableCell>
