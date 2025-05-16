@@ -62,18 +62,13 @@ const SingleTemplateForm = ({ template }: Props) => {
         }
         setUpdating(false);
     }
-    
-    const getDateString = () => {
-        const date = new Date();
-        return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
-    }
 
     const handleDeleteTemplate = async () => {
         const formValues = form.getValues();
         
         setUpdating(true);
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/template/${template.id}/delete`, {
+            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}/delete`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -106,7 +101,45 @@ const SingleTemplateForm = ({ template }: Props) => {
             setUpdating(false);
         }
     }
+
+    const handleUndeleteTemplate = async () => {
+        const formValues = form.getValues();
         
+        setUpdating(true);
+        try {
+            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}/restore`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify(formValues)
+            });
+
+            if (!response.ok) {
+                throw new Error('Network request failed with status ' + response.status);
+            } else {
+                //note marked for deletion
+                const data = await response.json();
+                console.log('Template restored:', data);
+                
+                if (data.message) {
+                    setUpdating(false);
+                    alert(data.message + ' - Redirecting to templates page');
+                    
+                    //redirect to notes page
+                    navigate('/templates');
+                }
+                
+
+
+            }
+        } catch (error) {
+            alert('Error restoring template. Please try again.');
+            console.log('Error restoring template: ', error)
+            setUpdating(false);
+        }
+    }
     
 
   return (
@@ -217,12 +250,20 @@ const SingleTemplateForm = ({ template }: Props) => {
                 >
                     Reset
                 </NeoButton>
+                {template.isDeleted ? (
+                    <NeoButton
+                        type="button"
+                        label="Restore"
+                        onClick={handleUndeleteTemplate}
+                    />
+                ): (
                 <NeoButton 
                     type="button"
-                    onClick={() => console.log('delete note')}
+                    onClick={handleDeleteTemplate}
                 >
                     <Trash2 />
                 </NeoButton>
+                )}
             </div>
         </div>
         )}

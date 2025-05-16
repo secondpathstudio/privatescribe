@@ -698,7 +698,7 @@ def get_template(id):
         "version": template.version
     })
 
-# API route to update a note by ID (requires authentication)
+# API route to update a template by ID (requires authentication)
 @app.route('/api/templates/<int:id>', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
@@ -735,6 +735,67 @@ def update_template(id):
         "version": template.version,
         "isDeleted": template.is_deleted,
         "isDeletedTimestamp": template.is_deleted_timestamp
+    })
+
+# API endpoint to mark a template as deleted (soft delete)
+@app.route('/api/templates/<int:id>/delete', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def mark_template_as_deleted(id):
+    template = Template.query.get(id)
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
+        
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+    
+    # Ensure the note belongs to the current user
+    #TODO add ability for admin to delete any note
+    if template.author_id != current_user:
+        return jsonify({"error": "Not authorized to delete this note"}), 403
+        
+    # Mark the note as deleted with current timestamp
+    template.is_deleted = True
+    template.is_deleted_timestamp = datetime.now()
+    template.updated_at = datetime.now()
+    
+    # Commit the changes to the database
+    db.session.commit()
+    
+    return jsonify({
+        "id": template.id,
+        "message": "Note added to trash, will be permanently deleted in 30 days",
+        "deletedAt": template.is_deleted_timestamp
+    })
+
+# API endpoint to mark a template as deleted (soft delete)
+@app.route('/api/templates/<int:id>/restore', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def mark_template_as_restored(id):
+    template = Template.query.get(id)
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
+        
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+    
+    # Ensure the note belongs to the current user
+    #TODO add ability for admin to delete any note
+    if template.author_id != current_user:
+        return jsonify({"error": "Not authorized to delete this note"}), 403
+        
+    # Mark the note as deleted with current timestamp
+    template.is_deleted = False
+    template.is_deleted_timestamp = None
+    template.updated_at = datetime.now()
+    
+    # Commit the changes to the database
+    db.session.commit()
+    
+    return jsonify({
+        "id": template.id,
+        "message": "Template restored successfully.",
     })
 
 # Function to convert audio to WAV format (if needed)

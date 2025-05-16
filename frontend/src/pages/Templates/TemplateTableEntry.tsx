@@ -1,5 +1,6 @@
 import NeoLinkButton from '@/components/neo/neo-link-button';
 import { Card } from '@/components/ui/card';
+import { Trash2 } from 'lucide-react';
 
 type Props = {
   template: {
@@ -8,6 +9,7 @@ type Props = {
     content: string;
     authorId: string;
     version: number;
+    isDeleted: boolean;
   }
 }
 
@@ -20,7 +22,7 @@ const TemplateTableEntry = (props: Props) => {
             <h4 className='text-xs italic flex gap-2 items-center'>
               ver. {props.template.version}
             </h4>
-            <h2 className='text-xl font-bold'>{props.template.name}</h2>
+            <h2 className='flex gap-2 text-xl font-bold'>{props.template.name} {props.template.isDeleted && <Trash2 />}</h2>
             <p className='text-gray-600'>{props.template.content?.slice(0,15)}</p>
             </div>
             <NeoLinkButton 
