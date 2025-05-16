@@ -240,7 +240,7 @@ const NewNoteForm = ({templates}: Props) => {
                                             <CalendarIcon className="w-4 h-4 mr-2" />
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
+                                    <PopoverContent className="w-auto p-0 z-10 bg-white">
                                         <Calendar
                                             mode="single"
                                             selected={field.value}
