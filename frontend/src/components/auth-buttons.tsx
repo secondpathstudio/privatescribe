@@ -1,7 +1,6 @@
 import { useAuth } from "@/context/auth-context";
-import { Link } from "react-router";
 import NeoButton from "./neo/neo-button";
-import NeoDropdownExample, { NeoDropdown, NeoDropdownItem }  from "./neo/neo-dropdown";
+import { NeoDropdown, NeoDropdownItem }  from "./neo/neo-dropdown";
 
 export default function AuthButtons() {
     const auth = useAuth();
