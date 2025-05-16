@@ -188,33 +188,4 @@ const NeoDropdown: React.FC<NeoDropdownProps> = (props) => {
   );
 };
 
-// Example usage
-const NeoDropdownExample: React.FC = () => {
-  return (
-      <div className="max-w-sm">
-        <NeoDropdown 
-        username="John Doe"
-          defaultId="menu-2" 
-          onChange={(id: string) => console.log(`Selected item with ID: ${id}`)}
-        >
-          <NeoDropdownItem id="menu-1">OPTION 1</NeoDropdownItem>
-          <NeoDropdownItem id="menu-2">OPTION 2</NeoDropdownItem>
-          <NeoDropdownItem id="menu-3">
-            <div className="flex items-center">
-              <span className="mr-2">🔗</span>
-              <span>LINK OPTION</span>
-            </div>
-          </NeoDropdownItem>
-          <NeoDropdownItem id="menu-4">
-            <div className="flex items-center justify-between w-full">
-              <span>COMPLEX ITEM</span>
-              <span className="bg-black text-white px-2 rounded">NEW asdfasdf</span>
-            </div>
-          </NeoDropdownItem>
-        </NeoDropdown>
-      </div>
-  );
-};
-
 export { NeoDropdown, NeoDropdownItem };
-export default NeoDropdownExample;
