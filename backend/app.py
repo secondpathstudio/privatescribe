@@ -70,6 +70,8 @@ class Template(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     version = db.Column(db.Integer, nullable=False)
+    is_deleted = db.Column(db.Boolean, default=False)
+    is_deleted_timestamp = db.Column(db.DateTime, nullable=True)
     
     # Relationship: A template can be used by many notes
     notes = db.relationship('Note', backref='template', lazy=True)
