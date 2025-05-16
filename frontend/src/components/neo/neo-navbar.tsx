@@ -12,7 +12,6 @@ const NeoNavbar = (props: Props) => {
         <div className="container mx-auto flex justify-between items-center">
           <div className="font-black text-3xl">
             <a href="/">
-              {/* Private<span style={{color: "#fd3777"}}>Scribe</span> */}
               <PrivateScribeLogo />
             </a>
           </div>
