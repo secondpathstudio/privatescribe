@@ -42,7 +42,7 @@ const NewTemplateForm = () => {
                 console.log('Template created:', data);
                 
                 //redirect to new template
-                // navigate(`/templates/${data.id}`);
+                navigate(`/templates/${data.id}`);
             }
         } catch (error) {
             alert('Error creating template. Please try again.');
