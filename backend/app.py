@@ -1,3 +1,4 @@
+import click
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, timedelta
@@ -23,7 +24,7 @@ app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')  # Use a secure key in pr
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)  # Access tokens expire after 1 hour
 
 # SQLite Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///notes.db'  # SQLite database
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///privatescribe.db'  # SQLite database
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -45,34 +46,82 @@ whisper_model = WhisperModel(
 class User(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))  # UUID as primary key
     email = db.Column(db.String(100), unique=True, nullable=False)
-    firstName = db.Column(db.String(100), nullable=False)
-    lastName = db.Column(db.String(100), nullable=False)
+    role = db.Column(db.String(50), default='user')  # Default role is 'user'
+    first_name = db.Column(db.String(100), nullable=False)
+    last_name = db.Column(db.String(100), nullable=False)
     password = db.Column(db.String(255), nullable=False)
-    createdAt = db.Column(db.DateTime, default=datetime.utcnow)
-    lastLogin = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_login = db.Column(db.DateTime, default=datetime.utcnow)
     
     # Relationship: A user has many notes
     notes = db.relationship('Note', backref='user', lazy=True, cascade='all, delete-orphan')
+    
+    # Relationship: A user can have many templates
+    templates = db.relationship('Template', backref='user', lazy=True, cascade='all, delete-orphan')
 
     def __repr__(self):
         return f"<User {self.email}>"
+    
+# Note template model
+class Template(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False)
+    content = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship: A template can be used by many notes
+    notes = db.relationship('Note', backref='template', lazy=True)
+    
+    # Foreign key: Link the template to a user as author
+    author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+
+    def __repr__(self):
+        return f"<Template {self.name}>"
+    
+class Participant(db.Model):
+    id = db.Column(db.String, primary_key=True)
+    first_name = db.Column(db.String(100), nullable=False)
+    last_name = db.Column(db.String(100), nullable=True)
+    email = db.Column(db.String(100), unique=True, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Note relationship: A participant can be part of many notes
+    notes = db.relationship('Note', secondary='note_participants', 
+                                  back_populates='participants')
+
+    def __repr__(self):
+        return f"<Participant {self.first_name} {self.last_name}>"
+
+# Define the association table for the many-to-many relationship
+note_participants = db.Table('note_participants',
+    db.Column('note_id', db.Integer, db.ForeignKey('note.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('participant_id', db.String, db.ForeignKey('participant.id', ondelete='CASCADE'), primary_key=True)
+)
 
 # Note model
 class Note(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    patientId = db.Column(db.String, nullable=False)
-    providerId = db.Column(db.String(36), nullable=False)
-    providerName = db.Column(db.String(100), nullable=False)
-    encounterDate = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
-    createdAt = db.Column(db.DateTime, default=datetime.utcnow)
-    updatedAt = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    noteContentRaw = db.Column(db.Text, nullable=False)
-    noteContentMarkdown = db.Column(db.Text, nullable=False)
-    noteType = db.Column(db.String(50), nullable=False)
+    author_name = db.Column(db.String(100), nullable=False)
+    note_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    note_content_raw = db.Column(db.Text, nullable=False)
+    note_content_markdown = db.Column(db.Text, nullable=False)
+    note_type = db.Column(db.String(50), nullable=False)
     version = db.Column(db.Integer(), nullable=False, default=1)
+    is_deleted = db.Column(db.Boolean, default=False)
+    is_deleted_timestamp = db.Column(db.DateTime, nullable=True)
     
-    # Foreign key: Link the note to a user
-    userId = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False) 
+    # Foreign key: Link the note to a template
+    template_id = db.Column(db.Integer, db.ForeignKey('template.id'), nullable=True)
+    
+    # Foreign key: Link the note to a user as author
+    author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    
+    # Foreign key: Link the note to participants - many-to-many relationship
+    participants = db.relationship('Participant', secondary='note_participants', back_populates='notes')
 
     def __repr__(self):
         return f"<Note {self.id}>"
@@ -100,8 +149,8 @@ def register():
 
     # Create new user with UUID id
     new_user = User(
-        firstName=data['firstName'], 
-        lastName=data['lastName'], 
+        first_name=data['firstName'], 
+        last_name=data['lastName'], 
         email=data['email'], 
         password=hashed_password,
         )
@@ -126,10 +175,10 @@ def get_all_users():
     users_list = [{
         "id": user.id,
         "email": user.email,
-        "firstName": user.firstName,
-        "lastName": user.lastName,
-        "createdAt": user.createdAt,
-        "lastLogin": user.lastLogin
+        "firstName": user.first_name,
+        "lastName": user.last_name,
+        "createdAt": user.created_at,
+        "lastLogin": user.last_login
     } for user in users]
     
     return jsonify(users_list)
@@ -162,9 +211,9 @@ def login():
             "user": {
                 "id": user.id,
                 "email": user.email,
-                "firstName": user.firstName,
-                "lastName": user.lastName,
-                "lastLogin": user.lastLogin
+                "firstName": user.first_name,
+                "lastName": user.last_name,
+                "lastLogin": user.last_login
             }}), 200
 
     return jsonify({"error": "Invalid username or password"}), 401
@@ -191,44 +240,120 @@ def create_note():
     if not all(k in data for k in (
         'noteContentRaw', 
         'noteContentMarkdown', 
-        'patientId', 
-        'encounterDate',
-        'noteType')):
+        'authorName',
+        'templateId', 
+        'noteDate',
+        'noteType',
+        'participants')):
         return jsonify({"error": "Missing required fields"}), 400
     
+    # Validate template
+    if 'templateId' in data and data['templateId']:
+        template = Template.query.get(data['templateId'])
+        if not template:
+            return jsonify({"error": f"Template with ID {data['templateId']} not found"}), 400
+    
+    # validate participantIds
+    if not isinstance(data['participants'], list):
+        return jsonify({"error": "participants must be a list"}), 400
+    
+    # Validate each participant has required fields
+    try:
+        for participant in data['participants']:
+            if not isinstance(participant, dict):
+                return jsonify({"error": "Each participant must be an object"}), 400
+            if 'id' not in participant:
+                return jsonify({"error": "Each participant must have an id"}), 400
+            if 'first_name' not in participant:
+                return jsonify({"error": "Each participant must have a first_name"}), 400
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        participants = []  # Fallback to empty list if there's an error
+        
     # Get the current user from the JWT
     current_user = get_jwt_identity()
 
     # Create a new note instance
     new_note = Note(
-        noteContentRaw=data['noteContentRaw'],
-        noteContentMarkdown=data['noteContentMarkdown'],
-        patientId=data['patientId'],
-        noteType=data['noteType'],
-        encounterDate=encounter_date,
-        createdAt=datetime.now(),
-        updatedAt=datetime.now(),
-        providerId=data['providerId'],
-        providerName=data['providerName'],
+        note_content_raw=data['noteContentRaw'],
+        note_content_markdown=data['noteContentMarkdown'],
+        note_type=data['noteType'],
+        note_date=encounter_date,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        author_name=data['authorName'],
         version=data['version'],
-        userId=current_user  # Link the note to the current user (UUID)
+        author_id=current_user  # Link the note to the current user (UUID)
     )
     
     print('adding note', new_note)
 
     # Add the note to the database
     db.session.add(new_note)
+    db.session.flush()
+    
+    # Add participants
+    try:
+        for participant_data in data['participants']:
+            participant_id = participant_data['id']
+            
+            # Check if participant exists
+            participant = Participant.query.get(participant_id)
+            
+            if participant:
+                # Update existing participant if needed
+                participant.first_name = participant_data['first_name']
+                if 'last_name' in participant_data:
+                    participant.last_name = participant_data['last_name']
+                if 'email' in participant_data:
+                    participant.email = participant_data['email']
+            else:
+                # Create new participant
+                participant = Participant(
+                    id=participant_id,
+                    first_name=participant_data['first_name'],
+                    last_name=participant_data.get('last_name'),  # Use get to handle optional fields
+                    email=participant_data.get('email')
+                )
+                db.session.add(participant)
+            
+            # Add relationship between note and participant
+            new_note.participants.append(participant)
+    except Exception as e:
+        # Log the error
+        print(f"Error adding participants: {str(e)}")
+        return jsonify({"error": "Failed to add participants"}), 500
+    
     db.session.commit()
+    
+    # Get participant info for the response
+    participants = []
+    try:
+        for participant in new_note.participants:
+            participant_info = {
+                "id": participant.id,
+                "first_name": participant.first_name
+            }
+            if participant.last_name:
+                participant_info["last_name"] = participant.last_name
+            if participant.email:
+                participant_info["email"] = participant.email
+            participants.append(participant_info)
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        participants = []
 
     return jsonify({
         "id": new_note.id,
-        "createdAt": new_note.createdAt,
-        "updatedAt": new_note.updatedAt,
-        "noteContentRaw": new_note.noteContentRaw,
-        "noteContentMarkdown": new_note.noteContentMarkdown,
-        "patientId": new_note.patientId,
-        "noteType": new_note.noteType,
-        "userId": new_note.userId,
+        "createdAt": new_note.created_at,
+        "updatedAt": new_note.updated_at,
+        "noteContentRaw": new_note.note_content_raw,
+        "noteContentMarkdown": new_note.note_content_markdown,
+        "participants": participants,
+        "noteType": new_note.note_type,
+        "authorId": new_note.author_id,
         "version": new_note.version
     }), 201
 
@@ -245,21 +370,39 @@ def get_note(id):
     current_user = get_jwt_identity()
 
     # Ensure the note belongs to the current user
-    if note.userId != current_user:
+    if note.authorId != current_user:
         return jsonify({"error": "Not authorized to access this note"}), 403
 
+    # Get participant information
+    participants = []
+    try:
+        for participant in note.participants:
+            participant_info = {
+                "id": participant.id,
+                "first_name": participant.first_name
+            }
+            if hasattr(participant, 'last_name') and participant.last_name:
+                participant_info["last_name"] = participant.last_name
+            if hasattr(participant, 'email') and participant.email:
+                participant_info["email"] = participant.email
+            participants.append(participant_info)
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        participants = []
+        
     return jsonify({
         "id": note.id,
-        "createdAt": note.createdAt,
-        "updatedAt": note.updatedAt,
-        "encounterDate": note.encounterDate,
-        "noteContentRaw": note.noteContentRaw,
-        "noteContentMarkdown": note.noteContentMarkdown,
-        "patientId": note.patientId,
-        "providerId": note.providerId,
-        "providerName": note.providerName,
-        "noteType": note.noteType,
-        "userId": note.userId,
+        "createdAt": note.created_at,
+        "updatedAt": note.updated_at,
+        "noteDate": note.note_date,
+        "noteContentRaw": note.note_content_raw,
+        "noteContentMarkdown": note.note_content_markdown,
+        "participants": participants,
+        "authorId": note.author_id,
+        "authorName": note.author_name,
+        "noteType": note.note_type,
+        "authorId": note.author_id,
         "version": note.version
     })
 
@@ -276,60 +419,167 @@ def update_note(id):
     current_user = get_jwt_identity()
 
     # Ensure the note belongs to the current user
-    if note.userId != current_user:
+    if note.authorId != current_user:
         return jsonify({"error": "Not authorized to update this note"}), 403
 
     data = request.get_json()
 
     # Update note attributes if provided
-    note.noteContentMarkdown = data.get('noteContentMarkdown', note.noteContentMarkdown)
-    note.patientId = data.get('patientId', note.patientId)
-    note.noteType = data.get('noteType', note.noteType)
+    note.note_content_markdown = data.get('noteContentMarkdown', note.note_content_markdown)
+    note.note_type = data.get('noteType', note.note_type)
+    note.updated_at = datetime.now()
+    note.version = note.version + 1
+    
+    # Update participants if provided
+    if 'participants' in data and isinstance(data['participants'], list):
+        # Remove all existing participant associations
+        for participant in note.participants:
+            note.participants.remove(participant)
+        
+        # Add updated participants
+        for participant_data in data['participants']:
+            # Validate required fields
+            if not isinstance(participant_data, dict) or 'id' not in participant_data or 'first_name' not in participant_data:
+                return jsonify({"error": "Each participant must have an id and first_name"}), 400
+            
+            participant_id = participant_data['id']
+            
+            # Check if participant exists
+            participant = Participant.query.get(participant_id)
+            
+            if participant:
+                # Update existing participant
+                participant.first_name = participant_data['first_name']
+                if 'last_name' in participant_data:
+                    participant.last_name = participant_data['last_name']
+                if 'email' in participant_data:
+                    participant.email = participant_data['email']
+            else:
+                # Create new participant
+                participant = Participant(
+                    id=participant_id,
+                    first_name=participant_data['first_name'],
+                    last_name=participant_data.get('last_name'),
+                    email=participant_data.get('email')
+                )
+                db.session.add(participant)
+            
+            # Add relationship between note and participant
+            note.participants.append(participant)
 
     # Commit the changes to the database
     db.session.commit()
 
+    # Get updated participant info for the response
+    participants = []
+    try:
+        for participant in note.participants:
+            participant_info = {
+                "id": participant.id,
+                "first_name": participant.first_name
+            }
+            if hasattr(participant, 'last_name') and participant.last_name:
+                participant_info["last_name"] = participant.last_name
+            if hasattr(participant, 'email') and participant.email:
+                participant_info["email"] = participant.email
+            participants.append(participant_info)
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        participants = []
+
     return jsonify({
         "id": note.id,
-        "createdAt": note.createdAt,
-        "updatedAt": datetime.now(),
-        "encounterDate": encounter_date,
-        "noteContentRaw": note.noteContentRaw,
-        "noteContentMarkdown": note.noteContentMarkdown,
-        "patientId": note.patientId,
-        "noteType": note.noteType,
-        "userId": note.userId,
-        "version": note.version + 1
+        "createdAt": note.created_at,
+        "updatedAt": note.updated_at,
+        "noteDate": note.note_date,
+        "noteContentRaw": note.note_content_raw,
+        "noteContentMarkdown": note.note_content_markdown,
+        "participants": participants,
+        "noteType": note.note_type,
+        "authorId": note.author_id,
+        "version": note.version,
+        "isDeleted": note.is_deleted,
+        "isDeletedTimestamp": note.is_deleted_timestamp
     })
 
-# API route to get all notes for a specific userId (requires authentication)
-@app.route('/api/notes/user/<string:userId>', methods=['GET'])
+# API endpoint to mark a note as deleted (soft delete)
+@app.route('/api/notes/<int:id>/delete', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
-def get_notes_for_user(userId):
+def mark_note_as_deleted(id):
+    note = Note.query.get(id)
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+        
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+    
+    # Ensure the note belongs to the current user
+    #TODO add ability for admin to delete any note
+    if note.authorId != current_user:
+        return jsonify({"error": "Not authorized to delete this note"}), 403
+        
+    # Mark the note as deleted with current timestamp
+    note.is_deleted = True
+    note.is_deleted_timestamp = datetime.now()
+    
+    # Commit the changes to the database
+    db.session.commit()
+    
+    return jsonify({
+        "id": note.id,
+        "message": "Note added to trash, will be permanently deleted in 30 days",
+        "deletedAt": note.is_deleted_timestamp
+    })
+
+
+# API route to get all notes for a specific userId (requires authentication)
+@app.route('/api/notes/user/<string:user_id>', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def get_notes_for_user(user_id):
+    print("Getting notes for userId: " + user_id)
+    
     # Get the current user from the JWT
     current_user = get_jwt_identity()
 
-    # Ensure the user is authorized to access notes for the given userId
-    if current_user != userId:
+    # Ensure the user is authorized to access notes for the given authorId
+    if current_user != user_id:
         return jsonify({"error": "Not authorized to access notes for this user"}), 403
 
-    notes = Note.query.filter_by(userId=userId).all()
+    notes = Note.query.filter_by(author_id=user_id).all()
     if not notes:
-        return jsonify({"error": "No notes found for this user"}), 404
+        return jsonify([]), 200
 
-    notes_list = [{
-        "id": note.id,
-        "createdAt": note.createdAt,
-        "updatedAt": note.updatedAt,
-        "encounterDate": note.encounterDate,
-        "noteContentRaw": note.noteContentRaw,
-        "noteContentMarkdown": note.noteContentMarkdown,
-        "patientId": note.patientId,
-        "noteType": note.noteType,
-        "userId": note.userId
-    } for note in notes]
-
+    notes_list = []
+    
+    try:
+        for note in notes:
+            # Get just the participant IDs for each note
+            participant_ids = [participant.id for participant in note.participants]
+            
+            # Create note object with participants
+            note_data = {
+                "id": note.id,
+                "createdAt": note.created_at,
+                "updatedAt": note.updated_at,
+                "noteDate": note.note_date,
+                "noteContentRaw": note.note_content_raw,
+                "noteContentMarkdown": note.note_content_markdown,
+                "participantIds": participant_ids,  # Include participant ids only for this route
+                "noteType": note.note_type,
+                "authorId": note.author_id,
+                "isDeleted": note.is_deleted,
+                "isDeletedTimestamp": note.is_deleted_timestamp,
+            }
+            
+            notes_list.append(note_data)
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        notes_list = []
+        
     return jsonify(notes_list)
 
 # Function to convert audio to WAV format (if needed)
@@ -359,26 +609,30 @@ def transcribe():
     # Transcribe audio using Faster-Whisper
     segments, _ = whisper_model.transcribe(audio_data, language="en")
 
-    # Combine segments into a single transcript    
-    transcript = " ".join(segment.text for segment in segments)
+    # Combine segments into a single note    
+    note = " ".join(segment.text for segment in segments)
 
     return jsonify({
-        "raw_transcript": transcript,
+        "raw_note": note,
         # "formatted_markdown": formatted_markdown
     })
 
 @app.route('/api/getMarkdown', methods=['POST'])
 @jwt_required()
 def getMarkdown():
-    transcript = request.json['raw_transcript']
+    note = request.json['raw_note']
     visit_details = request.json['visit_details']
     
-    print("Generating markdown: " + transcript)
+    print("Generating markdown: " + note)
     
-    # Format transcript with Ollama LLM
+    # Format note with Ollama LLM
     formatted_markdown = ollama.chat(model="llama3.2", messages=[
-        {"role": "system", "content": "You are an expert medical note assistant. Take the provided text of a conversation between a doctor and a patient. Your task is to format this conversation into a structured medical note in Markdown format with sections like Visit Details, Chief Complaint, History of Present Illness, and Physical Exam. Be concise but complete, only return the formatted markdown without any extra labels or titles. do not include the patient's name or any other identifying information. Do not include three backticks before and after the markdown. Do not include the word markdown."},
-        {"role": "user", "content": f"Here are the visit details: \n\n{visit_details}. Here is the transcript to format:\n\n{transcript}."}
+        {"role": "system", "content": """You are an expert medical note assistant. Take the provided text of a conversation between a doctor and a patient. 
+         Your task is to format this conversation into a structured medical note in Markdown format with sections like Visit Details, Chief Complaint, 
+         History of Present Illness, and Physical Exam. Be concise but complete, only return the formatted markdown without any extra labels or titles. do 
+         not include the patient's name or any other identifying information. Do not include three backticks before and after the markdown. 
+         Do not include the word markdown."""},
+        {"role": "user", "content": f"Here are the visit details: \n\n{visit_details}. Here is the note to format:\n\n{note}."}
     ])["message"]["content"]
 
     print("Formatted markdown: " + formatted_markdown)
@@ -387,5 +641,46 @@ def getMarkdown():
         "formatted_markdown": formatted_markdown
     })
     
+import click
+import uuid
+from werkzeug.security import generate_password_hash
+from getpass import getpass  # Import getpass for hidden password input
+
+@app.cli.command("create-admin")
+@click.option("--email", prompt=True, help="Admin email")
+@click.option("--first-name", prompt=True, help="First name")
+@click.option("--last-name", prompt=True, help="Last name")
+def create_admin(email, first_name, last_name):
+    """Create an admin user."""
+    # Check if user exists
+    if User.query.filter_by(email=email).first():
+        click.echo(f"User with email {email} already exists.")
+        return
+    
+    # Use getpass to hide password input
+    password = getpass("Enter password (input will be hidden): ")
+    password_confirm = getpass("Confirm password (input will be hidden): ")
+    
+    if password != password_confirm:
+        click.echo("Passwords do not match!")
+        return
+        
+    # Create new admin user
+    admin_user = User(
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        password=generate_password_hash(password, method='pbkdf2:sha256')
+    )
+    
+    db.session.add(admin_user)
+    db.session.commit()
+    click.echo(f"Admin user created with ID: {admin_user.id}")
+    
+    
+    
+    
+    
+#RUN SERVER   
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
