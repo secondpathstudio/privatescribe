@@ -8,6 +8,7 @@ import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
+import { Trash2 } from 'lucide-react'
 
 type Props = {
     template: any;
@@ -196,22 +197,33 @@ const SingleTemplateForm = ({ template }: Props) => {
             </div>
         )}
         {!updating && (
-        <div className='flex justify-center items-center gap-4'>
+        <div className='flex justify-between items-center gap-4 mt-4'>
             <NeoButton 
                 type="submit"
-                disabled={form.getValues("content") === '' || form.getValues('name') === '' || form.formState.isSubmitting}
+                disabled={!formState.isDirty}
+                backgroundColor='#fd3777'
+                textColor='#ffffff'
             >
                 Save Template
             </NeoButton>
-            <NeoButton 
-                type="button"
-                disabled={!form.formState.isDirty || form.formState.isSubmitting}
-                onClick={() => {
-                    form.reset();
-                }}
-            >
-                Reset
-            </NeoButton>
+            <div className='flex gap-4 items-center'>
+                <NeoButton 
+                    type="button"
+                    disabled={!formState.isDirty}
+                    onClick={() => {
+                        form.reset();
+                        mdxEditorRef.current?.setMarkdown(template?.content);
+                    }}
+                >
+                    Reset
+                </NeoButton>
+                <NeoButton 
+                    type="button"
+                    onClick={() => console.log('delete note')}
+                >
+                    <Trash2 />
+                </NeoButton>
+            </div>
         </div>
         )}
     </form>
