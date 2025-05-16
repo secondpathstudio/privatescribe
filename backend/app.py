@@ -626,6 +626,7 @@ def create_template():
         "version": new_template.version
     }), 201
 
+#TODO make route to get all (non-deleted) templates and separate route for getting deleted templates
 # API route to get all templates for a specific userId (requires authentication)
 @app.route('/api/templates/user/<string:user_id>', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)

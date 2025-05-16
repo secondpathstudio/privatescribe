@@ -55,6 +55,16 @@ const SingleTemplateForm = ({ template }: Props) => {
                 //template updated
                 const data = await response.json();
                 console.log('Template updated:', data);
+
+                //update form default values
+                form.reset({
+                    name: data.name,
+                    content: data.content,
+                    version: data.version,
+                    authorId: data.authorId,
+                    createdAt: data.createdAt,
+                    updatedAt: data.updatedAt,
+                });
             }
         } catch (error) {
             alert('Error submitting template. Please try again.');
@@ -237,7 +247,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                 backgroundColor='#fd3777'
                 textColor='#ffffff'
             >
-                Save Template
+                {updating ? "Saving..." : "Save Template"}
             </NeoButton>
             <div className='flex gap-4 items-center'>
                 <NeoButton 

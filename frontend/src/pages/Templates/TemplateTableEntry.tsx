@@ -23,7 +23,9 @@ const TemplateTableEntry = (props: Props) => {
               ver. {props.template.version}
             </h4>
             <h2 className='flex gap-2 text-xl font-bold'>{props.template.name} {props.template.isDeleted && <Trash2 />}</h2>
-            <p className='text-gray-600'>{props.template.content?.slice(0,15)}</p>
+            <p className='text-gray-600'>
+              {props.template.content?.slice(0,15)}
+            </p>
             </div>
             <NeoLinkButton 
               route={`/templates/${props.template.id}`}
