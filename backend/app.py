@@ -630,7 +630,7 @@ def create_template():
 @app.route('/api/templates/user/<string:user_id>', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
-def templates(user_id):
+def get_templates_for_user(user_id):
     print("Getting templates for userId: " + user_id)
     
     # Get the current user from the JWT
@@ -642,6 +642,7 @@ def templates(user_id):
 
     templates = Template.query.filter_by(author_id=user_id).all()
     if not templates:
+        print('no templates found for user', current_user)
         return jsonify([]), 200
 
     template_list = []
@@ -651,6 +652,9 @@ def templates(user_id):
             # Create template object
             template_data = {
                 "id": template.id,
+                "content": template.content,
+                "name": template.name,
+                "version": template.version,
                 "createdAt": template.created_at,
                 "updatedAt": template.updated_at,
                 "authorId": template.author_id,
@@ -665,6 +669,34 @@ def templates(user_id):
         notes_list = []
         
     return jsonify(template_list)
+
+# API route to get a single template by ID (requires authentication)
+@app.route('/api/templates/<int:id>', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def get_template(id):
+    template = Template.query.get(id)
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
+
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+
+    # Ensure the note belongs to the current user
+    if template.author_id != current_user:
+        return jsonify({"error": "Not authorized to access this note"}), 403
+        
+    return jsonify({
+        "id": template.id,
+        "name": template.name,
+        "content": template.content,
+        "isDeleted": template.is_deleted,
+        "isDeletedTimestamp": template.is_deleted_timestamp,
+        "createdAt": template.created_at,
+        "updatedAt": template.updated_at,
+        "authorId": template.author_id,
+        "version": template.version
+    })
 
 # Function to convert audio to WAV format (if needed)
 def convert_audio(audio_data, format):
