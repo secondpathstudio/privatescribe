@@ -2,7 +2,6 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/auth-context";
@@ -49,7 +48,7 @@ export default function LoginForm() {
         }
       } catch (error) {
         console.error("Error:", error);
-        alert("Login error. Try again.");
+        alert("Server error - " + error);
       }
   };
 
