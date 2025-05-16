@@ -1,7 +1,7 @@
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEffect, useState } from 'react'
-import SingleNoteForm from './single-note-form'
+import SingleNoteForm from './SingleNoteForm'
 import { useParams } from 'react-router'
 import { useAuth } from '@/context/auth-context'
 

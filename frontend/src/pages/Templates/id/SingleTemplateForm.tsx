@@ -18,10 +18,10 @@ import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 
 type Props = {
-    note: any;
+    template: any;
 }
 
-const SingleTemplateForm = ({ note }: Props) => {
+const SingleTemplateForm = ({ template }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [updating, setUpdating] = React.useState(false);
@@ -29,30 +29,26 @@ const SingleTemplateForm = ({ note }: Props) => {
     
     const form = useForm({
         defaultValues: {
-            patientId: note?.patientId,
-            providerId: note?.providerId,
-            providerName: note?.providerName,
-            encounterDate: note?.encounterDate,
-            noteContentRaw: note?.noteContentRaw,
-            noteContentMarkdown: note?.noteContentMarkdown,
-            noteType: note?.noteType,
-            version: note?.version,
-            createdAt: note?.createdAt,
-            updatedAt: note?.updatedAt,
+            name: template?.name,
+            content: template?.content,
+            version: template?.version,
+            authorId: template?.authorId,
+            createdAt: template?.createdAt,
+            updatedAt: template?.updatedAt,
         }
     });
 
     const formState = useFormState({
         control: form.control,})
 
-    const handleUpdateNote = async (e: FormEvent, form: any) => {
+    const handleUpdateTemplate = async (e: FormEvent, form: any) => {
         e.preventDefault();
         setUpdating(true);
         const formValues = form.getValues();
         console.log('submitting note', formValues);
 
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}`, {
+            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}`, {
                 method: 'PUT',
                 headers: {
                 'Content-Type': 'application/json',
@@ -64,14 +60,13 @@ const SingleTemplateForm = ({ note }: Props) => {
             if (!response.ok) {
                 throw new Error('Network request failed with status ' + response.status);
             } else {
-                //note created
-                //redirect to new note
+                //template updated
                 const data = await response.json();
-                console.log('Note updated:', data);
+                console.log('Template updated:', data);
             }
         } catch (error) {
-            alert('Error submitting note. Please try again.');
-            console.log('Error submitting note: ', error)
+            alert('Error submitting template. Please try again.');
+            console.log('Error submitting template: ', error)
         }
         setUpdating(false);
     }
@@ -81,12 +76,12 @@ const SingleTemplateForm = ({ note }: Props) => {
         return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
     }
 
-    const handleDeleteNote = async () => {
+    const handleDeleteTemplate = async () => {
         const formValues = form.getValues();
         
         setUpdating(true);
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}/delete`, {
+            const response = await fetch(`http://127.0.0.1:5000/api/template/${template.id}/delete`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -100,22 +95,22 @@ const SingleTemplateForm = ({ note }: Props) => {
             } else {
                 //note marked for deletion
                 const data = await response.json();
-                console.log('Note marked for deletion:', data);
+                console.log('Template marked for deletion:', data);
                 
                 if (data.message) {
                     setUpdating(false);
                     alert(data.message + ' - Redirecting to notes page');
                     
                     //redirect to notes page
-                    navigate('/notes');
+                    navigate('/templates');
                 }
                 
 
 
             }
         } catch (error) {
-            alert('Error deleting note. Please try again.');
-            console.log('Error deleting note: ', error)
+            alert('Error deleting template. Please try again.');
+            console.log('Error deleting template: ', error)
             setUpdating(false);
         }
     }
@@ -124,39 +119,15 @@ const SingleTemplateForm = ({ note }: Props) => {
 
   return (
     <Form {...form}>
-    <form onSubmit={(e) => handleUpdateNote(e, form)}>
-        <div className="grid grid-cols-2 gap-4">
-            <fieldset className="flex flex-col gap-2">
-                <FormField 
+    <form onSubmit={(e) => handleUpdateTemplate(e, form)}>
+        <div className="flex flex-col">
+            <fieldset className="flex justify-between items-center gap-2">
+                <FormField
                     control={form.control} 
-                    name="noteType" 
+                    name="name" 
                     render={({ field }) => (
                         <FormItem>
-                            <FormLabel>Note Type</FormLabel>
-                            <FormControl>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="visit">Visit</SelectItem>
-                                        <SelectItem value="procedure">Progress Note</SelectItem>
-                                        <SelectItem value="lab">Lab</SelectItem>
-                                        <SelectItem value="imaging">Imaging</SelectItem>
-                                        <SelectItem value="discharge">Discharge</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField 
-                    control={form.control} 
-                    name="patientId" 
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                            <FormLabel>Patient ID</FormLabel>
+                            <FormLabel>Template Name</FormLabel>
                             <FormControl>
                                 <Input {...field} />
                             </FormControl>
@@ -164,85 +135,24 @@ const SingleTemplateForm = ({ note }: Props) => {
                         </FormItem>
                     )}
                 />
-            </fieldset>
-            <fieldset className="flex flex-col gap-2">
                 <FormField 
                     control={form.control} 
-                    name="encounterDate" 
+                    name="authorId" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Encounter Date</FormLabel>
+                            <FormLabel>Author ID</FormLabel>
                             <FormControl>
-                                <Popover>
-                                    <PopoverTrigger asChild>
-                                        <Button variant="outline" color="primary" size="sm">
-                                            {field.value ? format(field.value, "PPP") : <span>Select a date</span>}
-                                            <CalendarIcon className="w-4 h-4 mr-2" />
-                                        </Button>
-                                    </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
-                                        <Calendar
-                                            mode="single"
-                                            selected={field.value}
-                                            onSelect={field.onChange}
-                                            disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
-                                        />
-                                    </PopoverContent>
-                                </Popover>
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-                <FormField 
-                    control={form.control} 
-                    name="providerName" 
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                            <FormLabel>Provider</FormLabel>
-                            <FormControl>
-                                <Input 
-                                    disabled 
-                                    placeholder="Provider Name"
-                                    {...field}
-                                />
+                                <Input {...field} disabled />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
                     )}
                 />
             </fieldset>
-        </div>
-
-        {/* Tabs Component for Raw Transcript and Markdown Editor */}
-        {/* only show tabs when there is a raw transcript and markdown */}
-        {form.getValues("noteContentRaw") != '' && (
-        <Tabs defaultValue="transcript" className="w-full mt-4">
-            <TabsList className="flex w-full">
-                <TabsTrigger className='grow' value="transcript">Raw Transcript</TabsTrigger>
-                <TabsTrigger className='grow' value="markdown">Markdown Editor</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="transcript">
-                <FormField 
-                    control={form.control} 
-                    name="noteContentRaw" 
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col mt-4">
-                            <FormLabel>Raw Transcription</FormLabel>
-                            <FormControl>
-                                <Textarea {...field} disabled />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-            </TabsContent>
-
-            <TabsContent value="markdown">
+            <fieldset>
                 <FormField
                     control={form.control}
-                    name="noteContentMarkdown"
+                    name="content"
                     render={({ field }) => (
                         <FormItem className="w-full mt-4">
                             <FormControl>
@@ -274,9 +184,18 @@ const SingleTemplateForm = ({ note }: Props) => {
                         </FormItem>
                     )}
                 />
-            </TabsContent>
-        </Tabs>
+            </fieldset>
+        </div>
+
+        {/* animation for server processing */}
+        {updating && (
+        <div className="flex flex-col w-full justify-center items-center mt-4">
+            <PirateWheel isRotating={true} />
+            <p className="text-primary">Transcribing audio...</p>
+        </div>
         )}
+
+       
         
         {/* Buttons */}
         {updating && (
@@ -285,37 +204,26 @@ const SingleTemplateForm = ({ note }: Props) => {
                 <p className="text-primary">Saving note...</p>
             </div>
         )}
-        {!updating && form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
-        <div className='flex justify-between items-center gap-4 mt-4'>
+        {!updating && (
+        <div className='flex justify-center items-center gap-4'>
             <NeoButton 
                 type="submit"
-                backgroundColor='#fd3777'
-                textColor='#ffffff'
+                disabled={form.getValues("content") === '' || form.getValues('name') === '' || form.formState.isSubmitting}
             >
-                Save Note
+                Save Template
             </NeoButton>
-            <div className='flex gap-4 items-center'>
-                <NeoButton 
-                    type="button"
-                    disabled={!formState.isDirty}
-                    onClick={() => {
-                        form.reset();
-                        mdxEditorRef.current?.setMarkdown(note?.noteContentMarkdown);
-                    }}
-                >
-                    Reset
-                </NeoButton>
-                <NeoButton 
-                    type="button"
-                    onClick={() => confirm('Are you sure you want to delete this note?') && handleDeleteNote()}
-                >
-                    <Trash2 />
-                </NeoButton>
-            </div>
+            <NeoButton 
+                type="button"
+                onClick={() => {
+                    form.reset();
+                }}
+            >
+                Reset
+            </NeoButton>
         </div>
         )}
     </form>
-</Form>
+    </Form>
 
   )
 }

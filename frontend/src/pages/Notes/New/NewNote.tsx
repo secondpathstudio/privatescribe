@@ -1,6 +1,6 @@
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
-import NewNoteForm from './new-note-form'
+import NewNoteForm from './NewNoteForm'
 
 const NewNote = () => {
   return (
