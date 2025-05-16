@@ -698,6 +698,45 @@ def get_template(id):
         "version": template.version
     })
 
+# API route to update a note by ID (requires authentication)
+@app.route('/api/templates/<int:id>', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def update_template(id):
+    template = Template.query.get(id)
+    if not template:
+        return jsonify({"error": "Note not found"}), 404
+
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+
+    # Ensure the note belongs to the current user
+    if template.author_id != current_user:
+        return jsonify({"error": "Not authorized to update this note"}), 403
+
+    data = request.get_json()
+
+    # Update note attributes if provided
+    template.name = data.get('name', template.name)
+    template.content = data.get('content', template.content)
+    template.updated_at = datetime.now()
+    template.version = template.version + 1
+    
+    # Commit the changes to the database
+    db.session.commit()
+
+    return jsonify({
+        "id": template.id,
+        "createdAt": template.created_at,
+        "updatedAt": template.updated_at,
+        "content": template.content,
+        "name": template.name,
+        "authorId": template.author_id,
+        "version": template.version,
+        "isDeleted": template.is_deleted,
+        "isDeletedTimestamp": template.is_deleted_timestamp
+    })
+
 # Function to convert audio to WAV format (if needed)
 def convert_audio(audio_data, format):
     audio = AudioSegment.from_file(io.BytesIO(audio_data), format=format)

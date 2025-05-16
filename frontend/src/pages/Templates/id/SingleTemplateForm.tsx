@@ -205,6 +205,7 @@ const SingleTemplateForm = ({ template }: Props) => {
             </NeoButton>
             <NeoButton 
                 type="button"
+                disabled={!form.formState.isDirty || form.formState.isSubmitting}
                 onClick={() => {
                     form.reset();
                 }}
