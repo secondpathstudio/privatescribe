@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { FormEvent, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
@@ -8,6 +8,7 @@ import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
 import { useNavigate } from 'react-router'
 import NeoButton from '@/components/neo/neo-button'
+import '@mdxeditor/editor/style.css'
 
 
 const NewTemplateForm = () => {
@@ -15,13 +16,14 @@ const NewTemplateForm = () => {
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
     const [markdown, setMarkdown] = React.useState('');
     const [savingTemplate, setSavingTemplate] = React.useState(false);
+    const navigate = useNavigate();
 
-    const handleAddNewTemplate = async (form: any) => {
+    const handleAddNewTemplate = async (e: FormEvent, form: any) => {
+        e.preventDefault();
         setSavingTemplate(true);
         const formValues = form.getValues();
-        console.log('submitting note', formValues);
-        const navigate = useNavigate();
-
+        console.log('submitting template', formValues);
+        
         try {
             const response = await fetch('http://127.0.0.1:5000/api/templates', {
                 method: 'POST',
@@ -36,10 +38,11 @@ const NewTemplateForm = () => {
                 throw new Error('Network request failed with status ' + response.status);
             } else {
                 //template created
-                //redirect to new template
                 const data = await response.json();
                 console.log('Template created:', data);
-                navigate(`/templates/${data.id}`);
+                
+                //redirect to new template
+                // navigate(`/templates/${data.id}`);
             }
         } catch (error) {
             alert('Error creating template. Please try again.');
@@ -56,7 +59,7 @@ const NewTemplateForm = () => {
     const form = useForm({
         defaultValues: {
             name: '',
-            content: '',
+            content: 'New template',
             version: 1,
             authorId: auth.user?.id
         }
@@ -64,7 +67,7 @@ const NewTemplateForm = () => {
 
   return (
     <Form {...form}>
-    <form onSubmit={handleAddNewTemplate}>
+    <form onSubmit={(e) => handleAddNewTemplate(e, form)}>
         <div className="flex flex-col">
             <fieldset className="flex justify-between items-center gap-2">
                 <FormField
@@ -136,19 +139,11 @@ const NewTemplateForm = () => {
         {savingTemplate && (
         <div className="flex flex-col w-full justify-center items-center mt-4">
             <PirateWheel isRotating={true} />
-            <p className="text-primary">Transcribing audio...</p>
+            <p className="text-primary">Saving template...</p>
         </div>
         )}
-
-       
         
         {/* Buttons */}
-        {savingTemplate && (
-            <div className="flex flex-col w-full justify-center items-center mt-4">
-                <PirateWheel isRotating={true} />
-                <p className="text-primary">Saving note...</p>
-            </div>
-        )}
         {!savingTemplate && (
         <div className='flex justify-center items-center gap-4'>
             <NeoButton 

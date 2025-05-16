@@ -1,28 +1,8 @@
-// import MarkdownEditor from '@/components/md-editor';
-import { MDXEditor } from '@mdxeditor/editor';
-import '@mdxeditor/editor/style.css'
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
-import { headingsPlugin, quotePlugin, listsPlugin, toolbarPlugin, UndoRedo, BoldItalicUnderlineToggles, ListsToggle } from '@mdxeditor/editor';
-import { useRef, useState } from 'react';
 import NewTemplateForm from './NewTemplateForm';
 
 const NewTemplate = () => {
-  const [markdownTemplate, setMarkdownTemplate] = useState("");
-  const markdownExample = `## Example Template
-    - **Name:** [speaker's name]
-    - **Role:** [Enter speaker's role]
-
-    ## Date and Time
-    - **Date:** [Enter date]
-    - **Time:** [Enter time]
-
-    ## Context
-    [Provide a brief description of the context or purpose of the dictation]
-
-    ## Notes
-    - [Add any additional notes or observations here]
-    `;
 
   return (
     <div className="max-w-screen-lg mx-auto px-4 py-10">
