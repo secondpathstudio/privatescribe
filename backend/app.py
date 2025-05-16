@@ -667,7 +667,7 @@ def get_templates_for_user(user_id):
     except Exception as e:
         # Log the error
         print(f"Error getting templates: {str(e)}")
-        notes_list = []
+        template_list = []
         
     return jsonify(template_list)
 

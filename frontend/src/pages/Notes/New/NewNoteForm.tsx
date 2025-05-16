@@ -18,8 +18,11 @@ import PirateWheel from '@/components/PirateWheel'
 import { useNavigate } from 'react-router'
 import NeoButton from '@/components/neo/neo-button'
 
+type Props = {
+    templates: any[]
+}
 
-const NewNoteForm = () => {
+const NewNoteForm = ({templates}: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
     const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
@@ -27,6 +30,7 @@ const NewNoteForm = () => {
     const [isTranscribing, setIsTranscribing] = React.useState(false);
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
     const [savingNote, setSavingNote] = React.useState(false);
+    const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
 
     const handleAddNewNote = async (form: any) => {
         setSavingNote(true);
@@ -59,16 +63,11 @@ const NewNoteForm = () => {
         }
         setSavingNote(false);
     }
-    
-    const getDateString = () => {
-        const date = new Date();
-        return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
-    }
 
     const form = useForm({
         defaultValues: {
             authorId: auth.user?.id,
-            authorName: auth.user?.firstName + ' ' + auth.user?.lastName,
+            authorName: auth.user?.firstName,
             participants: [],
             noteDate: new Date(),
             noteContentRaw: '',
@@ -79,6 +78,16 @@ const NewNoteForm = () => {
             status: 'draft',
         }
     });
+
+    useEffect(() => {
+    const currentTemplateId = form.watch('noteTemplate');
+    if (currentTemplateId && templates) {
+      const selectedTemplate = templates.find(template => template.id === currentTemplateId);
+      if (selectedTemplate) {
+        setSelectedTemplateName(selectedTemplate.name);
+      }
+    }
+  }, [form.watch('noteTemplate'), templates]);
 
     const transcribeRecording = async (blob: Blob) => {
         // get transcription from whisper
@@ -170,16 +179,31 @@ const NewNoteForm = () => {
                         <FormItem>
                             <FormLabel>Note Template</FormLabel>
                             <FormControl>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <SelectTrigger>
-                                        <SelectValue />
+                                <Select 
+                                    onValueChange={(value) => {
+                                        field.onChange(value);
+                                        const selectedTemplate = templates.find(t => t.id === value);
+                                        if (selectedTemplate) {
+                                            setSelectedTemplateName(selectedTemplate.name);
+                                        }
+                                    }} 
+                                    value={field.value}
+                                >
+                                    <SelectTrigger className='z-10 bg-white'>
+                                        <SelectValue placeholder="Select a template">
+                                            {selectedTemplateName || "Select a template"}
+                                        </SelectValue>
                                     </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="visit">Visit</SelectItem>
-                                        <SelectItem value="procedure">Progress Note</SelectItem>
-                                        <SelectItem value="lab">Lab</SelectItem>
-                                        <SelectItem value="imaging">Imaging</SelectItem>
-                                        <SelectItem value="discharge">Discharge</SelectItem>
+                                    <SelectContent className='z-10 bg-white'>
+                                        {templates.map((template: any) => (
+                                            <SelectItem  
+                                                key={template.id} 
+                                                value={template.id}
+                                                className='hover:bg-[#fd3777]'
+                                                >
+                                                {template.name}
+                                            </SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </FormControl>
@@ -192,7 +216,7 @@ const NewNoteForm = () => {
                     name="participants" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Patient ID</FormLabel>
+                            <FormLabel>Participants</FormLabel>
                             <FormControl>
                                 <Input {...field} />
                             </FormControl>
@@ -207,7 +231,7 @@ const NewNoteForm = () => {
                     name="noteDate" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Encounter Date</FormLabel>
+                            <FormLabel>Note Date</FormLabel>
                             <FormControl>
                                 <Popover>
                                     <PopoverTrigger asChild>
@@ -235,7 +259,7 @@ const NewNoteForm = () => {
                     name="authorName" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Provider</FormLabel>
+                            <FormLabel>Author</FormLabel>
                             <FormControl>
                                 <Input 
                                     disabled 
