@@ -69,6 +69,7 @@ class Template(db.Model):
     content = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    version = db.Column(db.Integer, nullable=False)
     
     # Relationship: A template can be used by many notes
     notes = db.relationship('Note', backref='template', lazy=True)
@@ -533,7 +534,6 @@ def mark_note_as_deleted(id):
         "deletedAt": note.is_deleted_timestamp
     })
 
-
 # API route to get all notes for a specific userId (requires authentication)
 @app.route('/api/notes/user/<string:user_id>', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
@@ -581,6 +581,49 @@ def get_notes_for_user(user_id):
         notes_list = []
         
     return jsonify(notes_list)
+
+# API route to create a note (requires authentication)
+@app.route('/api/templates', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def create_template():
+    data = request.get_json()
+
+    # Validate required fields
+    if not all(k in data for k in (
+        'name', 
+        'content')):
+        return jsonify({"error": "Missing required fields"}), 400
+        
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+
+    # Create a new note instance
+    new_template = Template(
+        content=data['content'],
+        name=data['name'],
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        version=1,
+        author_id=current_user  # Link the note to the current user (UUID)
+    )
+    
+    print('adding template', new_template)
+
+    # Add the note to the database
+    db.session.add(new_template)
+    db.session.commit()
+
+    return jsonify({
+        "id": new_template.id,
+        "createdAt": new_template.created_at,
+        "updatedAt": new_template.updated_at,
+        "content": new_template.content,
+        "name": new_template.name,
+        "authorId": new_template.author_id,
+        "version": new_template.version
+    }), 201
+
 
 # Function to convert audio to WAV format (if needed)
 def convert_audio(audio_data, format):
