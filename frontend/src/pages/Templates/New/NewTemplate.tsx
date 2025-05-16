@@ -5,6 +5,7 @@ import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { headingsPlugin, quotePlugin, listsPlugin, toolbarPlugin, UndoRedo, BoldItalicUnderlineToggles, ListsToggle } from '@mdxeditor/editor';
 import { useRef, useState } from 'react';
+import NewTemplateForm from './NewTemplateForm';
 
 const NewTemplate = () => {
   const [markdownTemplate, setMarkdownTemplate] = useState("");
@@ -40,25 +41,7 @@ const NewTemplate = () => {
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
-              <div className='flex flex-col space-y-4'>
-                <h2 className='text-2xl font-bold'>New Template Name</h2>
-                <MDXEditor 
-                  markdown='hello world'
-                  plugins={[
-                    headingsPlugin(),
-                    quotePlugin(),
-                    listsPlugin(),
-                    toolbarPlugin({
-                      toolbarContents: () => (
-                        <>
-                          <UndoRedo />
-                          <BoldItalicUnderlineToggles />
-                        </>
-                      )
-                    })
-                  ]}
-                />
-              </div>
+              <NewTemplateForm />
             </CardTitle>
           </CardHeader>
         </Card>
