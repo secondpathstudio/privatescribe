@@ -81,7 +81,7 @@ const NeobrutalHome = () => {
               "Self-hosted deployment",
               "Works with publicly available models"
             ]}
-            buttonText='Try Free'
+            buttonText='100% Free!'
           />
       
           <NeoPricingCard

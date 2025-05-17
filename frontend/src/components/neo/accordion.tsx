@@ -23,7 +23,7 @@ const NeoAccordion = () => {
     }
   ];
 
-  const [openIndex, setOpenIndex] = useState<number | null>(0); // First item open by default
+  const [openIndex, setOpenIndex] = useState<number | null>(null); // First item open by default
 
   const toggleAccordion = (index: number) => {
     setOpenIndex(openIndex === index ? null : index);
@@ -45,14 +45,6 @@ const NeoAccordion = () => {
             />
           ))}
         </div>
-        
-        {/* <div className="mt-16 text-center">
-          <div className="inline-block p-8 mb-8">
-            <h3 className="text-xl font-bold mb-4">Still have questions?</h3>
-            <p className="mb-6">Check out our <span className="underline font-semibold cursor-pointer hover:text-white transition-colors">documentation</span> or join our <span className="underline font-semibold cursor-pointer hover:text-indigo-600 transition-colors">GitHub discussions</span>.</p>
-            <NeoButton label="Contact Us" />
-          </div>
-        </div> */}
       </div>
     </section>
   );
