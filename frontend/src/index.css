@@ -1,8 +1,6 @@
 @import "tailwindcss";
 @import '@mdxeditor/editor/style.css';
 
-@plugin "tailwindcss-animate";
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
