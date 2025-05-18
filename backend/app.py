@@ -234,6 +234,7 @@ def refresh():
 @jwt_required()
 def create_note():
     data = request.get_json()
+    print('creating note', data)
     
     encounter_date = datetime.now()
     if 'encounterDate' in data:
@@ -244,35 +245,37 @@ def create_note():
         'noteContentRaw', 
         'noteContentMarkdown', 
         'authorName',
-        'templateId', 
+        'noteTemplate', 
         'noteDate',
-        'noteType',
         'participants')):
+        print('missing required fields', data)
         return jsonify({"error": "Missing required fields"}), 400
     
     # Validate template
     if 'templateId' in data and data['templateId']:
         template = Template.query.get(data['templateId'])
         if not template:
+            print('template not found', data['templateId'])
             return jsonify({"error": f"Template with ID {data['templateId']} not found"}), 400
     
     # validate participantIds
-    if not isinstance(data['participants'], list):
-        return jsonify({"error": "participants must be a list"}), 400
+    # if not isinstance(data['participants'], list):
+    #     return jsonify({"error": "participants must be a list"}), 400
     
+    # TODO make participants optional but add UX for creating/adding them
     # Validate each participant has required fields
-    try:
-        for participant in data['participants']:
-            if not isinstance(participant, dict):
-                return jsonify({"error": "Each participant must be an object"}), 400
-            if 'id' not in participant:
-                return jsonify({"error": "Each participant must have an id"}), 400
-            if 'first_name' not in participant:
-                return jsonify({"error": "Each participant must have a first_name"}), 400
-    except Exception as e:
-        # Log the error
-        print(f"Error accessing participants: {str(e)}")
-        participants = []  # Fallback to empty list if there's an error
+    # try:
+    #     for participant in data['participants']:
+    #         if not isinstance(participant, dict):
+    #             return jsonify({"error": "Each participant must be an object"}), 400
+    #         if 'id' not in participant:
+    #             return jsonify({"error": "Each participant must have an id"}), 400
+    #         if 'first_name' not in participant:
+    #             return jsonify({"error": "Each participant must have a first_name"}), 400
+    # except Exception as e:
+    #     # Log the error
+    #     print(f"Error accessing participants: {str(e)}")
+    #     participants = []  # Fallback to empty list if there's an error
         
     # Get the current user from the JWT
     current_user = get_jwt_identity()
@@ -281,12 +284,15 @@ def create_note():
     new_note = Note(
         note_content_raw=data['noteContentRaw'],
         note_content_markdown=data['noteContentMarkdown'],
-        note_type=data['noteType'],
+        note_type='text',
         note_date=encounter_date,
         created_at=datetime.now(),
         updated_at=datetime.now(),
         author_name=data['authorName'],
         version=data['version'],
+        template_id=data['noteTemplate'],
+        is_deleted=False,
+        is_deleted_timestamp=None,
         author_id=current_user  # Link the note to the current user (UUID)
     )
     
@@ -296,57 +302,57 @@ def create_note():
     db.session.add(new_note)
     db.session.flush()
     
-    # Add participants
-    try:
-        for participant_data in data['participants']:
-            participant_id = participant_data['id']
+    # # Add participants
+    # try:
+    #     for participant_data in data['participants']:
+    #         participant_id = participant_data['id']
             
-            # Check if participant exists
-            participant = Participant.query.get(participant_id)
+    #         # Check if participant exists
+    #         participant = Participant.query.get(participant_id)
             
-            if participant:
-                # Update existing participant if needed
-                participant.first_name = participant_data['first_name']
-                if 'last_name' in participant_data:
-                    participant.last_name = participant_data['last_name']
-                if 'email' in participant_data:
-                    participant.email = participant_data['email']
-            else:
-                # Create new participant
-                participant = Participant(
-                    id=participant_id,
-                    first_name=participant_data['first_name'],
-                    last_name=participant_data.get('last_name'),  # Use get to handle optional fields
-                    email=participant_data.get('email')
-                )
-                db.session.add(participant)
+    #         if participant:
+    #             # Update existing participant if needed
+    #             participant.first_name = participant_data['first_name']
+    #             if 'last_name' in participant_data:
+    #                 participant.last_name = participant_data['last_name']
+    #             if 'email' in participant_data:
+    #                 participant.email = participant_data['email']
+    #         else:
+    #             # Create new participant
+    #             participant = Participant(
+    #                 id=participant_id,
+    #                 first_name=participant_data['first_name'],
+    #                 last_name=participant_data.get('last_name'),  # Use get to handle optional fields
+    #                 email=participant_data.get('email')
+    #             )
+    #             db.session.add(participant)
             
-            # Add relationship between note and participant
-            new_note.participants.append(participant)
-    except Exception as e:
-        # Log the error
-        print(f"Error adding participants: {str(e)}")
-        return jsonify({"error": "Failed to add participants"}), 500
+    #         # Add relationship between note and participant
+    #         new_note.participants.append(participant)
+    # except Exception as e:
+    #     # Log the error
+    #     print(f"Error adding participants: {str(e)}")
+    #     return jsonify({"error": "Failed to add participants"}), 500
     
     db.session.commit()
     
-    # Get participant info for the response
-    participants = []
-    try:
-        for participant in new_note.participants:
-            participant_info = {
-                "id": participant.id,
-                "first_name": participant.first_name
-            }
-            if participant.last_name:
-                participant_info["last_name"] = participant.last_name
-            if participant.email:
-                participant_info["email"] = participant.email
-            participants.append(participant_info)
-    except Exception as e:
-        # Log the error
-        print(f"Error accessing participants: {str(e)}")
-        participants = []
+    # # Get participant info for the response
+    # participants = []
+    # try:
+    #     for participant in new_note.participants:
+    #         participant_info = {
+    #             "id": participant.id,
+    #             "first_name": participant.first_name
+    #         }
+    #         if participant.last_name:
+    #             participant_info["last_name"] = participant.last_name
+    #         if participant.email:
+    #             participant_info["email"] = participant.email
+    #         participants.append(participant_info)
+    # except Exception as e:
+    #     # Log the error
+    #     print(f"Error accessing participants: {str(e)}")
+    #     participants = []
 
     return jsonify({
         "id": new_note.id,
@@ -354,7 +360,7 @@ def create_note():
         "updatedAt": new_note.updated_at,
         "noteContentRaw": new_note.note_content_raw,
         "noteContentMarkdown": new_note.note_content_markdown,
-        "participants": participants,
+        # "participants": participants,
         "noteType": new_note.note_type,
         "authorId": new_note.author_id,
         "version": new_note.version
@@ -373,26 +379,26 @@ def get_note(id):
     current_user = get_jwt_identity()
 
     # Ensure the note belongs to the current user
-    if note.authorId != current_user:
+    if note.author_id != current_user:
         return jsonify({"error": "Not authorized to access this note"}), 403
 
     # Get participant information
-    participants = []
-    try:
-        for participant in note.participants:
-            participant_info = {
-                "id": participant.id,
-                "first_name": participant.first_name
-            }
-            if hasattr(participant, 'last_name') and participant.last_name:
-                participant_info["last_name"] = participant.last_name
-            if hasattr(participant, 'email') and participant.email:
-                participant_info["email"] = participant.email
-            participants.append(participant_info)
-    except Exception as e:
-        # Log the error
-        print(f"Error accessing participants: {str(e)}")
-        participants = []
+    # participants = []
+    # try:
+    #     for participant in note.participants:
+    #         participant_info = {
+    #             "id": participant.id,
+    #             "first_name": participant.first_name
+    #         }
+    #         if hasattr(participant, 'last_name') and participant.last_name:
+    #             participant_info["last_name"] = participant.last_name
+    #         if hasattr(participant, 'email') and participant.email:
+    #             participant_info["email"] = participant.email
+    #         participants.append(participant_info)
+    # except Exception as e:
+    #     # Log the error
+    #     print(f"Error accessing participants: {str(e)}")
+    #     participants = []
         
     return jsonify({
         "id": note.id,
@@ -401,12 +407,13 @@ def get_note(id):
         "noteDate": note.note_date,
         "noteContentRaw": note.note_content_raw,
         "noteContentMarkdown": note.note_content_markdown,
-        "participants": participants,
         "authorId": note.author_id,
         "authorName": note.author_name,
         "noteType": note.note_type,
-        "authorId": note.author_id,
-        "version": note.version
+        "noteTemplate": note.template_id,
+        "version": note.version,
+        "isDeleted": note.is_deleted,
+        "isDeletedTimestamp": note.is_deleted_timestamp,
     })
 
 # API route to update a note by ID (requires authentication)
@@ -515,17 +522,20 @@ def mark_note_as_deleted(id):
     if not note:
         return jsonify({"error": "Note not found"}), 404
         
+    print('marking note as deleted', note)
+    
     # Get the current user from the JWT
     current_user = get_jwt_identity()
     
     # Ensure the note belongs to the current user
     #TODO add ability for admin to delete any note
-    if note.authorId != current_user:
+    if note.author_id != current_user:
         return jsonify({"error": "Not authorized to delete this note"}), 403
         
     # Mark the note as deleted with current timestamp
     note.is_deleted = True
     note.is_deleted_timestamp = datetime.now()
+    note.updated_at = datetime.now()
     
     # Commit the changes to the database
     db.session.commit()
@@ -535,6 +545,37 @@ def mark_note_as_deleted(id):
         "message": "Note added to trash, will be permanently deleted in 30 days",
         "deletedAt": note.is_deleted_timestamp
     })
+
+# API endpoint to restore a deleted note
+@app.route('/api/notes/<int:id>/restore', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def mark_note_as_restored(id):
+    note = Note.query.get(id)
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+        
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+    
+    # Ensure the note belongs to the current user
+    #TODO add ability for admin to delete any note
+    if note.author_id != current_user:
+        return jsonify({"error": "Not authorized to delete this note"}), 403
+        
+    # Mark the note as deleted with current timestamp
+    note.is_deleted = False
+    note.is_deleted_timestamp = None
+    note.updated_at = datetime.now()
+    
+    # Commit the changes to the database
+    db.session.commit()
+    
+    return jsonify({
+        "id": note.id,
+        "message": "Note restored successfully.",
+    })
+
 
 # API route to get all notes for a specific userId (requires authentication)
 @app.route('/api/notes/user/<string:user_id>', methods=['GET'])
