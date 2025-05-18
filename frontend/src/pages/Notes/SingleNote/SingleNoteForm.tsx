@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { CalendarIcon, Trash, Trash2 } from 'lucide-react'
+import { ArchiveRestore, CalendarIcon, RefreshCcw, Trash, Trash2 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
@@ -15,28 +15,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
+import { useNavigate } from 'react-router'
 
 type Props = {
     note: any;
+    templates: any[];
 }
 
-const SingleNoteForm = ({ note }: Props) => {
+const SingleNoteForm = ({ note, templates }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [savingNote, setSavingNote] = React.useState(false);
-    
+    const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
+    const navigation = useNavigate();
+
     const form = useForm({
         defaultValues: {
-            patientId: note?.patientId,
-            providerId: note?.providerId,
-            providerName: note?.providerName,
-            encounterDate: note?.encounterDate,
+            authorId: note?.authorId,
+            authorName: note?.authorName,
+            noteDate: note?.noteDate,
             noteContentRaw: note?.noteContentRaw,
             noteContentMarkdown: note?.noteContentMarkdown,
             noteType: note?.noteType,
             version: note?.version,
             createdAt: note?.createdAt,
             updatedAt: note?.updatedAt,
+            participants: note?.participants || '',
+            noteTemplate: note?.noteTemplate ? templates.find((template) => template.id === note.noteTemplate)?.id : 1,
         }
     });
 
@@ -74,12 +79,57 @@ const SingleNoteForm = ({ note }: Props) => {
         setSavingNote(false);
     }
     
-    const getDateString = () => {
-        const date = new Date();
-        return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
+    const handleDeleteNote = async () => {
+        if (confirm('Are you sure you want to delete this note?')) {
+            try {
+                const response = await fetch(`http://127.0.1:5000/api/notes/${note.id}/delete`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`,
+                    },
+                    body: JSON.stringify({id: note.id})
+                });
+                if (!response.ok) {
+                    throw new Error('Network request failed with status ' + response.status);
+                } else {
+                    //note deleted
+                    //redirect to notes page
+                    alert('Note deleted successfully');
+                    navigation('/notes');
+                }
+            } catch (error) {
+                alert('Error deleting note. Please try again.');
+                console.log('Error deleting note: ', error)
+            }
+        }
     }
 
-    
+    const handleRestoreNote = async () => {
+        if (confirm('Are you sure you want to restore this note?')) {
+            try {
+                const response = await fetch(`http://127.0.1:5000/api/notes/${note.id}/restore`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`,
+                    },
+                    body: JSON.stringify({id: note.id})
+                });
+                if (!response.ok) {
+                    throw new Error('Network request failed with status ' + response.status);
+                } else {
+                    //note restored
+                    //redirect to notes page
+                    alert('Note restored successfully');
+                    navigation('/notes');
+                }
+            } catch (error) {
+                alert('Error restoring note. Please try again.');
+                console.log('Error restoring note: ', error)
+            }
+        }
+    }
 
   return (
     <Form {...form}>
@@ -87,35 +137,50 @@ const SingleNoteForm = ({ note }: Props) => {
         <div className="grid grid-cols-2 gap-4">
             <fieldset className="flex flex-col gap-2">
                 <FormField 
-                    control={form.control} 
-                    name="noteType" 
-                    render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Note Type</FormLabel>
-                            <FormControl>
-                                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="visit">Visit</SelectItem>
-                                        <SelectItem value="procedure">Progress Note</SelectItem>
-                                        <SelectItem value="lab">Lab</SelectItem>
-                                        <SelectItem value="imaging">Imaging</SelectItem>
-                                        <SelectItem value="discharge">Discharge</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
+                                    control={form.control} 
+                                    name="noteTemplate" 
+                                    render={({ field }) => (
+                                        <FormItem>
+                                            <FormLabel>Note Template</FormLabel>
+                                            <FormControl>
+                                                <Select 
+                                                    onValueChange={(value) => {
+                                                        field.onChange(value);
+                                                        const selectedTemplate = templates.find(t => t.id === value);
+                                                        if (selectedTemplate) {
+                                                            setSelectedTemplateName(selectedTemplate.name);
+                                                        }
+                                                    }} 
+                                                    value={field.value}
+                                                >
+                                                    <SelectTrigger className='z-10 bg-white'>
+                                                        <SelectValue placeholder="Select a template">
+                                                            {selectedTemplateName || "Select a template"}
+                                                        </SelectValue>
+                                                    </SelectTrigger>
+                                                    <SelectContent className='z-10 bg-white'>
+                                                        {templates.map((template: any) => (
+                                                            <SelectItem  
+                                                                key={template.id} 
+                                                                value={template.id}
+                                                                className='hover:bg-[#fd3777]'
+                                                                >
+                                                                {template.name}
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </FormControl>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
                 <FormField 
                     control={form.control} 
-                    name="patientId" 
+                    name="participants" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Patient ID</FormLabel>
+                            <FormLabel>Participants</FormLabel>
                             <FormControl>
                                 <Input {...field} />
                             </FormControl>
@@ -127,10 +192,10 @@ const SingleNoteForm = ({ note }: Props) => {
             <fieldset className="flex flex-col gap-2">
                 <FormField 
                     control={form.control} 
-                    name="encounterDate" 
+                    name="noteDate" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Encounter Date</FormLabel>
+                            <FormLabel>Note Date</FormLabel>
                             <FormControl>
                                 <Popover>
                                     <PopoverTrigger asChild>
@@ -155,10 +220,10 @@ const SingleNoteForm = ({ note }: Props) => {
                 />
                 <FormField 
                     control={form.control} 
-                    name="providerName" 
+                    name="authorName" 
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Provider</FormLabel>
+                            <FormLabel>Author Name</FormLabel>
                             <FormControl>
                                 <Input 
                                     disabled 
@@ -264,12 +329,22 @@ const SingleNoteForm = ({ note }: Props) => {
                 >
                     Reset
                 </NeoButton>
+                {note?.isDeleted && (
+                    <NeoButton 
+                    type="button"
+                    onClick={handleRestoreNote}
+                >
+                    <span className='flex gap-2 items-center justify-center'>Restore <RefreshCcw /></span>
+                </NeoButton>
+                )}
+                {!note?.isDeleted && (
                 <NeoButton 
                     type="button"
-                    onClick={() => console.log('delete note')}
+                    onClick={handleDeleteNote}
                 >
                     <Trash2 />
                 </NeoButton>
+                )}
             </div>
         </div>
         )}

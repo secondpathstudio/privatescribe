@@ -11,10 +11,10 @@ const SingleNote = () => {
   const [note, setNote] = useState<any>(null)
   const { id } = useParams()
   const auth = useAuth();
+  const [templates, setTemplates] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchNote = async () => {
-      console.log('fetching note', id)
       try {
         const response = await fetch(`http://127.0.0.1:5000/api/notes/${id}`, {
           method: 'GET',
@@ -24,16 +24,41 @@ const SingleNote = () => {
           },
       });
         const data = await response.json()
-        console.log('received note data', data)
         setNote(data)
       }
       catch (error) {
-        console.error(error)
+        console.error('Error fetching note: ', error)
       }
     }
 
     fetchNote()
   }, [id])
+
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/api/templates/user/${auth.user?.id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.token}`,
+          },
+        });
+
+        if (!response.ok) {
+          console.log('Invalid server response: ', response)
+          throw new Error('Network request failed with status ' + response.status);
+        } else {
+          const data = await response.json();
+          setTemplates(data);
+        }
+      } catch (error) {
+        console.log('Error fetching templates: ', error)
+      }
+    }
+
+    fetchTemplates();
+  }, []);
 
 
   return (
@@ -54,7 +79,7 @@ const SingleNote = () => {
           <CardHeader>
             <CardTitle>
               {note && 
-              <SingleNoteForm note={note} />
+              <SingleNoteForm note={note} templates={templates} />
               }
             </CardTitle>
           </CardHeader>
