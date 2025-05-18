@@ -865,14 +865,13 @@ def getMarkdown():
     else:
         return jsonify({"error": "Invalid template_id"}), 400
     
-    print(f"template: {template}")
+    print(f"template: {template.content}")
     
     #TODO add author + participant names?
     # Format note with Ollama LLM
     formatted_markdown = ollama.chat(model="llama3.2", messages=[
-        {"role": "system", "content": f"""You are an expert note transcriptionist creating a transcription for an audio recording to match {template.content}. 
-         Take the provided text of a conversation between people. 
-         Your task is to format this conversation into a structured note in Markdown format to match {template.content}. Please format any dates in MM/DD/YYYY.
+        {"role": "system", "content": f"""You are an expert at creating a transcription for an audio recording to match the following markdown template: {template.content}. 
+         Your current task is to summarize, extract relevant data, and format conversations into Markdown format to match this template: {template.content}. Please format any dates in MM/DD/YYYY.
          Be concise but complete, only return the formatted markdown without any extra labels or titles. Do not include three backticks before and after the markdown. 
          Do not include the word markdown."""},
         {"role": "user", "content": f"Here are the note details: \n\n{note_details}. Here is the note to format:\n\n{raw_note}."}
