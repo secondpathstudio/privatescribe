@@ -368,10 +368,10 @@ const NewNoteForm = ({templates}: Props) => {
             </div>
         )}
         {!savingNote && form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
-        <div className='flex justify-center items-center gap-4'>
+        <div className='flex justify-center items-center gap-4 mt-4'>
             <NeoButton 
                 type="submit"
-                disabled={markdown === ''}
+                disabled={form.getValues("noteContentRaw") === ''}
             >
                 Save Note
             </NeoButton>
