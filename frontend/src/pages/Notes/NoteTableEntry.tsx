@@ -4,11 +4,11 @@ import { Card } from '@/components/ui/card';
 type Props = {
   note: {
     id: number;
-    patientId: number;
-    encounterDate: Date;
-    chiefComplaint: string;
+    noteDate: Date;
     noteContentMarkdown: string;
     noteType: string;
+    authorName: string;
+    isDeleted: boolean;
   }
 }
 
@@ -19,10 +19,13 @@ const NoteTableEntry = (props: Props) => {
         <div className='p-4 flex justify-between items-center'>
             <div>
             <h4 className='text-xs italic flex gap-2 items-center'>
-              {props.note.encounterDate.toString()} - {props.note.noteType}
+              {props.note.noteDate.toString()} - {props.note.noteType}
             </h4>
-            <h2 className='text-xl font-bold'>{props.note.patientId}</h2>
-            <p className='text-gray-600'>Chief Complaint + {props.note.noteContentMarkdown.slice(0,15)}</p>
+            <h2 className='text-xl font-bold'>{props.note.authorName}</h2>
+            <p className='text-gray-600'>{props.note.noteContentMarkdown.slice(0,15)}</p>
+            {props.note.isDeleted && (
+              <span className='text-red-500 text-sm font-semibold'>Deleted</span>
+            )}
             </div>
             <NeoLinkButton 
               route={`/notes/${props.note.id}`}
