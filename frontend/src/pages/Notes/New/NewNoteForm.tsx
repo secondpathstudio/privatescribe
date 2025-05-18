@@ -31,15 +31,13 @@ const NewNoteForm = ({templates}: Props) => {
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
+    const navigate = useNavigate();
 
     const handleAddNewNote = async (e: FormEvent, form: any) => {
         e.preventDefault();
         setSavingNote(true);
         const formValues = form.getValues();
 
-        console.log('submitting note', formValues);
-        return;
-        const navigate = useNavigate();
 
         try {
             const response = await fetch('http://127.0.0.1:5000/api/notes', {
@@ -52,6 +50,7 @@ const NewNoteForm = ({templates}: Props) => {
             });
 
             if (!response.ok) {
+                console.error('Server response was not ok', response);
                 throw new Error('Network request failed with status ' + response.status);
             } else {
                 //note created
