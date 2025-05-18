@@ -23,7 +23,9 @@ import VolumeMeter from "./volume-meter";
   const startRecording = async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    mediaRecorderRef.current = new MediaRecorder(stream);
+    mediaRecorderRef.current = new MediaRecorder(stream, {
+      mimeType: 'audio/webm' // Change this to 'audio/wav' if you want WAV format
+    });
     audioChunksRef.current = [];
 
     // Audio context for real-time analysis
