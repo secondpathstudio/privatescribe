@@ -815,9 +815,11 @@ def transcribe():
 
     file = request.files['file']
     format = file.filename.split('.')[-1]
+    
+    file.seek(0)  # Reset file pointer to the beginning
+    audio_data = file.read()
 
     # Convert audio to WAV if necessary
-    audio_data = file.read()
     if format.lower() != "wav":
         audio_data = convert_audio(audio_data, format)
     else:
@@ -862,6 +864,8 @@ def getMarkdown():
             return jsonify({"message": f"Template with ID {note_details['template_id']} not found"}), 400
     else:
         return jsonify({"error": "Invalid template_id"}), 400
+    
+    print(f"template: {template}")
     
     #TODO add author + participant names?
     # Format note with Ollama LLM
