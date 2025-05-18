@@ -104,6 +104,8 @@ import VolumeMeter from "./volume-meter";
               onClick={startRecording}
               className="text-white gap-2 m-auto flex items-center justify-center bg-blue-400 hover:bg-blue-500 w-60 h-10 focus:outline-none rounded-lg"
             >
+              Start Recording
+              {/* SVG icon for microphone */}
               <svg
                 viewBox="0 0 256 256"
                 xmlns="http://www.w3.org/2000/svg"
