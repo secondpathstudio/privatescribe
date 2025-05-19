@@ -17,9 +17,9 @@ const NeoNavbar = (props: Props) => {
           </div>
           {location.pathname === '/' && (
             <div className="hidden md:flex space-x-6">
-              <a href="#features" className="font-bold hover:underline">Features</a>
-              <a href="#pricing" className="font-bold hover:underline">Pricing</a>
-              <a href="#faq" className="font-bold hover:underline">FAQ</a>
+              <a href="#features" className="font-black hover:underline">Features</a>
+              {/* <a href="#pricing" className="font-bold hover:underline">Pricing</a> */}
+              <a href="#faq" className="font-black hover:underline">FAQ</a>
             </div>
           )}
           <AuthButtons />
