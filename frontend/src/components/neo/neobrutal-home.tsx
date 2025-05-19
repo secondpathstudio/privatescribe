@@ -63,7 +63,7 @@ const NeobrutalHome = () => {
       </section>
 
       {/* Pricing Section */}
-      <section id="pricing" className="py-20 border-b-4 border-black relative" style={{
+      {/* <section id="pricing" className="py-20 border-b-4 border-black relative" style={{
         background: "linear-gradient(to top, #2b0f54, #5d1d91)",
       }}>
         
@@ -114,7 +114,7 @@ const NeobrutalHome = () => {
         
           </div>
         </div>
-      </section>
+      </section> */}
 
       {/* FAQ Section */}
       <section id="faq" className=" bg-white border-black">
