@@ -64,7 +64,7 @@ class User(db.Model):
     
 # Note template model
 class Template(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(50), nullable=False)
     content = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -83,7 +83,7 @@ class Template(db.Model):
         return f"<Template {self.name}>"
     
 class Participant(db.Model):
-    id = db.Column(db.String, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=True)
     email = db.Column(db.String(100), unique=True, nullable=True)
@@ -111,7 +111,7 @@ note_participants = db.Table('note_participants',
 
 # Note model
 class Note(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     author_name = db.Column(db.String(100), nullable=False)
     note_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -252,8 +252,7 @@ def create_note():
         'noteContentMarkdown', 
         'authorName',
         'noteTemplate', 
-        'noteDate',
-        'participants')):
+        'noteDate',)):
         print('missing required fields', data)
         return jsonify({"error": "Missing required fields"}), 400
     
@@ -265,23 +264,23 @@ def create_note():
             return jsonify({"error": f"Template with ID {data['templateId']} not found"}), 400
     
     # validate participantIds
-    # if not isinstance(data['participants'], list):
-    #     return jsonify({"error": "participants must be a list"}), 400
+    if not isinstance(data['participants'], list):
+        return jsonify({"error": "participants must be a list"}), 400
     
-    # TODO make participants optional but add UX for creating/adding them
+    
     # Validate each participant has required fields
-    # try:
-    #     for participant in data['participants']:
-    #         if not isinstance(participant, dict):
-    #             return jsonify({"error": "Each participant must be an object"}), 400
-    #         if 'id' not in participant:
-    #             return jsonify({"error": "Each participant must have an id"}), 400
-    #         if 'first_name' not in participant:
-    #             return jsonify({"error": "Each participant must have a first_name"}), 400
-    # except Exception as e:
-    #     # Log the error
-    #     print(f"Error accessing participants: {str(e)}")
-    #     participants = []  # Fallback to empty list if there's an error
+    try:
+        for participant in data['participants']:
+            if not isinstance(participant, dict):
+                return jsonify({"error": "Each participant must be an object"}), 400
+            if 'email' not in participant:
+                return jsonify({"error": "Each participant must have an email"}), 400
+            if 'first_name' not in participant:
+                return jsonify({"error": "Each participant must have a first_name"}), 400
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        participants = []  # Fallback to empty list if there's an error
         
     # Get the current user from the JWT
     current_user = get_jwt_identity()
@@ -299,6 +298,7 @@ def create_note():
         template_id=data['noteTemplate'],
         is_deleted=False,
         is_deleted_timestamp=None,
+        participants=data['participants'],
         author_id=current_user  # Link the note to the current user (UUID)
     )
     
@@ -309,36 +309,36 @@ def create_note():
     db.session.flush()
     
     # # Add participants
-    # try:
-    #     for participant_data in data['participants']:
-    #         participant_id = participant_data['id']
+    try:
+        for participant_data in data['participants']:
+            participant_email = participant_data['email']
             
-    #         # Check if participant exists
-    #         participant = Participant.query.get(participant_id)
+            # Check if participant exists
+            participant = Participant.query.get(participant_email)
             
-    #         if participant:
-    #             # Update existing participant if needed
-    #             participant.first_name = participant_data['first_name']
-    #             if 'last_name' in participant_data:
-    #                 participant.last_name = participant_data['last_name']
-    #             if 'email' in participant_data:
-    #                 participant.email = participant_data['email']
-    #         else:
-    #             # Create new participant
-    #             participant = Participant(
-    #                 id=participant_id,
-    #                 first_name=participant_data['first_name'],
-    #                 last_name=participant_data.get('last_name'),  # Use get to handle optional fields
-    #                 email=participant_data.get('email')
-    #             )
-    #             db.session.add(participant)
+            if participant:
+                # Update existing participant if needed
+                participant.first_name = participant_data['first_name']
+                if 'last_name' in participant_data:
+                    participant.last_name = participant_data['last_name']
+                if 'email' in participant_data:
+                    participant.email = participant_data['email']
+            else:
+                # Create new participant
+                participant = Participant(
+                    id=participant_id,
+                    first_name=participant_data['first_name'],
+                    last_name=participant_data.get('last_name'),  # Use get to handle optional fields
+                    email=participant_data.get('email')
+                )
+                db.session.add(participant)
             
-    #         # Add relationship between note and participant
-    #         new_note.participants.append(participant)
-    # except Exception as e:
-    #     # Log the error
-    #     print(f"Error adding participants: {str(e)}")
-    #     return jsonify({"error": "Failed to add participants"}), 500
+            # Add relationship between note and participant
+            new_note.participants.append(participant)
+    except Exception as e:
+        # Log the error
+        print(f"Error adding participants: {str(e)}")
+        return jsonify({"error": "Failed to add participants"}), 500
     
     db.session.commit()
     
@@ -581,7 +581,6 @@ def mark_note_as_restored(id):
         "id": note.id,
         "message": "Note restored successfully.",
     })
-
 
 # API route to get all notes for a specific userId (requires authentication)
 @app.route('/api/notes/user/<string:user_id>', methods=['GET'])
