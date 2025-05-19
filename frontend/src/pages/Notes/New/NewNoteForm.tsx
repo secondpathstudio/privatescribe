@@ -18,6 +18,7 @@ import PirateWheel from '@/components/PirateWheel'
 import { useNavigate } from 'react-router'
 import NeoButton from '@/components/neo/neo-button'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
+import CassetteSVG from '@/components/neo/cassette'
 
 type Props = {
     templates: any[]
@@ -187,8 +188,8 @@ const NewNoteForm = ({templates}: Props) => {
   return (
     <Form {...form}>
     <form onSubmit={(e) => handleAddNewNote(e, form)}>
-        <div className="grid grid-cols-2 gap-4">
-            <fieldset className="flex flex-col gap-2">
+        <div className="flex flex-col gap-4">
+            <fieldset className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                 <FormField 
                     control={form.control} 
                     name="noteTemplate" 
@@ -228,38 +229,18 @@ const NewNoteForm = ({templates}: Props) => {
                         </FormItem>
                     )}
                 />
-                <FormField
-                    control={form.control}
-                    name="participants"
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                        <FormLabel>Participants</FormLabel>
-                        <FormControl>
-                            <ParticipantSelector
-                                selectedParticipants={field.value}
-                                onChange={(field.onChange)}
-                                onCreateParticipant={handleCreateParticipant}
-                                disabled={false}
-                            />
-                        </FormControl>
-                        <FormMessage />
-                        </FormItem>
-                    )}
-                    />
-            </fieldset>
-            <fieldset className="flex flex-col gap-2">
                 <FormField 
                     control={form.control} 
                     name="noteDate" 
                     render={({ field }) => (
-                        <FormItem className="flex flex-col">
+                        <FormItem className="flex flex-col justify-start">
                             <FormLabel>Note Date</FormLabel>
                             <FormControl>
                                 <Popover>
                                     <PopoverTrigger asChild>
                                         <Button variant="outline" color="primary" size="sm">
                                             {field.value ? format(field.value, "PPP") : <span>Select a date</span>}
-                                            <CalendarIcon className="w-4 h-4 mr-2" />
+                                            <CalendarIcon />
                                         </Button>
                                     </PopoverTrigger>
                                     <PopoverContent className="w-auto p-0 z-10 bg-white">
@@ -276,23 +257,26 @@ const NewNoteForm = ({templates}: Props) => {
                         </FormItem>
                     )}
                 />
-                <FormField 
-                    control={form.control} 
-                    name="authorName" 
+            </fieldset>
+            <fieldset className="flex flex-col gap-2">
+                <FormField
+                    control={form.control}
+                    name="participants"
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Author</FormLabel>
-                            <FormControl>
-                                <Input 
-                                    disabled 
-                                    placeholder="Provider Name"
-                                    {...field}
-                                />
-                            </FormControl>
-                            <FormMessage />
+                        {/* <FormLabel>Participants</FormLabel> */}
+                        <FormControl>
+                            <ParticipantSelector
+                                selectedParticipants={field.value}
+                                onChange={(field.onChange)}
+                                onCreateParticipant={handleCreateParticipant}
+                                disabled={false}
+                            />
+                        </FormControl>
+                        <FormMessage />
                         </FormItem>
                     )}
-                />
+                    />
             </fieldset>
         </div>
 
@@ -305,10 +289,13 @@ const NewNoteForm = ({templates}: Props) => {
         </div>
 
         {/* animation for server processing */}
-        {isTranscribing && (
+        {!isTranscribing && (
         <div className="flex flex-col w-full justify-center items-center mt-4">
-            <PirateWheel isRotating={true} />
-            <p className="text-primary">Transcribing audio...</p>
+            <CassetteSVG
+                labelText='Transcribing...'
+                width={300}
+                height={150}
+            />
         </div>
         )}
 
