@@ -158,17 +158,25 @@ const CassetteSVG = ({
         </linearGradient>
 
         {/* Animated gradient for the text */}
-        <linearGradient id="textGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-        <stop offset="0%" stopColor="#fd3777" />
-        <stop offset="100%" stopColor="#ffffff" />
-        {isRecording && (
-            <animateTransform
-            attributeName="gradientTransform"
-            type="translate"
-            values="-100 0; 100 0; -100 0"
-            dur="2s"
-            repeatCount="indefinite"/>
-        )}
+        <linearGradient id="textGradient" x1="0%" y1="0%" x2="200%" y2="0%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.3"/>
+          <stop offset="40%" stopColor="#ffffff" stopOpacity="0.3"/>
+          <stop offset="50%" stopColor="#fd3777" stopOpacity="1"/>
+          <stop offset="60%" stopColor="#ffffff" stopOpacity="0.3"/>
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0.3"/>
+          
+          {isRecording && (
+            <>
+              <animate attributeName="x1" 
+                      values="-200%;0%;200%" 
+                      dur="2s" 
+                      repeatCount="indefinite"/>
+              <animate attributeName="x2" 
+                      values="0%;200%;400%" 
+                      dur="2s" 
+                      repeatCount="indefinite"/>
+            </>
+          )}
         </linearGradient>
         
         {/* Reel spoke pattern */}
@@ -354,14 +362,20 @@ const CassetteSVG = ({
         />
 
     {/* Label text */}
-   <text x="100" y="105" 
-        fontFamily="Arial, sans-serif" 
-        fontSize="12" 
-        fontWeight="900"
-        textAnchor="middle" 
-        fill="url(#textGradient)"
-        // filter="url(#neonGlow)" - TODO can I add a glow to the text only when pink?
-        opacity="0.9">{labelText}</text>
+    <text x="100" y="105"
+      font-family="Arial, sans-serif"
+      font-size="12"
+      font-weight="900"
+      text-anchor="middle"
+      fill="#333333"
+      opacity="0.2">{labelText}</text>
+    
+    <text x="100" y="105"
+      font-family="Arial, sans-serif"
+      font-size="12"
+      font-weight="900"
+      text-anchor="middle"
+      fill="url(#textGradient)">{labelText}</text>
     
     {/* Screw holes */}
     <circle cx="17" cy="18" r="3" fill="#0a0a0a" stroke="#333" strokeWidth="1"/>
