@@ -10,8 +10,8 @@ import NeoButton from "../neo/neo-button";
     onRecordingFinished,
     disabled=false,
   } : { 
-    onRecordingFinished: (blob: Blob) => void 
-    
+    onRecordingFinished: (blob: Blob) => void;
+    disabled?: boolean;    
   }) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
