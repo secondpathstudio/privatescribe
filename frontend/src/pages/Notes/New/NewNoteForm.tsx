@@ -289,10 +289,10 @@ const NewNoteForm = ({templates}: Props) => {
         </div>
 
         {/* animation for server processing */}
-        {!isTranscribing && (
+        {isTranscribing && (
         <div className="flex flex-col w-full justify-center items-center mt-4">
             <CassetteSVG
-                labelText='Transcribing...'
+                labelText='Transcribing note...'
                 width={300}
                 height={150}
             />
@@ -301,8 +301,11 @@ const NewNoteForm = ({templates}: Props) => {
 
         {gettingMarkdown && (
         <div className="flex flex-col justify-center items-center mt-4">
-            <PirateWheel isRotating={true} />
-            <p className="text-primary">Creating formatted note...</p>
+            <CassetteSVG
+                labelText='Formatting note...'
+                width={300}
+                height={150}
+            />
         </div>
         )}
 
