@@ -17,6 +17,7 @@ import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
 import { useNavigate } from 'react-router'
 import NeoButton from '@/components/neo/neo-button'
+import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 
 type Props = {
     templates: any[]
@@ -31,6 +32,7 @@ const NewNoteForm = ({templates}: Props) => {
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
+    const [currentParticipants, setCurrentParticipants] = React.useState<Participant[]>([]);
     const navigate = useNavigate();
 
     const handleAddNewNote = async (e: FormEvent, form: any) => {
@@ -70,7 +72,7 @@ const NewNoteForm = ({templates}: Props) => {
         defaultValues: {
             authorId: auth.user?.id,
             authorName: auth.user?.firstName,
-            participants: [],
+            participants: currentParticipants,
             noteDate: new Date(),
             noteContentRaw: '',
             noteContentMarkdown: '',
@@ -83,17 +85,27 @@ const NewNoteForm = ({templates}: Props) => {
 
     //update local state for template name when selected template id changes
     useEffect(() => {
-    const currentTemplateId = form.watch('noteTemplate');
-    if (currentTemplateId && templates) {
-      const selectedTemplate = templates.find(template => template.id === currentTemplateId);
-      if (selectedTemplate) {
-        setSelectedTemplateName(selectedTemplate.name);
-      }
-    }
-  }, [form.watch('noteTemplate'), templates]);
+        const currentTemplateId = form.watch('noteTemplate');
+            if (currentTemplateId && templates) {
+            const selectedTemplate = templates.find(template => template.id === currentTemplateId);
+            if (selectedTemplate) {
+                setSelectedTemplateName(selectedTemplate.name);
+            }
+        }
+    }, [form.watch('noteTemplate'), templates]);
+
+    const handleCreateParticipant = async (newParticipant: NewParticipant): Promise<Participant> => {
+        const response = await fetch('/api/participants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newParticipant),
+        });
+        
+        if (!response.ok) throw new Error('Failed to create participant');
+        return response.json();
+    };
 
   //TODO validate that template is chosen before recording
-
     const transcribeRecording = async (blob: Blob) => {
         // get transcription from whisper
         setIsTranscribing(true);
@@ -216,19 +228,24 @@ const NewNoteForm = ({templates}: Props) => {
                         </FormItem>
                     )}
                 />
-                <FormField 
-                    control={form.control} 
-                    name="participants" 
+                <FormField
+                    control={form.control}
+                    name="participants"
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Participants</FormLabel>
-                            <FormControl>
-                                <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
+                        <FormLabel>Participants</FormLabel>
+                        <FormControl>
+                            <ParticipantSelector
+                                selectedParticipants={field.value}
+                                onChange={(field.onChange)}
+                                onCreateParticipant={handleCreateParticipant}
+                                disabled={false}
+                            />
+                        </FormControl>
+                        <FormMessage />
                         </FormItem>
                     )}
-                />
+                    />
             </fieldset>
             <fieldset className="flex flex-col gap-2">
                 <FormField 
