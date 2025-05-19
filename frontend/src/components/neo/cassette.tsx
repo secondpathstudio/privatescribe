@@ -176,7 +176,7 @@ const CassetteSVG = ({
     {/* Label area */}
     <rect x="30" y="88" width="140" height="25" rx="2" ry="2" 
             fill="#fff" 
-            opacity="0.2" 
+            opacity="0.1" 
         />
 
     {/* Label text */}
