@@ -19,7 +19,6 @@ export default function AuthButtons() {
     return (
         <NeoDropdown 
             username={auth.user.firstName}
-            onChange={(id: string) => console.log(`Selected item with ID: ${id}`)}
         >
             <NeoDropdownItem id="menu-1" route="/notes">
                 Notes
