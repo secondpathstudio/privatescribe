@@ -40,6 +40,23 @@ const CassetteSVG = ({
         <stop offset="50%" stopColor="#1a1a1a"/>
         <stop offset="100%" stopColor="#0a0a0a"/>
         </linearGradient>
+
+        {/* Gradient for the cassette reels label */}
+        <linearGradient id="reelLabel" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stopColor="#f8f8f8"/>
+        <stop offset="25%" stopColor="#ffffff"/>
+        <stop offset="30%" stopColor="#ff00ff"/>
+        <stop offset="35%" stopColor="#00ffff"/>
+        <stop offset="40%" stopColor="#ffff00"/>
+        <stop offset="45%" stopColor="#ff8800"/>
+        <stop offset="50%" stopColor="#ff0088"/>
+        <stop offset="55%" stopColor="#8800ff"/>
+        <stop offset="60%" stopColor="#0088ff"/>
+        <stop offset="65%" stopColor="#00ff88"/>
+        <stop offset="70%" stopColor="#ffff00"/>
+        <stop offset="75%" stopColor="#ffffff"/>
+        <stop offset="100%" stopColor="#f8f8f8"/>
+        </linearGradient>
         
         {/* Gradient for the label */}
         <linearGradient id="labelGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -81,7 +98,7 @@ const CassetteSVG = ({
     
     {/* Top section with reels */}
     <rect x="20" y="20" width="160" height="60" rx="4" ry="4" 
-            fill="#1a1a1a" 
+            fill="url(#reelLabel)" 
             stroke="#444" 
             strokeWidth="1"/>
     
