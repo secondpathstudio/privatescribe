@@ -98,7 +98,6 @@ import NeoButton from "../neo/neo-button";
     <div className="flex flex-col justify-center w-full">
       <div className="w-full">
         <div className="flex flex-col items-center w-full">
-            
           <div className="flex flex-col items-center w-full">
             <CassetteSVG
               isRecording={isRecording}
@@ -106,14 +105,17 @@ import NeoButton from "../neo/neo-button";
               labelText={
                 isRecording && !paused
                   ? "Recording..."
-                  : paused
+                  : paused && !audioBlob
                   ? "Paused"
+                  : paused && audioBlob
+                  ? "Recording Finished"
                   : "Click to record"
               }
               className="w-1/3 h-1/3"
               volumeLevel={isRecording && volumeLevel || 0}
             />
           </div>
+          {!audioBlob && (
           <div className="flex items-center justify-center gap-4 w-full">
             <NeoButton
               type='button'
@@ -131,12 +133,13 @@ import NeoButton from "../neo/neo-button";
             </NeoButton>
             <NeoButton
               type="button"
-              onClick={resumeRecording}
+              onClick={stopRecording}
               disabled={!isRecording || !paused || disabled}
               >
               <Save />
             </NeoButton>
           </div>
+          )}
         </div>
           {audioBlob && (
             <div className="mt-4 flex flex-col items-center w-full">
