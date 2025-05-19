@@ -1,13 +1,14 @@
 // Import necessary modules and components
 import { useEffect, useState, useRef } from "react";
-import { Button } from '@/components/ui/button';
-import VolumeMeter from "./volume-meter";
+import CassetteSVG from "../neo/cassette";
+import { Circle, Pause, Save } from "lucide-react";
+import NeoButton from "../neo/neo-button";
 
   
   // Export the MicrophoneComponent function component
   export default function Microphone({ 
     onRecordingFinished,
-    
+    disabled=false,
   } : { 
     onRecordingFinished: (blob: Blob) => void 
     
@@ -96,64 +97,46 @@ import VolumeMeter from "./volume-meter";
   return (
     <div className="flex flex-col justify-center w-full">
       <div className="w-full">
-        <div className="flex items-center w-full">
-          {!isRecording && (
-            // Button for start recording
-            <Button
+        <div className="flex flex-col items-center w-full">
+            
+          <div className="flex flex-col items-center w-full">
+            <CassetteSVG
+              isRecording={isRecording}
+              paused={paused}
+              labelText={
+                isRecording && !paused
+                  ? "Recording..."
+                  : paused
+                  ? "Paused"
+                  : "Click to record"
+              }
+              className="w-1/3 h-1/3"
+              volumeLevel={isRecording && volumeLevel || 0}
+            />
+          </div>
+          <div className="flex items-center justify-center gap-4 w-full">
+            <NeoButton
               type='button'
-              onClick={startRecording}
-              className="text-white gap-2 m-auto flex items-center justify-center bg-blue-400 hover:bg-blue-500 w-60 h-10 focus:outline-none rounded-lg"
+              onClick={!isRecording ? startRecording : resumeRecording}
+              disabled={(isRecording && !paused) || disabled}
             >
-              Start Recording
-              {/* SVG icon for microphone */}
-              <svg
-                viewBox="0 0 256 256"
-                xmlns="http://www.w3.org/2000/svg"
-                className="w-6 h-6 text-white"
+              <Circle className='fill-red-600' />
+            </NeoButton>
+            <NeoButton
+              type="button"
+              onClick={pauseRecording}
+              disabled={!isRecording || paused || disabled}
               >
-                <path
-                  fill="currentColor" // Change fill color to the desired color
-                  d="M128 176a48.05 48.05 0 0 0 48-48V64a48 48 0 0 0-96 0v64a48.05 48.05 0 0 0 48 48ZM96 64a32 32 0 0 1 64 0v64a32 32 0 0 1-64 0Zm40 143.6V232a8 8 0 0 1-16 0v-24.4A80.11 80.11 0 0 1 48 128a8 8 0 0 1 16 0a64 64 0 0 0 128 0a8 8 0 0 1 16 0a80.11 80.11 0 0 1-72 79.6Z"
-                />
-              </svg>
-            </Button>
-          )}
-          {isRecording && !paused && (
-            // Button for pause recording
-            <div className="flex flex-col items-center w-full">
-              <div className="text-center">Recording...</div>
-              <VolumeMeter volumeLevel={volumeLevel} />
-              <Button
-                type="button"
-                onClick={pauseRecording}
-                className="text-white gap-2 m-auto flex items-center justify-center bg-red-400 hover:bg-red-500 w-60 h-10 focus:outline-none rounded-lg"
-                >
-                Pause Recording
-              </Button>
-            </div>
-          )}
-          {isRecording && paused && (
-            // Button for resume recording
-            <div className="flex flex-col items-center w-full">
-              <div className="text-center animate-pulse">Recording paused...</div>
-              <div className="flex items-center justify-center gap-2 w-full">
-                <Button
-                  type="button"
-                  onClick={resumeRecording}
-                  className="text-white gap-2 m-auto flex items-center justify-center bg-green-400 hover:bg-green-500 w-60 h-10 focus:outline-none rounded-lg"
-                  >
-                  Resume Recording
-                </Button>
-                <Button
-                  type="button"
-                  onClick={stopRecording}
-                  className="text-white gap-2 m-auto flex items-center justify-center bg-red-400 hover:bg-red-500 w-60 h-10 focus:outline-none rounded-lg"
-                  >
-                  End Recording
-                </Button>
-              </div>
-            </div>
-          )}
+              <Pause className='fill-yellow-600' />
+            </NeoButton>
+            <NeoButton
+              type="button"
+              onClick={resumeRecording}
+              disabled={!isRecording || !paused || disabled}
+              >
+              <Save />
+            </NeoButton>
+          </div>
         </div>
           {audioBlob && (
             <div className="mt-4 flex flex-col items-center w-full">
