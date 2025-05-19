@@ -93,6 +93,12 @@ class Participant(db.Model):
     # Note relationship: A participant can be part of many notes
     notes = db.relationship('Note', secondary='note_participants', 
                                   back_populates='participants')
+    
+    # User relationship: a participant can be a user
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    
+    # Foreign key: Link the participant to a user as author
+    author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
 
     def __repr__(self):
         return f"<Participant {self.first_name} {self.last_name}>"
