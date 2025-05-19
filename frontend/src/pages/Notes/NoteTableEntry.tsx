@@ -9,10 +9,17 @@ type Props = {
     noteType: string;
     authorName: string;
     isDeleted: boolean;
+    isDeletedTimestamp: Date;
   }
 }
 
 const NoteTableEntry = (props: Props) => {
+  function getDeletionDate(isDeletedTimestamp: Date) {
+    const date = new Date(isDeletedTimestamp);
+    date.setDate(date.getDate() + 30);
+    return date.toLocaleDateString();
+  }
+
   return (
     <Card className='mt-6'>
         <div className='bg-white shadow-md rounded-md'>
@@ -24,7 +31,9 @@ const NoteTableEntry = (props: Props) => {
             <h2 className='text-xl font-bold'>{props.note.authorName}</h2>
             <p className='text-gray-600'>{props.note.noteContentMarkdown.slice(0,15)}</p>
             {props.note.isDeleted && (
-              <span className='text-red-500 text-sm font-semibold'>Deleted</span>
+              <span className='text-red-500 text-sm font-semibold'>
+                Deleted - permanent as of {getDeletionDate(props.note.isDeletedTimestamp)}
+              </span>
             )}
             </div>
             <NeoLinkButton 
