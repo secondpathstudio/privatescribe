@@ -58,6 +58,9 @@ class User(db.Model):
     
     # Relationship: A user can have many templates
     templates = db.relationship('Template', backref='user', lazy=True, cascade='all, delete-orphan')
+    
+    # Relationship: A user can have many participants
+    participants = db.relationship('Participant', backref='user', lazy=True, cascade='all, delete-orphan')
 
     def __repr__(self):
         return f"<User {self.email}>"
@@ -94,9 +97,6 @@ class Participant(db.Model):
     notes = db.relationship('Note', secondary='note_participants', 
                                   back_populates='participants')
     
-    # User relationship: a participant can be a user
-    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
-    
     # Foreign key: Link the participant to a user as author
     author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
 
@@ -107,6 +107,12 @@ class Participant(db.Model):
 note_participants = db.Table('note_participants',
     db.Column('note_id', db.Integer, db.ForeignKey('note.id', ondelete='CASCADE'), primary_key=True),
     db.Column('participant_id', db.String, db.ForeignKey('participant.id', ondelete='CASCADE'), primary_key=True)
+)
+
+# Define the association table for the many-to-many relationship
+user_participants = db.Table('user_participants',
+    db.Column('user_id', db.String(36), db.ForeignKey('user.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('participant_id', db.String(36), db.ForeignKey('participant.id', ondelete='CASCADE'), primary_key=True)
 )
 
 # Note model
