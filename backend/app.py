@@ -373,7 +373,7 @@ def create_note():
     }), 201
 
 # API route to get a single note by ID (requires authentication)
-@app.route('/api/notes/<int:id>', methods=['GET'])
+@app.route('/api/notes/<string:id>', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_note(id):
@@ -381,6 +381,7 @@ def get_note(id):
     if not note:
         return jsonify({"error": "Note not found"}), 404
 
+    print('getting note', note)
     # Get the current user from the JWT
     current_user = get_jwt_identity()
 
@@ -423,7 +424,7 @@ def get_note(id):
     })
 
 # API route to update a note by ID (requires authentication)
-@app.route('/api/notes/<int:id>', methods=['PUT'])
+@app.route('/api/notes/<string:id>', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_note(id):
@@ -520,7 +521,7 @@ def update_note(id):
     })
 
 # API endpoint to mark a note as deleted (soft delete)
-@app.route('/api/notes/<int:id>/delete', methods=['PUT'])
+@app.route('/api/notes/<string:id>/delete', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_note_as_deleted(id):
@@ -553,7 +554,7 @@ def mark_note_as_deleted(id):
     })
 
 # API endpoint to restore a deleted note
-@app.route('/api/notes/<int:id>/restore', methods=['PUT'])
+@app.route('/api/notes/<string:id>/restore', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_note_as_restored(id):
@@ -718,7 +719,7 @@ def get_templates_for_user(user_id):
     return jsonify(template_list)
 
 # API route to get a single template by ID (requires authentication)
-@app.route('/api/templates/<int:id>', methods=['GET'])
+@app.route('/api/templates/<string:id>', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_template(id):
@@ -746,7 +747,7 @@ def get_template(id):
     })
 
 # API route to update a template by ID (requires authentication)
-@app.route('/api/templates/<int:id>', methods=['PUT'])
+@app.route('/api/templates/<string:id>', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_template(id):
@@ -785,7 +786,7 @@ def update_template(id):
     })
 
 # API endpoint to mark a template as deleted (soft delete)
-@app.route('/api/templates/<int:id>/delete', methods=['PUT'])
+@app.route('/api/templates/<string:id>/delete', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_template_as_deleted(id):
@@ -816,7 +817,7 @@ def mark_template_as_deleted(id):
     })
 
 # API endpoint to mark a template as deleted (soft delete)
-@app.route('/api/templates/<int:id>/restore', methods=['PUT'])
+@app.route('/api/templates/<string:id>/restore', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_template_as_restored(id):
@@ -915,13 +916,42 @@ def getMarkdown():
     
     #TODO add author + participant names?
     # Format note with Ollama LLM
-    formatted_markdown = ollama.chat(model="llama3.2", messages=[
-        {"role": "system", "content": f"""You are an expert at creating a transcription for an audio recording to match the following markdown template: {template.content}. 
-         Your current task is to summarize, extract relevant data, and format conversations into Markdown format to match this template: {template.content}. Please format any dates in MM/DD/YYYY.
-         Be concise but complete, only return the formatted markdown without any extra labels or titles. Do not include three backticks before and after the markdown. 
-         Do not include the word markdown."""},
-        {"role": "user", "content": f"Here are the note details: \n\n{note_details}. Here is the note to format:\n\n{raw_note}."}
-    ])["message"]["content"]
+    formatted_markdown = ollama.chat(
+        model="llama3.2",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a professional meeting-minutes assistant.\n\n"
+                    "### GOAL\n"
+                    "Transform the raw transcript into **exactly** the Markdown structure shown "
+                    "between the ###TEMPLATE### tags below, replacing only the {{placeholders}} "
+                    "with information you extract.\n\n"
+                    "###START TEMPLATE###\n"
+                    f"{template.content}\n"
+                    "###END TEMPLATE###\n\n"
+                    "### STRICT RULES\n"
+                    "1. **Do NOT** add or remove headings, colons, bullets, blank lines, or any other characters outside the {{placeholders}}.\n"
+                    "2. Leave a placeholder blank if the data is missing.\n"
+                    "3. Format all dates as MM/DD/YYYY.\n"
+                    "4. Return the filled-in template **as plain text**. No code fences, no extra commentary, no word “markdown”."
+                    "5. Do not include any other text or explanation. Do not include the <TEMPLATE> or </TEMPLATE> tags.\n"
+                )
+            },
+            {
+                "role": "user",
+                "content": (
+                    "### context\n"
+                    f"{note_details}\n\n"
+                    "### raw note\n"
+                    f"{raw_note}"
+                )
+            }
+        ],
+        options={
+            "temperature": 0.2,
+        })["message"]["content"]
+
 
     print("Formatted markdown: " + formatted_markdown)
     

@@ -24,6 +24,7 @@ const SingleNote = () => {
           },
       });
         const data = await response.json()
+        console.log('Fetched note: ', data)
         setNote(data)
       }
       catch (error) {
@@ -70,11 +71,11 @@ const SingleNote = () => {
               href: '/notes',
             },
             {
-              label: "New Note",
+              label: `${note?.createdAt}`,
             },
           ]}
           />
-        <h1 className='text-4xl font-black mt-6'>Note {note?.id}</h1>
+        <h1 className='text-4xl font-black mt-6'>{note?.createdAt}</h1>
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>

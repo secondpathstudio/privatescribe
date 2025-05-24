@@ -41,8 +41,8 @@ const NewTemplateForm = () => {
                 const data = await response.json();
                 console.log('Template created:', data);
                 
-                //redirect to new template
-                navigate(`/templates/${data.id}`);
+                //redirect to templates
+                navigate(`/templates`);
             }
         } catch (error) {
             alert('Error creating template. Please try again.');

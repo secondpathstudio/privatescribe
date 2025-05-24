@@ -9,16 +9,13 @@ import { Button } from '@/components/ui/button'
 import { CalendarIcon } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import Microphone from '@/components/recording/microphone'
-import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '../../../context/auth-context'
-import PirateWheel from '@/components/PirateWheel'
 import { useNavigate } from 'react-router'
 import NeoButton from '@/components/neo/neo-button'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
-import CassetteSVG from '@/components/neo/cassette'
 
 type Props = {
     templates: any[]
@@ -179,6 +176,8 @@ const NewNoteForm = ({templates}: Props) => {
             const result = await response.json();
             form.setValue('noteContentMarkdown', result.formatted_markdown);
             mdxEditorRef.current?.setMarkdown(result.formatted_markdown);
+            setMarkdown(result.formatted_markdown);
+            console.log('Markdown Result:', result);
         } catch (error: any) {
             console.error('Failed to get markdown:', error);
         } 
@@ -361,7 +360,6 @@ const NewNoteForm = ({templates}: Props) => {
         {/* Buttons */}
         {savingNote && (
             <div className="flex flex-col w-full justify-center items-center mt-4">
-                <PirateWheel isRotating={true} />
                 <p className="text-primary">Saving note...</p>
             </div>
         )}
