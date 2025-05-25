@@ -8,7 +8,6 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button'
 import { ArchiveRestore, CalendarIcon, RefreshCcw, Trash, Trash2 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
-import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -16,6 +15,7 @@ import { useAuth } from '../../../context/auth-context'
 import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
+import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 
 type Props = {
     note: any;
@@ -105,6 +105,39 @@ const SingleNoteForm = ({ note, templates }: Props) => {
         }
     }
 
+    const handleCreateParticipant = async (newParticipant: NewParticipant): Promise<Participant> => {
+        const response = await fetch('http://127.0.0.1:5000/api/participants', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify(newParticipant),
+        });
+
+        const data = await response.json();
+        if (response.status === 400) {
+            // Handle validation error
+            console.error('Validation error:', data);
+            throw new Error(data.error || 'Validation error');
+        }
+        
+        if (!response.ok) throw new Error('Failed to create participant');
+
+        // Add the new participant to the current participants state
+        const createdParticipant: Participant = {
+            id: data.id,
+            firstName: data.first_name,
+            lastName: data.last_name,
+            email: data.email,
+        }
+        
+        // setCurrentParticipants(prev => [...prev, createdParticipant]);
+        form.setValue('participants', [...form.getValues('participants'), createdParticipant]);
+
+        return createdParticipant;
+    };
+
     const handleRestoreNote = async () => {
         if (confirm('Are you sure you want to restore this note?')) {
             try {
@@ -134,27 +167,28 @@ const SingleNoteForm = ({ note, templates }: Props) => {
   return (
     <Form {...form}>
     <form onSubmit={(e) => handleUpdateNote(e, form)}>
-        <div className="grid grid-cols-2 gap-4">
-            <fieldset className="flex flex-col gap-2">
+        <div className="flex flex-col gap-4">
+            <fieldset className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                 <FormField 
                     control={form.control} 
                     name="noteTemplate" 
-                    render={({ field }) => {
-                        const currentTemplate = templates.find(t => t.id === field.value);
-                        
-                        return (
+                    render={({ field }) => (
                         <FormItem>
                             <FormLabel>Note Template</FormLabel>
                             <FormControl>
                                 <Select 
                                     onValueChange={(value) => {
                                         field.onChange(value);
+                                        const selectedTemplate = templates.find(t => t.id === value);
+                                        if (selectedTemplate) {
+                                            setSelectedTemplateName(selectedTemplate.name);
+                                        }
                                     }} 
                                     value={field.value}
                                 >
                                     <SelectTrigger className='z-10 bg-white'>
                                         <SelectValue placeholder="Select a template">
-                                            {currentTemplate?.name || "Select a template"}
+                                            {selectedTemplateName || "Select a template"}
                                         </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent className='z-10 bg-white'>
@@ -172,38 +206,23 @@ const SingleNoteForm = ({ note, templates }: Props) => {
                             </FormControl>
                             <FormMessage />
                         </FormItem>
-                    )}}
-                />
-                <FormField 
-                    control={form.control} 
-                    name="participants" 
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col">
-                            <FormLabel>Participants</FormLabel>
-                            <FormControl>
-                                <Input {...field} />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
                     )}
                 />
-            </fieldset>
-            <fieldset className="flex flex-col gap-2">
                 <FormField 
                     control={form.control} 
                     name="noteDate" 
                     render={({ field }) => (
-                        <FormItem className="flex flex-col">
+                        <FormItem className="flex flex-col justify-start">
                             <FormLabel>Note Date</FormLabel>
                             <FormControl>
                                 <Popover>
                                     <PopoverTrigger asChild>
                                         <Button variant="outline" color="primary" size="sm">
                                             {field.value ? format(field.value, "PPP") : <span>Select a date</span>}
-                                            <CalendarIcon className="w-4 h-4 mr-2" />
+                                            <CalendarIcon />
                                         </Button>
                                     </PopoverTrigger>
-                                    <PopoverContent className="w-auto p-0">
+                                    <PopoverContent className="w-auto p-0 z-10 bg-white">
                                         <Calendar
                                             mode="single"
                                             selected={field.value}
@@ -217,23 +236,27 @@ const SingleNoteForm = ({ note, templates }: Props) => {
                         </FormItem>
                     )}
                 />
-                <FormField 
-                    control={form.control} 
-                    name="authorName" 
+            </fieldset>
+            <fieldset className="flex flex-col gap-2">
+                <FormField
+                    control={form.control}
+                    name="participants"
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                            <FormLabel>Author Name</FormLabel>
-                            <FormControl>
-                                <Input 
-                                    disabled 
-                                    placeholder="Provider Name"
-                                    {...field}
-                                />
-                            </FormControl>
-                            <FormMessage />
+                        {/* <FormLabel>Participants</FormLabel> */}
+                        <FormControl>
+                            <ParticipantSelector
+                                selectedParticipants={field.value}
+                                onChange={(field.onChange)}
+                                onCreateParticipant={handleCreateParticipant}
+                                disabled={false}
+                                savedParticipants={note?.participants || []}
+                            />
+                        </FormControl>
+                        <FormMessage />
                         </FormItem>
                     )}
-                />
+                    />
             </fieldset>
         </div>
 
