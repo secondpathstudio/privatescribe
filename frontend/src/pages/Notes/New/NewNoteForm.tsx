@@ -18,10 +18,11 @@ import NeoButton from '@/components/neo/neo-button'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 
 type Props = {
-    templates: any[]
+    templates: any[],
+    savedParticipants?: Participant[]
 }
 
-const NewNoteForm = ({templates}: Props) => {
+const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
     const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
@@ -93,14 +94,34 @@ const NewNoteForm = ({templates}: Props) => {
     }, [form.watch('noteTemplate'), templates]);
 
     const handleCreateParticipant = async (newParticipant: NewParticipant): Promise<Participant> => {
-        const response = await fetch('/api/participants', {
+        const response = await fetch('http://127.0.0.1:5000/api/participants', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.token}`,
+        },
         body: JSON.stringify(newParticipant),
         });
+
+        const data = await response.json();
+        if (response.status === 400) {
+            // Handle validation error
+            console.error('Validation error:', data);
+            throw new Error(data.error || 'Validation error');
+        }
         
         if (!response.ok) throw new Error('Failed to create participant');
-        return response.json();
+
+        // Add the new participant to the current participants state
+        const createdParticipant: Participant = {
+            id: data.id,
+            firstName: data.first_name,
+            lastName: data.last_name,
+            email: data.email,
+        }
+        setCurrentParticipants(prev => [...prev, createdParticipant]);
+
+        return createdParticipant;
     };
 
   //TODO validate that template is chosen before recording
@@ -177,6 +198,7 @@ const NewNoteForm = ({templates}: Props) => {
             form.setValue('noteContentMarkdown', result.formatted_markdown);
             mdxEditorRef.current?.setMarkdown(result.formatted_markdown);
             setMarkdown(result.formatted_markdown);
+
             console.log('Markdown Result:', result);
         } catch (error: any) {
             console.error('Failed to get markdown:', error);
@@ -270,6 +292,7 @@ const NewNoteForm = ({templates}: Props) => {
                                 onChange={(field.onChange)}
                                 onCreateParticipant={handleCreateParticipant}
                                 disabled={false}
+                                savedParticipants={savedParticipants}
                             />
                         </FormControl>
                         <FormMessage />
