@@ -50,19 +50,20 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 body: JSON.stringify(formValues)
             });
 
+            const data = await response.json();
+
             if (!response.ok) {
-                console.error('Server response was not ok', response);
+                console.error('Server response was not ok', data);
                 throw new Error('Network request failed with status ' + response.status);
             } else {
                 //note created
                 //redirect to new note
-                const data = await response.json();
                 console.log('Note created:', data);
                 navigate(`/notes/${data.id}`);
             }
         } catch (error) {
-            alert('Error submitting note. Please try again.');
             console.log('Error submitting note: ', error)
+            alert('Error submitting note. Please try again.');
         }
         setSavingNote(false);
     }
@@ -110,15 +111,19 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             throw new Error(data.error || 'Validation error');
         }
         
-        if (!response.ok) throw new Error('Failed to create participant');
+        if (!response.ok) {
+            console.log('Failed to create participant:', data);
+            throw new Error('Failed to create participant');
+        }
 
         // Add the new participant to the current participants state
         const createdParticipant: Participant = {
             id: data.id,
-            firstName: data.first_name,
-            lastName: data.last_name,
+            firstName: data.firstName,
+            lastName: data.lastName,
             email: data.email,
         }
+
         setCurrentParticipants(prev => [...prev, createdParticipant]);
 
         return createdParticipant;
@@ -199,10 +204,14 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             mdxEditorRef.current?.setMarkdown(result.formatted_markdown);
             setMarkdown(result.formatted_markdown);
 
-            console.log('Markdown Result:', result);
+            // console.log('Markdown Result:', result);
+
+            //save note
+            handleAddNewNote({ preventDefault: () => {} } as React.FormEvent, form);
         } catch (error: any) {
             console.error('Failed to get markdown:', error);
         } 
+        
         setGettingMarkdown(false);
     }
 

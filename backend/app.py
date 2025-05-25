@@ -248,9 +248,9 @@ def create_note():
     data = request.get_json()
     print('creating note', data)
     
-    encounter_date = datetime.now()
-    if 'encounterDate' in data:
-            encounter_date = datetime.fromisoformat(data['encounterDate'].replace("Z", ""))
+    note_date = datetime.now()
+    if 'noteDate' in data:
+            note_date = datetime.fromisoformat(data['noteDate'].replace("Z", ""))
 
     # Validate required fields
     if not all(k in data for k in (
@@ -279,8 +279,8 @@ def create_note():
         for participant in data['participants']:
             if not isinstance(participant, dict):
                 return jsonify({"error": "Each participant must be an object"}), 400
-            if 'first_name' not in participant:
-                return jsonify({"error": "Each participant must have a first_name"}), 400
+            if 'firstName' not in participant:
+                return jsonify({"error": "Each participant must have a firstName"}), 400
     except Exception as e:
         # Log the error
         participants = []  # Fallback to empty list if there's an error
@@ -289,12 +289,37 @@ def create_note():
     # Get the current user from the JWT
     current_user = get_jwt_identity()
 
+    # Handle participants - convert dicts to Participant objects
+    participants = []
+    if 'participants' in data:
+        for participant_data in data['participants']:
+            if isinstance(participant_data, dict):
+                # Check if participant already exists by ID
+                if 'id' in participant_data:
+                    existing_participant = Participant.query.get(participant_data['id'])
+                    if existing_participant:
+                        participants.append(existing_participant)
+                        continue
+                
+                # Create new participant object
+                participant = Participant(
+                    id=participant_data.get('id'),
+                    first_name=participant_data.get('firstName', ''),
+                    last_name=participant_data.get('lastName', ''),
+                    email=participant_data.get('email', ''),
+                    # Add other fields as needed
+                )
+                participants.append(participant)
+            else:
+                # Already a Participant object
+                participants.append(participant_data)
+
     # Create a new note instance
     new_note = Note(
         note_content_raw=data['noteContentRaw'],
         note_content_markdown=data['noteContentMarkdown'],
         note_type='text',
-        note_date=encounter_date,
+        note_date=note_date,
         created_at=datetime.now(),
         updated_at=datetime.now(),
         author_name=data['authorName'],
@@ -302,7 +327,7 @@ def create_note():
         template_id=data['noteTemplate'],
         is_deleted=False,
         is_deleted_timestamp=None,
-        participants=data['participants'],
+        participants=participants,  
         author_id=current_user  # Link the note to the current user (UUID)
     )
     
@@ -311,39 +336,6 @@ def create_note():
     # Add the note to the database
     db.session.add(new_note)
     db.session.flush()
-    
-    # # Add participants if not already in the database
-    try:
-        for participant_data in data['participants']:
-        
-            
-            # Check if participant exists by id
-            participant = Participant.query.get(participant_data['id']) if 'id' in participant_data else None
-            
-            if participant:
-                # Update existing participant if needed
-                participant.first_name = participant_data['first_name']
-                if 'last_name' in participant_data:
-                    participant.last_name = participant_data['last_name']
-                if 'email' in participant_data:
-                    participant.email = participant_data['email']
-            else:
-                # Create new participant
-                participant = Participant(
-                    id= str(uuid.uuid4()),  # Generate a new UUID for the participant
-                    first_name=participant_data['first_name'],
-                    last_name=participant_data.get('last_name'),  # Use get to handle optional fields
-                    email=participant_data.get('email')
-                )
-                db.session.add(participant)
-            
-            # Add relationship between note and participant
-            new_note.participants.append(participant)
-    except Exception as e:
-        # Log the error
-        print(f"Error adding participants: {str(e)}")
-        return jsonify({"error": "Failed to add participants"}), 500
-    
     db.session.commit()
     
     # # Get participant info for the response
@@ -352,12 +344,11 @@ def create_note():
         for participant in new_note.participants:
             participant_info = {
                 "id": participant.id,
-                "first_name": participant.first_name
+                "first_name": participant.firstName,
+                "last_name": participant.lastName if hasattr(participant, 'lastName') else None,
+                "email": participant.email if hasattr(participant, 'email') else None
             }
-            if participant.last_name:
-                participant_info["last_name"] = participant.last_name
-            if participant.email:
-                participant_info["email"] = participant.email
+
             participants.append(participant_info)
     except Exception as e:
         # Log the error
