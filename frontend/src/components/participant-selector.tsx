@@ -4,29 +4,20 @@ import { X, Plus, User, Search, Check } from 'lucide-react';
 // Type definitions
 export interface Participant {
   id: string;
-  first_name: string;
-  last_name: string;
+  firstName: string;
+  lastName?: string;
   email?: string;
 }
 
 export interface NewParticipant {
-  first_name: string;
-  last_name: string;
+  firstName: string;
+  lastName: string;
   email: string;
 }
 
-// Mock data - replace with your actual API calls
-const mockExistingParticipants: Participant[] = [
-  { id: '1', first_name: 'John', last_name: 'Doe', email: 'john.doe@example.com' },
-  { id: '2', first_name: 'Jane', last_name: 'Smith', email: 'jane.smith@example.com' },
-  { id: '3', first_name: 'Bob', last_name: 'Johnson', email: 'bob.johnson@example.com' },
-  { id: '4', first_name: 'Alice', last_name: 'Williams', email: 'alice.williams@example.com' },
-  { id: '5', first_name: 'Charlie', last_name: '', email: 'charlie@example.com' },
-];
-
 type ParticipantSelectorProps = {
     selectedParticipants: Participant[];
-    existingParticipants?: Participant[];
+    savedParticipants?: Participant[];
     onChange: (participants: Participant[]) => void;
     onCreateParticipant: (newParticipant: NewParticipant) => Promise<Participant>;
     disabled?: boolean;
@@ -36,7 +27,7 @@ type ParticipantSelectorProps = {
 
 const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
     selectedParticipants,
-    existingParticipants: propExistingParticipants,
+    savedParticipants,
     onChange,
     onCreateParticipant,
     disabled = false,
@@ -52,13 +43,15 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [showNewParticipantForm, setShowNewParticipantForm] = useState<boolean>(false);
   const [newParticipant, setNewParticipant] = useState<NewParticipant>({
-    first_name: '',
-    last_name: '',
+    firstName: '',
+    lastName: '',
     email: ''
   });
+
   const [existingParticipants, setExistingParticipants] = useState<Participant[]>(
-    propExistingParticipants || mockExistingParticipants
+    savedParticipants || []
   );
+
   const [isCreating, setIsCreating] = useState<boolean>(false);
   
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -66,14 +59,14 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
 
   // Update existing participants when prop changes
   useEffect(() => {
-    if (propExistingParticipants) {
-      setExistingParticipants(propExistingParticipants);
+    if (savedParticipants) {
+      setExistingParticipants(savedParticipants);
     }
-  }, [propExistingParticipants]);
+  }, [savedParticipants]);
 
   // Filter participants based on search term
   const filteredParticipants = existingParticipants.filter((participant: Participant) => {
-    const fullName = `${participant.first_name} ${participant.last_name}`.toLowerCase();
+    const fullName = `${participant.firstName} ${participant.lastName}`.toLowerCase();
     const email = participant.email?.toLowerCase() || '';
     const search = searchTerm.toLowerCase();
     return fullName.includes(search) || email.includes(search);
@@ -102,7 +95,7 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
 
   // Add new participant
   const addNewParticipant = async (): Promise<void> => {
-    if (!newParticipant.first_name.trim()) return;
+    if (!newParticipant.firstName.trim()) return;
     
     setIsCreating(true);
     
@@ -115,9 +108,9 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
       } else {
         // Fallback for demo purposes
         participant = {
-          id: Date.now().toString(),
-          first_name: newParticipant.first_name,
-          last_name: newParticipant.last_name,
+          id: Date.now().toLocaleString(), // Generate a random ID
+          firstName: newParticipant.firstName,
+          lastName: newParticipant.lastName,
           email: newParticipant.email || undefined
         };
       }
@@ -128,7 +121,7 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
       handleChange([...currentParticipants, participant]);
       
       // Reset form
-      setNewParticipant({ first_name: '', last_name: '', email: '' });
+      setNewParticipant({ firstName: '', lastName: '', email: '' });
       setShowNewParticipantForm(false);
       setSearchTerm('');
     } catch (error) {
@@ -169,9 +162,9 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
 
   // Format participant display name
   const formatParticipantName = (participant: Participant): string => {
-    const name = participant.last_name 
-      ? `${participant.first_name} ${participant.last_name}`
-      : participant.first_name;
+    const name = participant.lastName 
+      ? `${participant.firstName} ${participant.lastName}`
+      : participant.firstName;
     return participant.email ? `${name} (${participant.email})` : name;
   };
 
@@ -220,7 +213,7 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`w-full flex items-center justify-center space-x-2 border-2 border-dashed border-gray-300 rounded-md px-3 py-2 text-gray-600 hover:border-gray-400 hover:text-gray-700 transition-colors ${
+        className={`w-full flex cursor-pointer items-center justify-center space-x-2 border-2 border-dashed border-gray-300 rounded-md px-3 py-2 text-gray-600 hover:border-gray-400 hover:text-gray-700 transition-colors ${
           disabled ? 'opacity-50 cursor-not-allowed' : ''
         }`}
         aria-expanded={isOpen}
@@ -295,9 +288,9 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
                 <input
                   type="text"
                   placeholder="First Name *"
-                  value={newParticipant.first_name}
+                  value={newParticipant.firstName}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => 
-                    handleNewParticipantChange('first_name', e.target.value)
+                    handleNewParticipantChange('firstName', e.target.value)
                   }
                   onKeyPress={handleKeyPress}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -307,9 +300,9 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
                 <input
                   type="text"
                   placeholder="Last Name"
-                  value={newParticipant.last_name}
+                  value={newParticipant.lastName}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) => 
-                    handleNewParticipantChange('last_name', e.target.value)
+                    handleNewParticipantChange('lastName', e.target.value)
                   }
                   onKeyPress={handleKeyPress}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -330,7 +323,7 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
                   <button
                     type="button"
                     onClick={addNewParticipant}
-                    disabled={!newParticipant.first_name.trim() || isCreating}
+                    disabled={!newParticipant.firstName.trim() || isCreating}
                     className="flex-1 bg-blue-600 text-white px-3 py-2 rounded-md text-sm hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
                   >
                     {isCreating ? 'Adding...' : 'Add'}
@@ -339,7 +332,7 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
                     type="button"
                     onClick={() => {
                       setShowNewParticipantForm(false);
-                      setNewParticipant({ first_name: '', last_name: '', email: '' });
+                      setNewParticipant({ firstName: '', lastName: '', email: '' });
                     }}
                     disabled={isCreating}
                     className="flex-1 bg-gray-200 text-gray-700 px-3 py-2 rounded-md text-sm hover:bg-gray-300 disabled:bg-gray-100 transition-colors"
@@ -357,53 +350,53 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
 };
 
 // Example usage in your form with TypeScript
-export const ExampleParticipantForm: React.FC = () => {
-  const [selectedParticipants, setSelectedParticipants] = useState<Participant[]>([]);
+// export const ExampleParticipantForm: React.FC = () => {
+//   const [selectedParticipants, setSelectedParticipants] = useState<Participant[]>([]);
 
-  // Example API function for creating participants
-  const handleCreateParticipant = async (newParticipant: NewParticipant): Promise<Participant> => {
-    // Replace with your actual API call
-    const response = await fetch('/api/participants', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(newParticipant),
-    });
+//   // Example API function for creating participants
+//   const handleCreateParticipant = async (newParticipant: NewParticipant): Promise<Participant> => {
+//     // Replace with your actual API call
+//     const response = await fetch('/api/participants', {
+//       method: 'POST',
+//       headers: {
+//         'Content-Type': 'application/json',
+//       },
+//       body: JSON.stringify(newParticipant),
+//     });
     
-    if (!response.ok) {
-      throw new Error('Failed to create participant');
-    }
+//     if (!response.ok) {
+//       throw new Error('Failed to create participant');
+//     }
     
-    return response.json();
-  };
+//     return response.json();
+//   };
 
-  return (
-    <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg">
-      <h2 className="text-xl font-semibold mb-4">Add Participants to Recording</h2>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Participants
-          </label>
-          <ParticipantSelector
-            selectedParticipants={selectedParticipants}
-            onChange={setSelectedParticipants}
-            onCreateParticipant={handleCreateParticipant}
-          />
-        </div>
+//   return (
+//     <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg">
+//       <h2 className="text-xl font-semibold mb-4">Add Participants to Recording</h2>
+//       <div className="space-y-4">
+//         <div>
+//           <label className="block text-sm font-medium text-gray-700 mb-2">
+//             Participants
+//           </label>
+//           <ParticipantSelector
+//             selectedParticipants={selectedParticipants}
+//             onChange={setSelectedParticipants}
+//             onCreateParticipant={handleCreateParticipant}
+//           />
+//         </div>
         
-        {/* Other form fields would go here */}
+//         {/* Other form fields would go here */}
         
-        <div className="mt-6">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Selected Participants:</h3>
-          <pre className="text-xs bg-gray-100 p-2 rounded overflow-auto">
-            {JSON.stringify(selectedParticipants, null, 2)}
-          </pre>
-        </div>
-      </div>
-    </div>
-  );
-};
+//         <div className="mt-6">
+//           <h3 className="text-sm font-medium text-gray-700 mb-2">Selected Participants:</h3>
+//           <pre className="text-xs bg-gray-100 p-2 rounded overflow-auto">
+//             {JSON.stringify(selectedParticipants, null, 2)}
+//           </pre>
+//         </div>
+//       </div>
+//     </div>
+//   );
+// };
 
 export default ParticipantSelector;
