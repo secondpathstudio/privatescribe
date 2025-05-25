@@ -7,6 +7,7 @@ import { useAuth } from '@/context/auth-context'
 const NewNote = () => {
   const auth = useAuth()
   const [templates, setTemplates] = useState([]);
+  const [savedParticipants, setSavedParticipants] = useState([]);
 
   useEffect(() => {
     const fetchTemplates = async () => {
@@ -33,6 +34,34 @@ const NewNote = () => {
 
     fetchTemplates();
   }, []);
+
+  useEffect(() => {
+    const fetchSavedParticipants = async () => {
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/api/participants/${auth.user?.id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.token}`,
+          },
+        });
+
+        if (!response.ok) {
+          console.log('Invalid server response: ', response)
+          throw new Error('Network request failed with status ' + response.status);
+        } else {
+
+          const data = await response.json();
+
+          setSavedParticipants(data);
+        }
+      } catch (error) {
+        console.log('Error fetching participants: ', error)
+      }
+    }
+
+    fetchSavedParticipants();
+  }, []);
   
   return (
     <div className="max-w-screen-lg mx-auto px-4 py-10">
@@ -54,7 +83,10 @@ const NewNote = () => {
               {!templates && <p className='text-sm text-muted-foreground'>Loading templates...</p>}
               {templates && templates.length === 0 && <p className='text-sm text-muted-foreground'>No templates found</p>}
               {templates && templates.length > 0 && 
-                <NewNoteForm templates={templates} />
+                <NewNoteForm 
+                  templates={templates}
+                  savedParticipants={savedParticipants}
+                />
               }
             </CardTitle>
           </CardHeader>
