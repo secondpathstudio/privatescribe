@@ -53,7 +53,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
         e.preventDefault();
         setSavingNote(true);
         const formValues = form.getValues();
-        console.log('submitting note', form.getValues("participants")[0]);
+        console.log('submitting note', formValues);
 
         try {
             const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}`, {
@@ -71,9 +71,27 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                 console.log('Error updating note: ', data);
                 throw new Error('Network request failed with status ' + response.status);
             } else {
-                //note created
-                //redirect to new note
                 console.log('Note updated:', data);
+            
+                // Reset form with the updated data from server
+                console.log('Form data before reset: ', form.getValues());
+                const updatedNote = {
+                    authorId: data?.authorId,
+                    authorName: data?.authorName,
+                    noteDate: data?.noteDate,
+                    noteContentRaw: data?.noteContentRaw,
+                    noteContentMarkdown: data?.noteContentMarkdown,
+                    noteType: data?.noteType,
+                    version: data?.version,
+                    createdAt: data?.createdAt,
+                    updatedAt: data?.updatedAt,
+                    participants: data?.participants,
+                    noteTemplate: templates.find((template) => template.id === data.noteTemplate)?.id,
+                };
+                
+                form.reset(updatedNote);
+                console.log('form state dirty: ', formState.isDirty);
+                console.log('form data after reset: ', form.getValues());
             }
         } catch (error) {
             alert('Error submitting note. Please try again.');
