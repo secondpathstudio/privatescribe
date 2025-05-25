@@ -998,12 +998,12 @@ def getMarkdown():
             {
                 "role": "system",
                 "content": (
-                    "You are a professional meeting-minutes assistant.\n\n"
+                    f"You are a professional note generator who can make any style note from a conversation transcription. Your job now is to make a note in the style of a {template.name} note.\n\n"
                     "### GOAL\n"
-                    "Transform the raw transcript into **exactly** the Markdown structure shown "
-                    "between the ###TEMPLATE### tags below, identify instructions for transcription between square brackets: [instructions]. "
+                    "You will be given a raw transcript of a conversation or recording and need to convert, summarize, or discuss the transcript based on the template provided "
+                    "between the ###TEMPLATE### tags below. You can identify instructions for transcription between square brackets, for example: [Summarize the transcription] or [List any foods mentioned]. "
                     "You must follow the instructions inside the square brackets exactly "
-                    "with information you extract from the transcript - please note there may be multiple sets of instructions.\n\n"
+                    "with information you extract from the transcript - please note there may be multiple sets of instructions or requests in a single transcript template.\n\n"
                     "###START TEMPLATE###\n"
                     f"{template.content}\n"
                     "###END TEMPLATE###\n\n"
@@ -1011,8 +1011,8 @@ def getMarkdown():
                     "1. **Do NOT** add or remove headings, colons, bullets, blank lines, or any other characters outside the [instructions].\n"
                     "2. If you feel there is not enough data to address the instruction, just include the instruction and a comment `I could not find enough data to answer this`.\n"
                     "3. Format all dates as MM/DD/YYYY.\n"
-                    "4. Return the filled-in template **as plain text**. No code fences, no extra commentary, no word “markdown”."
-                    "5. Do not include any other text or explanation. Do not include the <TEMPLATE> or </TEMPLATE> tags.\n"
+                    "4. Return the filled-in template **as plain text markdown**. No code fences, no extra commentary, no word “markdown”."
+                    "5. Do not include any other text or explanation. Do not include the [] tags.\n"
                 )
             },
             {
