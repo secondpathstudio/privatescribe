@@ -300,6 +300,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                                 selectedParticipants={field.value}
                                 onChange={(field.onChange)}
                                 onCreateParticipant={handleCreateParticipant}
+                                onDeleteParticipant={() => console.log('Participant delete not implemented')}
                                 disabled={false}
                                 savedParticipants={savedParticipants}
                             />

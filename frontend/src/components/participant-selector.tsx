@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Plus, User, Search, Check } from 'lucide-react';
+import { X, Plus, User, Search, Check, Trash } from 'lucide-react';
 
 // Type definitions
 export interface Participant {
@@ -20,6 +20,7 @@ type ParticipantSelectorProps = {
     savedParticipants?: Participant[];
     onChange: (participants: Participant[]) => void;
     onCreateParticipant: (newParticipant: NewParticipant) => Promise<Participant>;
+    onDeleteParticipant: (participantId: string) => void;
     disabled?: boolean;
     onBlur?: () => void;
     className?: string;
@@ -30,6 +31,7 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
     savedParticipants,
     onChange,
     onCreateParticipant,
+    onDeleteParticipant,
     disabled = false,
     onBlur,
     className = '',
@@ -262,6 +264,17 @@ const ParticipantSelector: React.FC<ParticipantSelectorProps> = ({
                   </div>
                   {isSelected(participant.id) && (
                     <Check className="w-4 h-4 text-green-600" />
+                  )}
+                  {!isSelected(participant.id) && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevent toggling selection
+                        onDeleteParticipant(participant.id);
+                      }}
+                    >
+                      <Trash className="w-4 h-4 text-gray-400 hover:text-red-600 transition-colors cursor-pointer" />
+                    </button>
                   )}
                 </button>
               ))

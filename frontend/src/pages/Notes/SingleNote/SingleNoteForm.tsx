@@ -159,6 +159,40 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
         return createdParticipant;
     };
 
+    const handleDeleteParticipant = async (participantId: string) => {
+        return;
+
+        //TODO do I want to be able to do this? and if so, how do you handle when a participant is deleted
+        // and a note is saved with that participant
+
+        if (confirm('Are you sure you want to delete this participant?')) {
+            try {
+                const response = await fetch(`http://127.0.1:5000/api/participants/${participantId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`,
+                    },
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    console.log('Error deleting participant: ', data);
+                    throw new Error('Network request failed with status ' + response.status);
+                } else {
+                    // Remove the participant from the current participants state
+                    const updatedParticipants = form.getValues('participants').filter((p: Participant) => p.id !== participantId);
+                    form.setValue('participants', updatedParticipants);
+                    alert('Participant deleted successfully');
+                }
+            } catch (error) {
+                alert('Error deleting participant. Please try again.');
+                console.log('Error deleting participant: ', error);
+            }
+        }
+    }
+
     const handleRestoreNote = async () => {
         if (confirm('Are you sure you want to restore this note?')) {
             try {
@@ -268,6 +302,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                                 selectedParticipants={field.value}
                                 onChange={(field.onChange)}
                                 onCreateParticipant={handleCreateParticipant}
+                                onDeleteParticipant={handleDeleteParticipant}
                                 disabled={false}
                                 savedParticipants={savedParticipants}
                             />

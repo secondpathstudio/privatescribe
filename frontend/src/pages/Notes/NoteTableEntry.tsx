@@ -1,5 +1,6 @@
 import NeoLinkButton from '@/components/neo/neo-link-button';
 import { Card } from '@/components/ui/card';
+import Markdown from 'react-markdown';
 
 type Props = {
   note: {
@@ -29,7 +30,7 @@ const NoteTableEntry = (props: Props) => {
               {props.note.noteDate.toString()} - {props.note.noteType}
             </h4>
             <h2 className='text-xl font-bold'>{props.note.authorName}</h2>
-            <p className='text-gray-600'>{props.note.noteContentMarkdown.slice(0,15)}</p>
+            <Markdown>{props.note.noteContentMarkdown.slice(0,150)}</Markdown>
             {props.note.isDeleted && (
               <span className='text-red-500 text-sm font-semibold'>
                 Deleted - permanent as of {getDeletionDate(props.note.isDeletedTimestamp)}
