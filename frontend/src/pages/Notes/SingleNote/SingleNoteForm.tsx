@@ -20,9 +20,10 @@ import ParticipantSelector, { Participant, NewParticipant } from '@/components/p
 type Props = {
     note: any;
     templates: any[];
+    savedParticipants: any[];
 }
 
-const SingleNoteForm = ({ note, templates }: Props) => {
+const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [savingNote, setSavingNote] = React.useState(false);
@@ -52,7 +53,7 @@ const SingleNoteForm = ({ note, templates }: Props) => {
         e.preventDefault();
         setSavingNote(true);
         const formValues = form.getValues();
-        console.log('submitting note', formValues);
+        console.log('submitting note', form.getValues("participants")[0]);
 
         try {
             const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}`, {
@@ -64,12 +65,14 @@ const SingleNoteForm = ({ note, templates }: Props) => {
                 body: JSON.stringify(formValues)
             });
 
+            const data = await response.json();
+
             if (!response.ok) {
+                console.log('Error updating note: ', data);
                 throw new Error('Network request failed with status ' + response.status);
             } else {
                 //note created
                 //redirect to new note
-                const data = await response.json();
                 console.log('Note updated:', data);
             }
         } catch (error) {
@@ -250,7 +253,7 @@ const SingleNoteForm = ({ note, templates }: Props) => {
                                 onChange={(field.onChange)}
                                 onCreateParticipant={handleCreateParticipant}
                                 disabled={false}
-                                savedParticipants={note?.participants || []}
+                                savedParticipants={savedParticipants}
                             />
                         </FormControl>
                         <FormMessage />
@@ -328,7 +331,6 @@ const SingleNoteForm = ({ note, templates }: Props) => {
         {/* Buttons */}
         {savingNote && (
             <div className="flex flex-col w-full justify-center items-center mt-4">
-                <PirateWheel isRotating={true} />
                 <p className="text-primary">Saving note...</p>
             </div>
         )}

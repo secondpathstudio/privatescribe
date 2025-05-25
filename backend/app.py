@@ -439,7 +439,7 @@ def update_note(id):
     current_user = get_jwt_identity()
 
     # Ensure the note belongs to the current user
-    if note.authorId != current_user:
+    if note.author_id != current_user:
         return jsonify({"error": "Not authorized to update this note"}), 403
 
     data = request.get_json()
@@ -459,8 +459,8 @@ def update_note(id):
         # Add updated participants
         for participant_data in data['participants']:
             # Validate required fields
-            if not isinstance(participant_data, dict) or 'id' not in participant_data or 'first_name' not in participant_data:
-                return jsonify({"error": "Each participant must have an id and first_name"}), 400
+            if not isinstance(participant_data, dict) or 'id' not in participant_data or 'firstName' not in participant_data:
+                return jsonify({"error": "Each participant must have an id and firstName"}), 400
             
             participant_id = participant_data['id']
             
@@ -469,17 +469,17 @@ def update_note(id):
             
             if participant:
                 # Update existing participant
-                participant.first_name = participant_data['first_name']
+                participant.first_name = participant_data['firstName']
                 if 'last_name' in participant_data:
-                    participant.last_name = participant_data['last_name']
+                    participant.last_name = participant_data['lastName']
                 if 'email' in participant_data:
                     participant.email = participant_data['email']
             else:
                 # Create new participant
                 participant = Participant(
                     id=participant_id,
-                    first_name=participant_data['first_name'],
-                    last_name=participant_data.get('last_name'),
+                    first_name=participant_data['firstName'],
+                    last_name=participant_data.get('lastName'),
                     email=participant_data.get('email')
                 )
                 db.session.add(participant)
@@ -496,12 +496,11 @@ def update_note(id):
         for participant in note.participants:
             participant_info = {
                 "id": participant.id,
-                "first_name": participant.first_name
+                "firstName": participant.first_name,
+                "lastName": participant.last_name if hasattr(participant, 'last_name') else None,
+                "email": participant.email if hasattr(participant, 'email') else None
             }
-            if hasattr(participant, 'last_name') and participant.last_name:
-                participant_info["last_name"] = participant.last_name
-            if hasattr(participant, 'email') and participant.email:
-                participant_info["email"] = participant.email
+            
             participants.append(participant_info)
     except Exception as e:
         # Log the error

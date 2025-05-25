@@ -6,12 +6,12 @@ import { useParams } from 'react-router'
 import { useAuth } from '@/context/auth-context'
 
 
-
 const SingleNote = () => {
   const [note, setNote] = useState<any>(null)
   const { id } = useParams()
   const auth = useAuth();
   const [templates, setTemplates] = useState<any[]>([]);
+  const [savedParticipants, setSavedParticipants] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchNote = async () => {
@@ -24,7 +24,7 @@ const SingleNote = () => {
           },
       });
         const data = await response.json()
-        console.log('Fetched note: ', data)
+        // console.log('Fetched note: ', data)
         setNote(data)
       }
       catch (error) {
@@ -61,6 +61,34 @@ const SingleNote = () => {
     fetchTemplates();
   }, []);
 
+useEffect(() => {
+    const fetchSavedParticipants = async () => {
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/api/participants/${auth.user?.id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.token}`,
+          },
+        });
+
+        if (!response.ok) {
+          console.log('Invalid server response: ', response)
+          throw new Error('Network request failed with status ' + response.status);
+        } else {
+
+          const data = await response.json();
+
+          setSavedParticipants(data);
+        }
+      } catch (error) {
+        console.log('Error fetching participants: ', error)
+      }
+    }
+
+    fetchSavedParticipants();
+  }, []);
+
 
   return (
     <div className="max-w-screen-lg mx-auto px-4 py-10">
@@ -80,7 +108,11 @@ const SingleNote = () => {
           <CardHeader>
             <CardTitle>
               {note && 
-              <SingleNoteForm note={note} templates={templates} />
+              <SingleNoteForm 
+                note={note} 
+                templates={templates}
+                savedParticipants={savedParticipants}
+              />
               }
             </CardTitle>
           </CardHeader>
