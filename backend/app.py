@@ -399,8 +399,8 @@ def get_note(id):
         for participant in note.participants:
             participant_info = {
                 "id": participant.id,
-                "first_name": participant.first_name,
-                "last_name": participant.last_name if hasattr(participant, 'last_name') else None,
+                "firstName": participant.first_name,
+                "lastName": participant.last_name if hasattr(participant, 'last_name') else None,
                 "email": participant.email if hasattr(participant, 'email') else None
             }
             participants.append(participant_info)
