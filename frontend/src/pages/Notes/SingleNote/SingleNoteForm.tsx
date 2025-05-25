@@ -175,23 +175,22 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                 <FormField 
                     control={form.control} 
                     name="noteTemplate" 
-                    render={({ field }) => (
+                    render={({ field }) => {
+                        const currentTemplate = templates.find(t => t.id === field.value);
+
+                        return (
                         <FormItem>
                             <FormLabel>Note Template</FormLabel>
                             <FormControl>
                                 <Select 
                                     onValueChange={(value) => {
                                         field.onChange(value);
-                                        const selectedTemplate = templates.find(t => t.id === value);
-                                        if (selectedTemplate) {
-                                            setSelectedTemplateName(selectedTemplate.name);
-                                        }
                                     }} 
                                     value={field.value}
                                 >
                                     <SelectTrigger className='z-10 bg-white'>
                                         <SelectValue placeholder="Select a template">
-                                            {selectedTemplateName || "Select a template"}
+                                            {currentTemplate?.name || "Select a template"}
                                         </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent className='z-10 bg-white'>
@@ -209,7 +208,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                             </FormControl>
                             <FormMessage />
                         </FormItem>
-                    )}
+                    )}}
                 />
                 <FormField 
                     control={form.control} 
@@ -246,7 +245,6 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                     name="participants"
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
-                        {/* <FormLabel>Participants</FormLabel> */}
                         <FormControl>
                             <ParticipantSelector
                                 selectedParticipants={field.value}
@@ -340,6 +338,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                 type="submit"
                 backgroundColor='#fd3777'
                 textColor='#ffffff'
+                disabled={!formState.isDirty || savingNote}
             >
                 Save Note
             </NeoButton>
