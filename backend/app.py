@@ -89,7 +89,7 @@ class Participant(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=True)
-    email = db.Column(db.String(100), unique=True, nullable=True)
+    email = db.Column(db.String(100), unique=False, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -279,14 +279,12 @@ def create_note():
         for participant in data['participants']:
             if not isinstance(participant, dict):
                 return jsonify({"error": "Each participant must be an object"}), 400
-            if 'email' not in participant:
-                return jsonify({"error": "Each participant must have an email"}), 400
             if 'first_name' not in participant:
                 return jsonify({"error": "Each participant must have a first_name"}), 400
     except Exception as e:
         # Log the error
-        print(f"Error accessing participants: {str(e)}")
         participants = []  # Fallback to empty list if there's an error
+        print(f"Error accessing participants: {str(e)}")
         
     # Get the current user from the JWT
     current_user = get_jwt_identity()
@@ -314,13 +312,13 @@ def create_note():
     db.session.add(new_note)
     db.session.flush()
     
-    # # Add participants
+    # # Add participants if not already in the database
     try:
         for participant_data in data['participants']:
-            participant_email = participant_data['email']
+        
             
-            # Check if participant exists
-            participant = Participant.query.get(participant_email)
+            # Check if participant exists by id
+            participant = Participant.query.get(participant_data['id']) if 'id' in participant_data else None
             
             if participant:
                 # Update existing participant if needed
@@ -332,7 +330,7 @@ def create_note():
             else:
                 # Create new participant
                 participant = Participant(
-                    id=participant_id,
+                    id= str(uuid.uuid4()),  # Generate a new UUID for the participant
                     first_name=participant_data['first_name'],
                     last_name=participant_data.get('last_name'),  # Use get to handle optional fields
                     email=participant_data.get('email')
@@ -349,22 +347,22 @@ def create_note():
     db.session.commit()
     
     # # Get participant info for the response
-    # participants = []
-    # try:
-    #     for participant in new_note.participants:
-    #         participant_info = {
-    #             "id": participant.id,
-    #             "first_name": participant.first_name
-    #         }
-    #         if participant.last_name:
-    #             participant_info["last_name"] = participant.last_name
-    #         if participant.email:
-    #             participant_info["email"] = participant.email
-    #         participants.append(participant_info)
-    # except Exception as e:
-    #     # Log the error
-    #     print(f"Error accessing participants: {str(e)}")
-    #     participants = []
+    participants = []
+    try:
+        for participant in new_note.participants:
+            participant_info = {
+                "id": participant.id,
+                "first_name": participant.first_name
+            }
+            if participant.last_name:
+                participant_info["last_name"] = participant.last_name
+            if participant.email:
+                participant_info["email"] = participant.email
+            participants.append(participant_info)
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        participants = []
 
     return jsonify({
         "id": new_note.id,
@@ -372,7 +370,7 @@ def create_note():
         "updatedAt": new_note.updated_at,
         "noteContentRaw": new_note.note_content_raw,
         "noteContentMarkdown": new_note.note_content_markdown,
-        # "participants": participants,
+        "participants": data['participants'],  # Return the original participants data
         "noteType": new_note.note_type,
         "authorId": new_note.author_id,
         "version": new_note.version
@@ -396,22 +394,20 @@ def get_note(id):
         return jsonify({"error": "Not authorized to access this note"}), 403
 
     # Get participant information
-    # participants = []
-    # try:
-    #     for participant in note.participants:
-    #         participant_info = {
-    #             "id": participant.id,
-    #             "first_name": participant.first_name
-    #         }
-    #         if hasattr(participant, 'last_name') and participant.last_name:
-    #             participant_info["last_name"] = participant.last_name
-    #         if hasattr(participant, 'email') and participant.email:
-    #             participant_info["email"] = participant.email
-    #         participants.append(participant_info)
-    # except Exception as e:
-    #     # Log the error
-    #     print(f"Error accessing participants: {str(e)}")
-    #     participants = []
+    participants = []
+    try:
+        for participant in note.participants:
+            participant_info = {
+                "id": participant.id,
+                "first_name": participant.first_name,
+                "last_name": participant.last_name if hasattr(participant, 'last_name') else None,
+                "email": participant.email if hasattr(participant, 'email') else None
+            }
+            participants.append(participant_info)
+    except Exception as e:
+        # Log the error
+        print(f"Error accessing participants: {str(e)}")
+        participants = []
         
     return jsonify({
         "id": note.id,
@@ -424,6 +420,7 @@ def get_note(id):
         "authorName": note.author_name,
         "noteType": note.note_type,
         "noteTemplate": note.template_id,
+        "participants": participants,
         "version": note.version,
         "isDeleted": note.is_deleted,
         "isDeletedTimestamp": note.is_deleted_timestamp,
@@ -852,6 +849,89 @@ def mark_template_as_restored(id):
         "message": "Template restored successfully.",
     })
 
+# API route to create a participant (requires authentication)
+@app.route('/api/participants', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def create_participant():
+    data = request.get_json()
+    print('creating participant', data)
+
+    # Validate required fields
+    if not all(k in data for k in (
+        'firstName', )):
+        return jsonify({"error": "Missing required fields"}), 400
+        
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+
+    # Create a new note instance
+    new_participant = Participant(
+        first_name=data['firstName'],
+        last_name=data['lastName'] if 'lastName' in data else None,
+        email=data['email'] if 'email' in data else None,
+        created_at=datetime.now(),
+        updated_at=datetime.now(),
+        author_id=current_user  # Link the note to the current user (UUID)
+    )
+    
+    print('adding template', new_participant)
+
+    # Add the note to the database
+    db.session.add(new_participant)
+    db.session.commit()
+
+    return jsonify({
+        "id": new_participant.id,
+        "createdAt": new_participant.created_at,
+        "updatedAt": new_participant.updated_at,
+        "firstName": new_participant.first_name,
+        "lastName": new_participant.last_name,
+        "authorId": new_participant.author_id,
+    }), 201
+
+# API route to get all users participants (requires authentication)
+@app.route('/api/participants/<string:user_id>', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def get_participants_for_user(user_id):
+    print("Getting participants")
+    
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+
+    # Ensure the user is authorized to access notes for the given authorId
+    if current_user != user_id:
+        return jsonify({"error": "Not authorized to access templates for this user"}), 403
+
+    participants = Participant.query.filter_by(author_id=user_id).all()
+    if not participants:
+        print('no participants found for user', current_user)
+        return jsonify([]), 200
+
+    participant_list = []
+    
+    try:
+        for participant in participants:            
+            # Create template object
+            participant_data = {
+                "id": participant.id,
+                "firstName": participant.first_name,
+                "lastName": participant.last_name,
+                "email": participant.email,
+                "createdAt": participant.created_at,
+                "updatedAt": participant.updated_at,
+            }
+            
+            participant_list.append(participant_data)
+    except Exception as e:
+        # Log the error
+        print(f"Error getting participants: {str(e)}")
+        participant_list = []
+        
+    return jsonify(participant_list)
+
+
 # Function to convert audio to WAV format (if needed)
 def convert_audio(audio_data, format):
     audio = AudioSegment.from_file(io.BytesIO(audio_data), format=format)
@@ -931,14 +1011,15 @@ def getMarkdown():
                     "You are a professional meeting-minutes assistant.\n\n"
                     "### GOAL\n"
                     "Transform the raw transcript into **exactly** the Markdown structure shown "
-                    "between the ###TEMPLATE### tags below, replacing only the {{placeholders}} "
-                    "with information you extract.\n\n"
+                    "between the ###TEMPLATE### tags below, identify instructions for transcription between square brackets: [instructions]. "
+                    "You must follow the instructions inside the square brackets exactly "
+                    "with information you extract from the transcript - please note there may be multiple sets of instructions.\n\n"
                     "###START TEMPLATE###\n"
                     f"{template.content}\n"
                     "###END TEMPLATE###\n\n"
                     "### STRICT RULES\n"
-                    "1. **Do NOT** add or remove headings, colons, bullets, blank lines, or any other characters outside the {{placeholders}}.\n"
-                    "2. Leave a placeholder blank if the data is missing.\n"
+                    "1. **Do NOT** add or remove headings, colons, bullets, blank lines, or any other characters outside the [instructions].\n"
+                    "2. If you feel there is not enough data to address the instruction, just include the instruction and a comment `I could not find enough data to answer this`.\n"
                     "3. Format all dates as MM/DD/YYYY.\n"
                     "4. Return the filled-in template **as plain text**. No code fences, no extra commentary, no word “markdown”."
                     "5. Do not include any other text or explanation. Do not include the <TEMPLATE> or </TEMPLATE> tags.\n"
