@@ -25,7 +25,6 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <Routes>
         <Route element={<RootLayout />}>
-          {/* <Route path="/neo" element={<NeobrutalHome />} /> */}
           <Route path="/" element={<App />} />
           
           <Route path="notes">
@@ -48,5 +47,5 @@ createRoot(document.getElementById('root')!).render(
       </Routes>
     </BrowserRouter>
     </AuthProvider>
-  </StrictMode>,
+  </StrictMode>
 )
