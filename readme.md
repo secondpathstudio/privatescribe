@@ -80,7 +80,7 @@ From the frontend directory:
 npm run dev
 ```
 
-The frontend will be available at `http://127.0.0.1:5173`
+The frontend will be available at `http://127.0.0.1:3000`
 
 ---
 
