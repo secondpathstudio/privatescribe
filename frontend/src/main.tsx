@@ -17,6 +17,7 @@ import Templates from './pages/Templates/Templates.tsx'
 import NewTemplate from './pages/Templates/New/NewTemplate.tsx'
 import NeobrutalHome from './components/neo/neobrutal-home.tsx'
 import SingleTemplate from './pages/Templates/id/SingleTemplate.tsx'
+import Roadmap from './pages/Roadmap/Roadmap.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -38,6 +39,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="new" element={<RequireAuth><NewTemplate /></RequireAuth>} />
             <Route path=":id" element={<RequireAuth><SingleTemplate /></RequireAuth>} />
           </Route>
+          <Route path="/roadmap" element={<Roadmap />} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/login" element={<Login />} />
           <Route path="/users" element={<Users />} />
