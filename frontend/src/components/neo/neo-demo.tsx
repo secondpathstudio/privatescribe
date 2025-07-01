@@ -114,7 +114,7 @@ const NeoDemo = () => {
         {/* Demo Steps */}
         <div className="flex justify-center mb-12">
           <div 
-            className="flex space-x-4 overflow-x-auto"
+            className="flex md:space-x-4 overflow-x-auto"
           >
             {steps.map((step, index) => (
               <button 
