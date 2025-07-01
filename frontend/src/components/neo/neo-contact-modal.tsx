@@ -1,5 +1,6 @@
 import { error } from 'console';
 import React, { useState } from 'react';
+import NeoButton from './neo-button';
 
 const ContactModal = ({ isOpen, onClose }) => {
   const [formData, setFormData] = useState({
@@ -7,6 +8,7 @@ const ContactModal = ({ isOpen, onClose }) => {
     email: '',
     message: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (e) => {
     setFormData({
@@ -18,6 +20,8 @@ const ContactModal = ({ isOpen, onClose }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    setIsSubmitting(true);
+
     const messageData = {
       service_id: import.meta.env.VITE_EMAILJS_SERVICE,
       template_id: import.meta.env.VITE_EMAILJS_TEMPLATE,
@@ -47,7 +51,16 @@ const ContactModal = ({ isOpen, onClose }) => {
 
       // EmailJS returns plain text "OK" on success, not JSON
       const result = await response.text();
-      console.log('Email sent successfully:', result); // This will log "OK"
+
+      alert('Thank you for your message, we will get back to you soon!');
+      setIsSubmitting(false);
+      // Reset form data
+      setFormData({
+        name: '',
+        email: '',
+        message: ''
+      });
+      onClose();
       
     } catch (error) {
       console.error('Error sending email:', error);
@@ -69,12 +82,14 @@ const ContactModal = ({ isOpen, onClose }) => {
     >
       <div className="bg-white border-4 border-black max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
         {/* Close Button */}
-        <button
+        <div className='flex justify-end items-center'>
+        <NeoButton
           onClick={onClose}
-          className="absolute top-4 right-4 w-8 h-8 bg-black text-white font-black text-xl border-2 border-black hover:bg-gray-800 flex items-center justify-center"
+          className='m-4'
         >
           ×
-        </button>
+        </NeoButton>
+        </div>
 
         <div className="p-8">
           <h2 className="text-4xl font-black mb-8 text-center text-black uppercase">
@@ -142,21 +157,25 @@ const ContactModal = ({ isOpen, onClose }) => {
               />
             </div>
 
-            {/* Buttons */}
-            <div className="flex gap-4 pt-4">
-              <button
-                onClick={onClose}
-                className="flex-1 px-6 py-4 border-4 border-black font-black text-xl uppercase tracking-wider bg-gray-200 text-black hover:bg-gray-300 transition-colors"
-              >
-                CANCEL
-              </button>
-              <button
-                onClick={handleSubmit}
-                className="flex-1 px-6 py-4 border-4 border-black font-black text-xl uppercase tracking-wider bg-black text-white hover:bg-gray-800 transition-colors"
-              >
-                SEND MESSAGE
-              </button>
-            </div>
+            {isSubmitting && (
+              <div className="text-center text-lg font-bold text-black">
+                Sending message...
+              </div>
+            )}
+            {!isSubmitting && (
+              <div className="flex gap-4 pt-4">
+                <NeoButton
+                  onClick={onClose}
+                >
+                  CANCEL
+                </NeoButton>
+                <NeoButton
+                  onClick={handleSubmit}
+                >
+                  SEND MESSAGE
+                </NeoButton>
+              </div>
+            )}
           </div>
         </div>
       </div>

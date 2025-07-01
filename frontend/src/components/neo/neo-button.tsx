@@ -3,7 +3,7 @@ import React, { useEffect } from 'react'
 
 type Props = {
     // Define any props you want to pass to the button here
-    onClick?: () => void;
+    onClick?: ((e: any) => void) | ((e: any) => Promise<void>);
     label?: string;
     backgroundColor?: string;
     textColor?: string;
