@@ -546,6 +546,38 @@ def mark_note_as_deleted(id):
         "deletedAt": note.is_deleted_timestamp
     })
 
+# API endpoint to delete a note permanently
+@app.route('/api/notes/<string:id>/delete-permanently', methods=['DELETE'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def delete_note(id):
+    note = Note.query.get(id)
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+        
+    print('permanently deleting note:', note)
+    
+    # Get the current user from the JWT
+    current_user = get_jwt_identity()
+    
+    # Ensure the note belongs to the current user
+    #TODO add ability for admin to delete any note
+    if note.author_id != current_user:
+        return jsonify({"error": "Not authorized to delete this note"}), 403
+        
+    # Delete note from the database
+    db.session.delete(note)
+    
+    # Don't remove participants as they may be used in other or future notes
+    
+    # Commit the changes to the database
+    db.session.commit()
+    
+    return jsonify({
+        "id": note.id,
+        "message": "Note permanently deleted.",
+    })
+
 # API endpoint to restore a deleted note
 @app.route('/api/notes/<string:id>/restore', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
