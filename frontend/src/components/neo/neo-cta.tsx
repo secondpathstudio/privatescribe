@@ -1,5 +1,7 @@
 import React from 'react';
 import NeoButton from './neo-button';
+import NeoAnchorButton from './neo-a-button';
+import { GithubIcon } from 'lucide-react';
 
 const NeoCTA = () => {
   return (
@@ -25,7 +27,13 @@ const NeoCTA = () => {
           </p>
         </div>
         <div className="flex flex-col md:flex-row justify-center items-center gap-6">
+          {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ?
           <NeoButton label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
+          :
+          <NeoAnchorButton href="http://www.github.com" backgroundColor='#ffffff' textColor="#000000">
+            <GithubIcon />
+          </NeoAnchorButton>
+          }
         </div>
       </div>
             
