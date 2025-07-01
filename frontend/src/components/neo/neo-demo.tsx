@@ -119,13 +119,13 @@ const NeoDemo = () => {
                 `}
                 onClick={() => index == 0 && handleStartDemo()}
               >
-                {index > activeStep && <div className='absolute top-0 left-0 w-full h-full bg-white z-20'/>}
+                {index > activeStep && <div className='absolute top-0 left-0 w-full h-full bg-white z-10'/>}
                 <span className={`w-8 h-8 rounded-full border-2 border-black flex items-center justify-center text-sm z-10 ${
                   index <= activeStep ? 'bg-[#fd3777] text-white' : 'bg-white'
                 }`}>
                   {index + 1}
                 </span>
-                <span>{step}</span>
+                <span className='z-10'>{step}</span>
               </button>
             ))}
           </div>
