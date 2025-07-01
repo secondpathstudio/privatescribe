@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import NeoPricingCard from './neo-pricing-card';
 import NeoAccordion from './accordion';
 import NeoCTA from './neo-cta';
@@ -5,6 +6,7 @@ import NeoFooter from './neo-footer';
 import NeoHero from './neo-hero';
 import NeoFeatureCard from './neo-feature-card';
 import NeoDemo from './neo-demo';
+import ContactModal from './neo-contact-modal';
 
 const TranscriptionApplications = [
   { name: 'Healthcare', emoji: '🏥' },
@@ -14,6 +16,8 @@ const TranscriptionApplications = [
 ]
 
 const NeobrutalHome = () => {
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+
   return (
     <div className="min-h-screen font-sans">
 
@@ -120,6 +124,7 @@ const NeobrutalHome = () => {
               "Priority support",
             ]}
             buttonText='Contact Us' 
+            onClick={() => setContactModalOpen(true)}
           />
         
           </div>
@@ -137,7 +142,10 @@ const NeobrutalHome = () => {
       {/* Footer */}
       <NeoFooter />
 
-      {/* Background Animation */}
+      <ContactModal 
+        isOpen={contactModalOpen} 
+        onClose={() => setContactModalOpen(false)} 
+      />
     </div>
   );
 };

@@ -48,6 +48,7 @@ const NeoPricingCard = (props: Props) => {
         ))}
         </ul>
         <NeoButton
+            onClick={props.onClick}
             label={props.buttonText}
         />
     </div>
