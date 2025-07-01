@@ -117,7 +117,7 @@ const Roadmap = () => {
           <p className="text-xl text-black mb-8 max-w-2xl mx-auto">
             Follow our progress and be the first to know when new features drop.
           </p>
-          <a href="http://www.github.com">
+          <a href="https://github.com/secondpathstudio/privatescribe">
           <NeoButton>
             WATCH ON GITHUB
           </NeoButton>

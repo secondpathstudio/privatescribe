@@ -2,53 +2,64 @@ import { useEffect, useState } from 'react';
 import NeoButton from './neo-button';
 import CassetteSVG from './cassette';
 
+type TemplateKey = 'medical' | 'legal' | 'personal';
+
+type Template = {
+  name: string;
+  emoji: string;
+  color: string;
+  fields: string[];
+  sampleTranscript: string;
+  processedNote: Record<string, string>;
+};
+
+const templates: Record<TemplateKey, Template> = {
+  medical: {
+    name: "Medical Consultation",
+    emoji: "🏥",
+    color: "linear-gradient(to bottom right, #00ffff, white)",
+    fields: ["Chief Complaint", "History of Present Illness", "Assessment", "Plan"],
+    sampleTranscript: "Patient presents with chest pain that started 2 hours ago. Pain is described as sharp, 7/10 severity, radiating to left arm. No shortness of breath or nausea.",
+    processedNote: {
+      "Chief Complaint": "Chest pain, 2 hours duration",
+      "History of Present Illness": "Sharp pain, 7/10 severity, radiating to left arm. No associated SOB or nausea.",
+      "Assessment": "Possible cardiac event - requires immediate evaluation",
+      "Plan": "ECG, cardiac enzymes, chest X-ray. Monitor vitals."
+    }
+  },
+  legal: {
+    name: "Legal Consultation",
+    emoji: "🧑‍⚖️",
+    color: "linear-gradient(to bottom right, #ff00ff, white)",
+    fields: ["Client Information", "Legal Issue", "Facts", "Action Items"],
+    sampleTranscript: "Client John Smith seeking advice on contract dispute with former employer. Believes non-compete clause is unenforceable. Contract signed in California, work performed remotely.",
+    processedNote: {
+      "Client Information": "John Smith - employment contract dispute",
+      "Legal Issue": "Non-compete clause enforceability",
+      "Facts": "Contract signed in CA, remote work performed, dispute with former employer",
+      "Action Items": "Review contract terms, research CA non-compete laws, schedule follow-up"
+    }
+  },
+  personal: {
+    name: "Personal Journal",
+    emoji: "📔",
+    color: "linear-gradient(to bottom right, #ff9900, white)",
+    fields: ["Date", "Mood", "Key Events", "Reflections"],
+    sampleTranscript: "Had a really productive day at work today. Finished the quarterly report ahead of schedule. Feeling accomplished but also a bit stressed about the presentation tomorrow.",
+    processedNote: {
+      "Date": "Today",
+      "Mood": "Accomplished but stressed",
+      "Key Events": "Completed quarterly report ahead of schedule",
+      "Reflections": "Productive work day, concern about upcoming presentation"
+    }
+  }
+};
+
 const NeoDemo = () => {
   const [activeStep, setActiveStep] = useState(0);
-  const [selectedTemplate, setSelectedTemplate] = useState('medical');
+  const [selectedTemplate, setSelectedTemplate] = useState<TemplateKey>('medical');
   const [isRecording, setIsRecording] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
-
-  const templates = {
-    medical: {
-      name: "Medical Consultation",
-      emoji: "🏥",
-      color: "linear-gradient(to bottom right, #00ffff, white)",
-      fields: ["Chief Complaint", "History of Present Illness", "Assessment", "Plan"],
-      sampleTranscript: "Patient presents with chest pain that started 2 hours ago. Pain is described as sharp, 7/10 severity, radiating to left arm. No shortness of breath or nausea.",
-      processedNote: {
-        "Chief Complaint": "Chest pain, 2 hours duration",
-        "History of Present Illness": "Sharp pain, 7/10 severity, radiating to left arm. No associated SOB or nausea.",
-        "Assessment": "Possible cardiac event - requires immediate evaluation",
-        "Plan": "ECG, cardiac enzymes, chest X-ray. Monitor vitals."
-      }
-    },
-    legal: {
-      name: "Legal Consultation",
-      emoji: "🧑‍⚖️",
-      color: "linear-gradient(to bottom right, #ff00ff, white)",
-      fields: ["Client Information", "Legal Issue", "Facts", "Action Items"],
-      sampleTranscript: "Client John Smith seeking advice on contract dispute with former employer. Believes non-compete clause is unenforceable. Contract signed in California, work performed remotely.",
-      processedNote: {
-        "Client Information": "John Smith - employment contract dispute",
-        "Legal Issue": "Non-compete clause enforceability",
-        "Facts": "Contract signed in CA, remote work performed, dispute with former employer",
-        "Action Items": "Review contract terms, research CA non-compete laws, schedule follow-up"
-      }
-    },
-    personal: {
-      name: "Personal Journal",
-      emoji: "📔",
-      color: "linear-gradient(to bottom right, #ff9900, white)",
-      fields: ["Date", "Mood", "Key Events", "Reflections"],
-      sampleTranscript: "Had a really productive day at work today. Finished the quarterly report ahead of schedule. Feeling accomplished but also a bit stressed about the presentation tomorrow.",
-      processedNote: {
-        "Date": "Today",
-        "Mood": "Accomplished but stressed",
-        "Key Events": "Completed quarterly report ahead of schedule",
-        "Reflections": "Productive work day, concern about upcoming presentation"
-      }
-    }
-  };
 
   const steps = [
     "Choose Template",
@@ -141,7 +152,7 @@ const NeoDemo = () => {
                 {Object.entries(templates).map(([key, template]) => (
                   <NeoButton
                     key={key}
-                    onClick={() => setSelectedTemplate(key)}
+                    onClick={() => setSelectedTemplate(key as TemplateKey)}
                     selected={selectedTemplate === key}
                   >
                     <div className="text-3xl mb-2">{template.emoji}</div>
