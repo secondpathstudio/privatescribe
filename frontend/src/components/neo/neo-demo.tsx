@@ -106,7 +106,7 @@ const NeoDemo = () => {
             className="flex space-x-4 overflow-x-auto"
           >
             {steps.map((step, index) => (
-              <div 
+              <button 
                 key={index}
                 style={{
                     background: "linear-gradient(to right, #2b0f54, #5d1d91, #fd3777)",
@@ -114,8 +114,10 @@ const NeoDemo = () => {
                     backgroundAttachment: "fixed",
                 }}
                 className={`relative flex items-center space-x-2 px-4 py-2 border-4 border-black font-bold whitespace-nowrap ${
-                  index <= activeStep ? 'text-white' : 'text-black'
-                }`}
+                  index <= activeStep ? 'text-white' : 'text-black'}
+                  ${index === 0 && "cursor-pointer"}
+                `}
+                onClick={() => index == 0 && handleStartDemo()}
               >
                 {index > activeStep && <div className='absolute top-0 left-0 w-full h-full bg-white z-20'/>}
                 <span className={`w-8 h-8 rounded-full border-2 border-black flex items-center justify-center text-sm z-10 ${
@@ -124,7 +126,7 @@ const NeoDemo = () => {
                   {index + 1}
                 </span>
                 <span>{step}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
