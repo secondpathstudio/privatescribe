@@ -23,10 +23,9 @@ const Roadmap = () => {
       title: "ENHANCED ACCURACY",
       status: "completed",
       items: [
-        { text: "Multi-Language Support", completed: true },
-        { text: "Custom Model Training", completed: true },
         { text: "Custom template creation", completed: true },
         { text: "Save and record participants (regular patients, clients, etc.)", completed: true },
+        { text: "Custom Model Training", completed: true },
       ],
       gradient: "linear-gradient(135deg, #5d1d91, #9d4edd)",
       icon: <Settings className="w-8 h-8" />
