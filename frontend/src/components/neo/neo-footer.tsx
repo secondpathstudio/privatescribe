@@ -12,13 +12,10 @@ const NeoFooter = (props: Props) => {
               <PrivateScribeLogo />
               <p className="text-gray-600">100% private AI transcription.</p>
             </div>
-            <div>
-              <h4 className="font-black text-lg mb-4">PRODUCT</h4>
-              <ul className="space-y-2">
-                <li><a href="#features" className="hover:underline">Features</a></li>
-                <li><a href="#pricing" className="hover:underline">Pricing</a></li>
-                <li><a href="/roadmap" className="hover:underline">Roadmap</a></li>
-              </ul>
+            <div className='flex justify-around items-center'>
+                <a href="#features" className="hover:underline">Features</a>
+                <a href="#pricing" className="hover:underline">Pricing</a>
+                <a href="/roadmap" className="hover:underline">Roadmap</a>
             </div>
             {/* <div>
               <h4 className="font-black text-lg mb-4">CONNECT</h4>

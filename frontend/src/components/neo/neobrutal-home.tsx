@@ -9,12 +9,10 @@ const NeobrutalHome = () => {
   return (
     <div className="min-h-screen font-sans">
 
-      {/* Background Animation? */}
-
       {/* Hero Section */}
       <NeoHero />
 
-      {/* Grid Pattern Section */}
+      {/* Grid Pattern Section - scroll? */}
       <div className="bg-white py-6 border-b-4 border-black">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

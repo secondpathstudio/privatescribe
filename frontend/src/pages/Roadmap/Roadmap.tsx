@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, Circle, Zap, Shield, Cpu, Headphones, Settings, Rocket } from 'lucide-react';
+import { Zap, Shield, Cpu, Settings, Rocket } from 'lucide-react';
 import RoadmapPhase from '@/components/neo/neo-roadmap-phase';
 import NeoLinkButton from '@/components/neo/neo-link-button';
 import NeoButton from '@/components/neo/neo-button';
@@ -74,10 +74,10 @@ const Roadmap = () => {
   return (
     <div className="min-h-screen">
       {/* Header */}
-      <header className="py-16" style={{
+      <header className="py-16 border-b-4 border-black" style={{
         background: "linear-gradient(to right, #2b0f54, #5d1d91, #fd3777)"
       }}>
-        <div className="container mx-auto px-4 border-b-4 border-black">
+        <div className="container mx-auto px-4">
           <div className="text-center">
             <h1 className="text-6xl md:text-8xl font-black text-white mb-2 leading-tight">
               DEVELOPMENT
@@ -111,7 +111,23 @@ const Roadmap = () => {
           </div>
         </div>
       </main>
-
+      <footer className="py-16 border-y-4 border-black" style={{
+        background: "linear-gradient(to right, #fd3777, #ff9900, #ffff00)"
+      }}>
+        <div className="container mx-auto px-4 text-center">
+          <h3 className="text-4xl md:text-6xl font-black text-black mb-6">
+            STAY UPDATED
+          </h3>
+          <p className="text-xl text-black mb-8 max-w-2xl mx-auto">
+            Follow our progress and be the first to know when new features drop.
+          </p>
+          <a href="http://www.github.com">
+          <NeoButton>
+            WATCH ON GITHUB
+          </NeoButton>
+          </a>
+        </div>
+      </footer>
       <NeoFooter />
     </div>
   );
