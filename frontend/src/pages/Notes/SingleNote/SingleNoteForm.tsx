@@ -219,6 +219,31 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
         }
     }
 
+    const handleDeleteNotePermanently = async (noteId: string) => {
+        if (confirm('Are you sure you want to delete this note permanently? This action cannot be undone.')) {
+            try {
+                const response = await fetch(`http://127.0.1:5000/api/notes/${noteId}/delete-permanently`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`,
+                    },
+                });
+                if (!response.ok) {
+                    throw new Error('Network request failed with status ' + response.status);
+                } else {
+                    //note deleted permanently
+                    //redirect to notes page
+                    alert('Note deleted permanently');
+                    navigation('/notes');
+                }
+            } catch (error) {
+                alert('Error deleting note permanently. Please try again.');
+                console.log('Error deleting note permanently: ', error)
+            }
+        }
+    }
+
   return (
     <Form {...form}>
     <form onSubmit={(e) => handleUpdateNote(e, form)}>
@@ -407,12 +432,19 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                     Reset
                 </NeoButton>
                 {note?.isDeleted && (
+                <div className='flex gap-3 items-center'>
+                    <NeoButton
+                    backgroundColor='#fd3777'
+                    type="button"
+                    onClick={() => handleDeleteNotePermanently(note.id)}
+                    ><Trash /></NeoButton>
                     <NeoButton 
                     type="button"
                     onClick={handleRestoreNote}
                 >
                     <span className='flex gap-2 items-center justify-center'>Restore <RefreshCcw /></span>
                 </NeoButton>
+                </div>
                 )}
                 {!note?.isDeleted && (
                 <NeoButton 
