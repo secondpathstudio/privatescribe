@@ -7,7 +7,7 @@ An open-source private AI scribe application using Flask for the backend, SQLite
 ## Tech Stack
 
 * **Backend**: Flask, SQLAlchemy, SQLite
-* **Frontend**: Vite (npm)
+* **Frontend**: Vite
 * **AI Model Inference**: Ollama (defaulting to the Llama 3.2 model)
 
 ---
