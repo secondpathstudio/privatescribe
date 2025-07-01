@@ -75,13 +75,13 @@ const Roadmap = () => {
       }}>
         <div className="container mx-auto px-4">
           <div className="text-center">
-            <h1 className="text-6xl md:text-8xl font-black text-white mb-2 leading-tight">
+            <h1 className="text-5xl md:text-7xl font-black text-white mb-2 leading-tight">
               DEVELOPMENT
             </h1>
-            <h2 className="text-4xl md:text-6xl font-black text-white mb-8 leading-tight">
+            <h2 className="text-3xl md:text-5xl font-black text-white mb-8 leading-tight">
               ROADMAP
             </h2>
-            <p className="text-xl text-white max-w-3xl mx-auto">
+            <p className="text-md md:text-xl text-white max-w-3xl mx-auto">
               Follow our journey to build the ultimate, completely private AI transcription tool.
             </p>
           </div>

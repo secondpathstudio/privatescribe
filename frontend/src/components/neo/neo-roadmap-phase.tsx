@@ -72,8 +72,8 @@ const RoadmapPhase = ({
               {icon}
             </div>
             <div>
-              <h3 className="text-xl font-black text-white mb-1">{phase}</h3>
-              <h4 className="text-3xl font-black text-white">{title}</h4>
+              <h3 className="text-lg md:text-xl font-black text-white mb-1">{phase}</h3>
+              <h4 className="text-xl md:text-3xl font-black text-white">{title}</h4>
             </div>
           </div>
           
@@ -86,7 +86,7 @@ const RoadmapPhase = ({
                 ) : (
                   <Circle className="w-6 h-6 text-white flex-shrink-0" />
                 )}
-                <span className={`text-white font-bold ${item.completed ? 'line-through opacity-75' : ''}`}>
+                <span className={`text-sm md:text-lg text-white font-bold ${item.completed ? 'line-through opacity-75' : ''}`}>
                   {item.text}
                 </span>
               </div>
