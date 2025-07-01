@@ -66,7 +66,7 @@ const NeobrutalHome = () => {
       }}>
         
         <div className="container mx-auto px-4">
-          <h2 className="text-4xl font-black mb-12 text-center text-white">PRICING PLANS</h2>
+          <h2 className="text-4xl font-black mb-12 text-center text-white">PRICING</h2>
           <div className="grid md:grid-cols-3 gap-8">
           <NeoPricingCard
             title='PERSONAL'
