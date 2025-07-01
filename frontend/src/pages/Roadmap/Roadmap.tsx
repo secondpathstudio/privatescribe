@@ -1,7 +1,5 @@
-import React from 'react';
 import { Zap, Shield, Cpu, Settings, Rocket } from 'lucide-react';
 import RoadmapPhase from '@/components/neo/neo-roadmap-phase';
-import NeoLinkButton from '@/components/neo/neo-link-button';
 import NeoButton from '@/components/neo/neo-button';
 import NeoFooter from '@/components/neo/neo-footer';
 
@@ -64,7 +62,6 @@ const Roadmap = () => {
       status: "future",
       items: [
         { text: "Native mobile app", completed: false },
-        { text: "Plugin Architecture", completed: false },
       ],
       gradient: "linear-gradient(135deg, #fd3777, #ff9900)",
       icon: <Rocket className="w-8 h-8" />

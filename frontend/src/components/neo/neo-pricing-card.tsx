@@ -31,10 +31,13 @@ const NeoPricingCard = (props: Props) => {
         <div>
         <h3 className="text-2xl font-black mb-2">{props.title}</h3>
             <div className="text-4xl font-black mb-6">
-                {props.title === "ENTERPRISE" && (
+                {props.title === "ENTERPRISE" && props.price !== 'soon' && (
                     <span className='text-sm'>starting at </span>
                 )}
-                ${props.price}<span className="text-xl">/{props.pricePeriod}</span>
+                {props.price !== 'soon' && (
+                <div>${props.price}<span className="text-xl">/{props.pricePeriod}</span></div>
+                )
+                }
             </div>
         </div>
         <ul className="mb-6">

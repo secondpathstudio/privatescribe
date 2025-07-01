@@ -17,7 +17,7 @@ const NeoNavbar = (props: Props) => {
               <PrivateScribeLogo />
             </a>
           </div>
-          {(location.pathname === '/' || location.pathname === '/roadmap') && (
+          {location.pathname === '/' && (
             <div className="hidden md:flex space-x-6">
               <a href="#features" className="font-black hover:text-[#fd3777]">Features</a>
               <a href="#pricing" className="font-black hover:text-[#fd3777]">Pricing</a>

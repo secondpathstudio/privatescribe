@@ -84,7 +84,7 @@ const NeobrutalHome = () => {
       
           <NeoPricingCard
             title='CUSTOM MODELS'
-            price='199'
+            price='soon'
             pricePeriod='yr'
             features={[
               "Access to premium, fine-tuned transcription models",
@@ -98,7 +98,7 @@ const NeobrutalHome = () => {
         
           <NeoPricingCard
             title='ENTERPRISE'
-            price='999'
+            price='soon'
             pricePeriod='yr'
             features={[
               "Custom model training for specific use cases",
