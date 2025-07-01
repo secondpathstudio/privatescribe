@@ -15,7 +15,7 @@ type Template = {
 
 const templates: Record<TemplateKey, Template> = {
   medical: {
-    name: "Medical Consultation",
+    name: "Medical Visit",
     emoji: "🏥",
     color: "linear-gradient(to bottom right, #00ffff, white)",
     fields: ["Chief Complaint", "History of Present Illness", "Assessment", "Plan"],
@@ -147,7 +147,7 @@ const NeoDemo = () => {
           {/* Step 1: Template Selection */}
           {activeStep === 0 && (
             <div className="border-4 border-black p-8 bg-white">
-              <h3 className="text-2xl font-bold mb-6">Step 1: Choose Your Template</h3>
+              <h3 className="text-xl md:text-2xl font-bold mb-6 text-center md:text-left">Step 1: Choose Your Template</h3>
               <div className="grid md:grid-cols-3 gap-4 mb-6">
                 {Object.entries(templates).map(([key, template]) => (
                   <NeoButton
@@ -156,7 +156,7 @@ const NeoDemo = () => {
                     selected={selectedTemplate === key}
                   >
                     <div className="text-3xl mb-2">{template.emoji}</div>
-                    <div className="text-xl">{template.name}</div>
+                    <div className="text-lg md:text-xl">{template.name}</div>
                   </NeoButton>
                 ))}
               </div>
@@ -185,7 +185,7 @@ const NeoDemo = () => {
           {/* Step 2: Recording */}
           {activeStep === 1 && (
             <div className="border-4 border-black p-8 bg-white text-center">
-              <h3 className="text-2xl font-bold mb-6">Step 2: Record Your Notes</h3>
+              <h3 className="text-xl md:text-2xl font-bold mb-6 text-center md:text-left">Step 2: Record Your Notes</h3>
               <div className="flex justify-center mb-6">
                 <CassetteSVG
                     isRecording={isRecording}
@@ -224,13 +224,13 @@ const NeoDemo = () => {
           {/* Step 3: Processing */}
           {activeStep === 2 && !showTranscript && (
             <div className="border-4 border-black p-8 bg-white text-center">
-              <h3 className="text-2xl font-bold mb-6">Step 3: AI Processing</h3>
+              <h3 className="text-xl md:text-2xl font-bold mb-6 text-center md:text-left">Step 3: AI Processing</h3>
               <div className="mb-6">
                 <div className="w-32 h-32 mx-auto rounded-full border-4 border-black bg-blue-400 flex items-center justify-center text-6xl animate-spin">
                   🧠
                 </div>
               </div>
-              <p className="text-lg mb-4">AI is analyzing your recording and structuring it according to your template...</p>
+              <p className="text-lg mb-4">AI will analyze your recording and structure it according to your template...</p>
               <div className="bg-gray-100 border-4 border-black p-4">
                 <div className="flex items-center justify-center space-x-2">
                   <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
@@ -244,7 +244,7 @@ const NeoDemo = () => {
           {/* Step 4: Results */}
           {activeStep === 3 && showTranscript && (
             <div className="border-4 border-black p-8 bg-white">
-              <h3 className="text-2xl font-bold mb-6">Step 4: Structured Notes Generated!</h3>
+              <h3 className="text-xl md:text-2xl font-bold mb-6 text-center md:text-left">Step 4: Structured Transcript Generated!</h3>
               
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
