@@ -6,6 +6,13 @@ import NeoHero from './neo-hero';
 import NeoFeatureCard from './neo-feature-card';
 import NeoDemo from './neo-demo';
 
+const TranscriptionApplications = [
+  { name: 'Healthcare', emoji: '🏥' },
+  { name: 'Legal', emoji: '🧑‍⚖️' },
+  { name: 'Mental Health', emoji: '🧠' },
+  { name: 'Personal', emoji: '📔' },
+]
+
 const NeobrutalHome = () => {
   return (
     <div className="min-h-screen font-sans">
@@ -17,9 +24,10 @@ const NeobrutalHome = () => {
       <div className="bg-white py-6 border-b-4 border-black">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {['🏥 Healthcare', '🧑‍⚖️ Legal', '🧠 Mental Health', '📔 Personal'].map((item, index) => (
-              <div key={index} className="border-4 border-black p-4 font-bold text-xl text-center bg-white">
-                {item}
+            {TranscriptionApplications.map(({name,emoji}, index) => (
+              <div key={index} className="flex flex-col items-center justify-center border-4 border-black p-4 font-bold text-xl text-center bg-white">
+                <div>{emoji}</div>
+                <div>{name}</div>
               </div>
             ))}
           </div>
