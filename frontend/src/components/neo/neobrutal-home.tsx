@@ -4,6 +4,7 @@ import NeoCTA from './neo-cta';
 import NeoFooter from './neo-footer';
 import NeoHero from './neo-hero';
 import NeoFeatureCard from './neo-feature-card';
+import NeoDemo from './neo-demo';
 
 const NeobrutalHome = () => {
   return (
@@ -59,6 +60,9 @@ const NeobrutalHome = () => {
           </div>
         </div>
       </section>
+
+      {/* Demo Section */}
+      <NeoDemo />
 
       {/* Pricing Section */}
       <section id="pricing" className="py-20 border-b-4 border-black relative" style={{
