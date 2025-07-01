@@ -12,7 +12,7 @@ const NeoHero = (props: Props) => {
         <div className="container mx-auto px-4">
           <div className="grid xl:grid-cols-2 grid-cols-1 gap-12 items-center text-center xl:text-left">
             <div>
-              <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
+              <h1 className="text-4xl md:text-7xl font-black text-white mb-6 leading-tight">
                 100% PRIVATE AI TRANSCRIPTION
               </h1>
               <p className="text-xl text-white mb-8">
