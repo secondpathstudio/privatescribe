@@ -116,6 +116,7 @@ const NeoDemo = () => {
                 className={`relative flex items-center space-x-2 px-4 py-2 border-4 border-black font-bold whitespace-nowrap ${
                   index <= activeStep ? 'text-white' : 'text-black'}
                   ${index === 0 && "cursor-pointer"}
+                  ${index !== activeStep && "hidden md:inline-flex"}
                 `}
                 onClick={() => index == 0 && handleStartDemo()}
               >

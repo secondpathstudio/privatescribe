@@ -10,7 +10,7 @@ const NeoHero = (props: Props) => {
         background: "linear-gradient(to right, #2b0f54, #5d1d91, #fd3777)"
       }}>
         <div className="container mx-auto px-4">
-          <div className="grid xl:grid-cols-2 gap-12 items-center text-center xl:text-left">
+          <div className="grid xl:grid-cols-2 grid-cols-1 gap-12 items-center text-center xl:text-left">
             <div>
               <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
                 100% PRIVATE AI TRANSCRIPTION

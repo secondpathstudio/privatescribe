@@ -2,7 +2,7 @@ import React from 'react';
 
 const PrivateScribeLogo = () => {
   return (
-    <div className='flex items-center justify-start text-3xl font-black'>
+    <div className='flex items-center justify-start md:text-3xl text-2xl font-black'>
       <span className="">
         Private
       </span>

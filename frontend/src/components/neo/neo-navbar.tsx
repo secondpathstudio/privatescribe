@@ -10,7 +10,7 @@ const NeoNavbar = (props: Props) => {
   const location = useLocation();
   
   return (
-    <nav className="bg-white border-b-4 border-black p-4 px-6">
+    <nav className="bg-white border-b-4 border-black p-4 md:px-6">
         <div className="container mx-auto flex justify-between items-center">
           <div className="font-black text-3xl">
             <a href="/">
