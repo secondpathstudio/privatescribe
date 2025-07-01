@@ -9,6 +9,7 @@ type Props = {
     children?: React.ReactNode;
     type?: "button" | "submit" | "reset";
     disabled?: boolean;
+    selected?: boolean 
 }
 
 const NeoButton = (props: Props) => {
@@ -24,17 +25,22 @@ const NeoButton = (props: Props) => {
         style={{
             boxShadow: "8px 8px 0px 0px #000000",
             transition: "transform 0.1s, box-shadow 0.1s",
+            transform: `${props.selected ? "translate(4px, 4px)" : "translate(0px, 0px)"}`,
+            boxShadow: `${props.selected ? "4px 4px 0px 0px #000000" : "8px 8px 0px 0px #000000"}`,
         }}
         onClick={props.onClick}
         onMouseDown={(e) => {
+          if (props.selected) return; // Prevents action if selected
           e.currentTarget.style.transform = "translate(4px, 4px)";
           e.currentTarget.style.boxShadow = "4px 4px 0px 0px #000000";
         }}
         onMouseUp={(e) => {
+          if (props.selected) return; // Prevents action if selected
           e.currentTarget.style.transform = "translate(0px, 0px)";
           e.currentTarget.style.boxShadow = "8px 8px 0px 0px #000000";
         }}
         onMouseLeave={(e) => {
+          if (props.selected) return; // Prevents action if selected
           e.currentTarget.style.transform = "translate(0px, 0px)";
           e.currentTarget.style.boxShadow = "8px 8px 0px 0px #000000";
         }}
