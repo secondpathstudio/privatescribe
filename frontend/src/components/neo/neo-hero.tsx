@@ -19,7 +19,7 @@ const NeoHero = (props: Props) => {
                 Leverage artificial intelligence for rapid, fully customizable offline transcription without worrying about data leaks or privacy concerns. Your data never leaves your device.
               </p>
               <div className="flex flex-wrap gap-4 xl:justify-start justify-center items-center">
-                <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
+                {/* <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" /> */}
                 <NeoAnchorButton href="http://www.github.com" backgroundColor='#ffffff' textColor="#000000">
                   <GithubIcon />
                 </NeoAnchorButton>

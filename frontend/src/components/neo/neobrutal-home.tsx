@@ -63,7 +63,7 @@ const NeobrutalHome = () => {
       </section>
 
       {/* Pricing Section */}
-      {/* <section id="pricing" className="py-20 border-b-4 border-black relative" style={{
+      <section id="pricing" className="py-20 border-b-4 border-black relative" style={{
         background: "linear-gradient(to top, #2b0f54, #5d1d91)",
       }}>
         
@@ -86,21 +86,21 @@ const NeobrutalHome = () => {
       
           <NeoPricingCard
             title='CUSTOM MODELS'
-            price='0' //199
+            price='199'
             pricePeriod='yr'
             features={[
               "Access to premium, fine-tuned transcription models",
               "Regular model updates",
               "Email support",
             ]}
-            buttonText='Get Access Now'
+            buttonText='Coming Soon'
             backgroundColor='linear-gradient(to right, #fe4164, #ff9900)'
             textColor='white'
           />
         
           <NeoPricingCard
             title='ENTERPRISE'
-            price='0' //1999
+            price='999'
             pricePeriod='yr'
             features={[
               "Custom model training for specific use cases",
@@ -109,12 +109,12 @@ const NeobrutalHome = () => {
               "Workflow consultation",
               "Priority support",
             ]}
-            buttonText='Contact Sales' 
+            buttonText='Contact Us' 
           />
         
           </div>
         </div>
-      </section> */}
+      </section>
 
       {/* FAQ Section */}
       <section id="faq" className=" bg-white border-black">

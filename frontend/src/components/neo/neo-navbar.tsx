@@ -1,6 +1,8 @@
 import PrivateScribeLogo from './private-scribe-logo'
 import AuthButtons from '../auth-buttons'
 import { useLocation } from 'react-router'
+import NeoAnchorButton from './neo-a-button'
+import { GithubIcon } from 'lucide-react'
 
 type Props = {}
 
@@ -18,11 +20,14 @@ const NeoNavbar = (props: Props) => {
           {location.pathname === '/' && (
             <div className="hidden md:flex space-x-6">
               <a href="#features" className="font-black hover:underline">Features</a>
-              {/* <a href="#pricing" className="font-bold hover:underline">Pricing</a> */}
+              <a href="#pricing" className="font-black hover:underline">Pricing</a>
               <a href="#faq" className="font-black hover:underline">FAQ</a>
             </div>
           )}
-          <AuthButtons />
+          {/* <AuthButtons /> */}
+          <NeoAnchorButton href="http://www.github.com" backgroundColor='#ffffff' textColor="#000000">
+            <GithubIcon />
+          </NeoAnchorButton>
         </div>
       </nav>
   )

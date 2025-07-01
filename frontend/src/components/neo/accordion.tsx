@@ -7,7 +7,7 @@ const NeoAccordion = () => {
   const faqs = [
     {
       question: "How does your open source model work?",
-      answer: "Our core transcription engine is 100% open source under MIT license. Free tier provides the complete engine with community support, while paid tiers offer premium models, additional languages, and priority support to fund ongoing development."
+      answer: "Our core transcription engine is 100% open source under MIT license. Free tier provides the complete engine with community support, while paid tiers offer access to premium fine-tuned models, additional languages, and priority support to fund ongoing development."
     },
     {
       question: "Is my data private and secure?",
@@ -15,7 +15,7 @@ const NeoAccordion = () => {
     },
     {
       question: "What do paid tiers offer over the free version?",
-      answer: "Paid tiers include access to more accurate transcription models and technical support. Enterprise and custom solutions are available to receive more frequent model updates including custom models fine-tuned to your exact workflow or niche, deployment assistance, and priority support."
+      answer: "Paid tiers include access to more accurate transcription models based on common templates. Enterprise and custom solutions are available to receive more frequent model updates including custom models fine-tuned to your exact workflow or niche, deployment assistance, and technical support."
     },
     {
       question: "Can I use this for my business?",
