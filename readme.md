@@ -1,6 +1,6 @@
-# Private AI Scribe
+# PrivateScribe.ai
 
-An open-source private AI scribe application using Flask for the backend, SQLite for the database, Vite for the frontend, and Ollama for local AI inference.
+An open-source private AI scribe platform. Currently support for running locally on Mac, PC, or Linux using Flask for the backend, SQLite for the database, Vite for the frontend, and Ollama for local AI inference.
 
 ---
 
