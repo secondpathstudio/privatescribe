@@ -25,12 +25,8 @@ const NeoNavbar = (props: Props) => {
               <a href="/roadmap" className="font-black hover:text-[#fd3777]">Roadmap</a>
             </div>
           )}
-          {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ?
+          {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
           <AuthButtons />
-          :
-          <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">
-            <GithubIcon />
-          </NeoAnchorButton>
           }
         </div>
       </nav>
