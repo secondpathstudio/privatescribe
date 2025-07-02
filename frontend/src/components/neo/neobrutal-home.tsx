@@ -41,7 +41,7 @@ const NeobrutalHome = () => {
       {/* Features Section */}
       <section id="features" className="py-20 bg-white border-b-4 border-black">
         <div className="container mx-auto px-4">
-          <h2 className="text-4xl font-black mb-12 text-center">AWESOME FEATURES</h2>
+          <h2 className="text-4xl font-black mb-12 text-center">FEATURES</h2>
           <div className="grid md:grid-cols-3 gap-8">
             <NeoFeatureCard
               emoji="🔒"
