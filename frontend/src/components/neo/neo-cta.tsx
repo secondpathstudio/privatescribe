@@ -30,7 +30,7 @@ const NeoCTA = () => {
           {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ?
           <NeoButton label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
           :
-          <NeoAnchorButton href="http://www.github.com" backgroundColor='#ffffff' textColor="#000000">
+          <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">
             <GithubIcon />
           </NeoAnchorButton>
           }
