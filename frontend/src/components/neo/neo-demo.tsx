@@ -108,7 +108,7 @@ const NeoDemo = () => {
       <div className="container mx-auto px-4">
         <h2 className="text-4xl font-black mb-4 text-center">SEE IT IN ACTION</h2>
         <p className="text-xl text-center mb-12 max-w-3xl mx-auto">
-          Watch how PrivateScribe transforms your voice recordings into perfectly structured notes using customizable templates.
+          PrivateScribe can transform your voice recordings into perfectly structured notes using customizable templates.
         </p>
 
         {/* Demo Steps */}
