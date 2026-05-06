@@ -26,3 +26,8 @@ venv.bak/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+CLAUDE.md
+
+# don't commit db instance files or directories
+instance/
