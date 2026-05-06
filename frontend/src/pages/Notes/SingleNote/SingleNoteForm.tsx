@@ -103,7 +103,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
     const handleDeleteNote = async () => {
         if (confirm('Are you sure you want to delete this note?')) {
             try {
-                const response = await fetch(`http://127.0.1:5000/api/notes/${note.id}/delete`, {
+                const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}/delete`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -167,7 +167,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
 
         if (confirm('Are you sure you want to delete this participant?')) {
             try {
-                const response = await fetch(`http://127.0.1:5000/api/participants/${participantId}`, {
+                const response = await fetch(`http://127.0.0.1:5000/api/participants/${participantId}`, {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
@@ -196,7 +196,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
     const handleRestoreNote = async () => {
         if (confirm('Are you sure you want to restore this note?')) {
             try {
-                const response = await fetch(`http://127.0.1:5000/api/notes/${note.id}/restore`, {
+                const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}/restore`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -222,7 +222,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
     const handleDeleteNotePermanently = async (noteId: string) => {
         if (confirm('Are you sure you want to delete this note permanently? This action cannot be undone.')) {
             try {
-                const response = await fetch(`http://127.0.1:5000/api/notes/${noteId}/delete-permanently`, {
+                const response = await fetch(`http://127.0.0.1:5000/api/notes/${noteId}/delete-permanently`, {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
