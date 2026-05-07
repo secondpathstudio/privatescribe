@@ -85,7 +85,7 @@ export default function UsersTable({ users }: { users: User[] }) {
             <TableCell>{user.email}</TableCell>
             <TableCell>{user.firstName}</TableCell>
             <TableCell>{user.lastName}</TableCell>
-            <TableCell>{formatLocal(user.lastLogin)}</TableCell>
+            <TableCell>{user.lastLogin ? formatLocal(user.lastLogin) : 'No logins'}</TableCell>
           </TableRow>
         ))}
       </TableBody>
