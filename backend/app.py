@@ -233,6 +233,7 @@ def admin_create_user():
         email=data['email'],
         role=role,
         password=generate_password_hash(data['password'], method='pbkdf2:sha256'),
+        last_login=None,
     )
     db.session.add(new_user)
     db.session.commit()
@@ -1148,7 +1149,8 @@ def create_admin(email, first_name, last_name):
         first_name=first_name,
         last_name=last_name,
         role='admin',
-        password=generate_password_hash(password, method='pbkdf2:sha256')
+        password=generate_password_hash(password, method='pbkdf2:sha256'),
+        last_login=None,
     )
     
     db.session.add(admin_user)
