@@ -28,6 +28,9 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
+    const [showRetranscribe, setShowRetranscribe] = React.useState(false);
+    const [retranscribeTemplateId, setRetranscribeTemplateId] = React.useState('');
+    const [retranscribing, setRetranscribing] = React.useState(false);
     const navigation = useNavigate();
 
     const form = useForm({
@@ -228,6 +231,67 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
             }
         }
     }
+
+    // Re-transcribe the existing raw transcript through a different template.
+    // A note is locked to its original template, so this creates a new note.
+    const handleRetranscribe = async () => {
+        if (!retranscribeTemplateId || !note?.noteContentRaw) return;
+        setRetranscribing(true);
+        try {
+            const fmtResponse = await fetch('http://127.0.0.1:5000/api/getMarkdown', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify({
+                    raw_note: note.noteContentRaw,
+                    note_details: {
+                        note_date: note.noteDate,
+                        template_id: retranscribeTemplateId,
+                        participants: note.participants,
+                    }
+                }),
+            });
+
+            if (!fmtResponse.ok) {
+                const err = await fmtResponse.json().catch(() => ({}));
+                throw new Error(err.error || `Format failed: ${fmtResponse.status}`);
+            }
+            const fmtData = await fmtResponse.json();
+
+            const saveResponse = await fetch('http://127.0.0.1:5000/api/notes', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify({
+                    authorId: auth.user?.id,
+                    authorName: note.authorName,
+                    noteDate: note.noteDate,
+                    noteContentRaw: note.noteContentRaw,
+                    noteContentMarkdown: fmtData.formatted_markdown,
+                    noteType: note.noteType,
+                    noteTemplate: retranscribeTemplateId,
+                    participants: note.participants,
+                    version: 1,
+                }),
+            });
+
+            if (!saveResponse.ok) {
+                const err = await saveResponse.json().catch(() => ({}));
+                throw new Error(err.error || `Save failed: ${saveResponse.status}`);
+            }
+
+            const newNote = await saveResponse.json();
+            navigation(`/notes/${newNote.id}`);
+        } catch (e: any) {
+            alert(`Re-transcribe failed: ${e.message}`);
+        } finally {
+            setRetranscribing(false);
+        }
+    };
 
     const handleDeleteNotePermanently = async (noteId: string) => {
         if (confirm('Are you sure you want to delete this note permanently? This action cannot be undone.')) {
@@ -461,7 +525,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                 </div>
                 )}
                 {!note?.isDeleted && (
-                <NeoButton 
+                <NeoButton
                     type="button"
                     onClick={handleDeleteNote}
                 >
@@ -470,6 +534,70 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                 )}
             </div>
         </div>
+        )}
+
+        {/* Re-transcribe with a different template (creates a new note) */}
+        {!savingNote && note?.noteContentRaw && !note?.isDeleted &&
+         templates.filter((t: any) => t.id !== note?.noteTemplate && !t.isDeleted).length > 0 && (
+            <div className='mt-8 pt-4 border-t'>
+                {!showRetranscribe ? (
+                    <NeoButton
+                        type="button"
+                        onClick={() => setShowRetranscribe(true)}
+                    >
+                        Re-transcribe with different template
+                    </NeoButton>
+                ) : (
+                    <div className='flex flex-col gap-3'>
+                        <p className='text-sm text-muted-foreground'>
+                            Format the raw transcript through a different template. This creates a new note — the current one is unchanged.
+                        </p>
+                        <Select
+                            onValueChange={setRetranscribeTemplateId}
+                            value={retranscribeTemplateId}
+                            disabled={retranscribing}
+                        >
+                            <SelectTrigger className='z-10 bg-white'>
+                                <SelectValue placeholder='Select a template' />
+                            </SelectTrigger>
+                            <SelectContent className='z-10 bg-white'>
+                                {templates
+                                    .filter((t: any) => t.id !== note?.noteTemplate && !t.isDeleted)
+                                    .map((t: any) => (
+                                        <SelectItem
+                                            key={t.id}
+                                            value={t.id}
+                                            className='hover:bg-[#fd3777]'
+                                        >
+                                            {t.name}
+                                        </SelectItem>
+                                    ))}
+                            </SelectContent>
+                        </Select>
+                        <div className='flex gap-3'>
+                            <NeoButton
+                                type='button'
+                                onClick={handleRetranscribe}
+                                disabled={!retranscribeTemplateId || retranscribing}
+                                backgroundColor='#fd3777'
+                                textColor='#ffffff'
+                            >
+                                {retranscribing ? 'Re-transcribing…' : 'Format & Save as New Note'}
+                            </NeoButton>
+                            <NeoButton
+                                type='button'
+                                onClick={() => {
+                                    setShowRetranscribe(false);
+                                    setRetranscribeTemplateId('');
+                                }}
+                                disabled={retranscribing}
+                            >
+                                Cancel
+                            </NeoButton>
+                        </div>
+                    </div>
+                )}
+            </div>
         )}
     </form>
 </Form>
