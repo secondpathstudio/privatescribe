@@ -7,6 +7,8 @@ import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_cors import CORS, cross_origin
 from flask_migrate import Migrate
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from faster_whisper import WhisperModel
 import ollama
 import os
@@ -48,6 +50,17 @@ migrate = Migrate(app, db)
 
 # JWT Manager
 jwt = JWTManager(app)
+
+# Rate limiter (in-memory; suitable for single-process offline deployment)
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    storage_uri="memory://",
+)
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({"error": "Too many requests. Please try again in a moment."}), 429
 
 def require_admin(fn):
     @wraps(fn)
@@ -250,6 +263,7 @@ def admin_create_user():
 
 # API route to authenticate and get JWT token
 @app.route('/api/login', methods=['POST'])
+@limiter.limit("10 per minute")
 def login():
     data = request.get_json()
 
@@ -423,17 +437,12 @@ def create_note():
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_note(id):
-    note = Note.query.get(id)
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
     if not note:
         return jsonify({"error": "Note not found"}), 404
 
     print('getting note', note)
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-
-    # Ensure the note belongs to the current user
-    if note.author_id != current_user:
-        return jsonify({"error": "Not authorized to access this note"}), 403
 
     # Get participant information
     participants = []
@@ -473,15 +482,10 @@ def get_note(id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_note(id):
-    note = Note.query.get(id)
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
     if not note:
         return jsonify({"error": "Note not found"}), 404
-    
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-    # Ensure the note belongs to the current user
-    if note.author_id != current_user:
-        return jsonify({"error": "Not authorized to update this note"}), 403
     
     data = request.get_json()
     
@@ -569,19 +573,13 @@ def update_note(id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_note_as_deleted(id):
-    note = Note.query.get(id)
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
     if not note:
         return jsonify({"error": "Note not found"}), 404
-        
+
     print('marking note as deleted', note)
-    
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-    
-    # Ensure the note belongs to the current user
     #TODO add ability for admin to delete any note
-    if note.author_id != current_user:
-        return jsonify({"error": "Not authorized to delete this note"}), 403
         
     # Mark the note as deleted with current timestamp
     note.is_deleted = True
@@ -602,19 +600,13 @@ def mark_note_as_deleted(id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def delete_note(id):
-    note = Note.query.get(id)
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
     if not note:
         return jsonify({"error": "Note not found"}), 404
-        
+
     print('permanently deleting note:', note)
-    
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-    
-    # Ensure the note belongs to the current user
     #TODO add ability for admin to delete any note
-    if note.author_id != current_user:
-        return jsonify({"error": "Not authorized to delete this note"}), 403
         
     # Delete note from the database
     db.session.delete(note)
@@ -634,17 +626,11 @@ def delete_note(id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_note_as_restored(id):
-    note = Note.query.get(id)
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
     if not note:
         return jsonify({"error": "Note not found"}), 404
-        
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-    
-    # Ensure the note belongs to the current user
-    #TODO add ability for admin to delete any note
-    if note.author_id != current_user:
-        return jsonify({"error": "Not authorized to delete this note"}), 403
+    #TODO add ability for admin to restore any note
         
     # Mark the note as deleted with current timestamp
     note.is_deleted = False
@@ -799,16 +785,10 @@ def get_templates_for_user(user_id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_template(id):
-    template = Template.query.get(id)
+    current_user = get_jwt_identity()
+    template = Template.query.filter_by(id=id, author_id=current_user).first()
     if not template:
         return jsonify({"error": "Template not found"}), 404
-
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-
-    # Ensure the note belongs to the current user
-    if template.author_id != current_user:
-        return jsonify({"error": "Not authorized to access this note"}), 403
         
     return jsonify({
         "id": template.id,
@@ -827,16 +807,10 @@ def get_template(id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_template(id):
-    template = Template.query.get(id)
-    if not template:
-        return jsonify({"error": "Note not found"}), 404
-
-    # Get the current user from the JWT
     current_user = get_jwt_identity()
-
-    # Ensure the note belongs to the current user
-    if template.author_id != current_user:
-        return jsonify({"error": "Not authorized to update this note"}), 403
+    template = Template.query.filter_by(id=id, author_id=current_user).first()
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
 
     data = request.get_json()
 
@@ -866,17 +840,11 @@ def update_template(id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_template_as_deleted(id):
-    template = Template.query.get(id)
+    current_user = get_jwt_identity()
+    template = Template.query.filter_by(id=id, author_id=current_user).first()
     if not template:
         return jsonify({"error": "Template not found"}), 404
-        
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-    
-    # Ensure the note belongs to the current user
-    #TODO add ability for admin to delete any note
-    if template.author_id != current_user:
-        return jsonify({"error": "Not authorized to delete this note"}), 403
+    #TODO add ability for admin to delete any template
         
     # Mark the note as deleted with current timestamp
     template.is_deleted = True
@@ -897,17 +865,11 @@ def mark_template_as_deleted(id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_template_as_restored(id):
-    template = Template.query.get(id)
+    current_user = get_jwt_identity()
+    template = Template.query.filter_by(id=id, author_id=current_user).first()
     if not template:
         return jsonify({"error": "Template not found"}), 404
-        
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
-    
-    # Ensure the note belongs to the current user
-    #TODO add ability for admin to delete any note
-    if template.author_id != current_user:
-        return jsonify({"error": "Not authorized to delete this note"}), 403
+    #TODO add ability for admin to restore any template
         
     # Mark the note as deleted with current timestamp
     template.is_deleted = False
