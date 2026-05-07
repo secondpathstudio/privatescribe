@@ -10,6 +10,7 @@ ctranslate2==4.5.0
 faster-whisper==1.1.1
 filelock==3.17.0
 Flask==3.1.0
+Flask-Limiter==3.8.0
 flatbuffers==25.2.10
 fsspec==2025.2.0
 h11==0.14.0
