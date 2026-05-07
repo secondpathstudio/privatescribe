@@ -10,18 +10,34 @@ from flask_migrate import Migrate
 from faster_whisper import WhisperModel
 import ollama
 import os
-from dotenv import load_dotenv
+import secrets
+from pathlib import Path
+from dotenv import load_dotenv, set_key
 from pydub import AudioSegment
 import io
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
 
-load_dotenv()
+ENV_PATH = Path(__file__).parent / ".env"
 
-# Secret key for JWT encoding/decoding
-app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY')  # Use a secure key in production
-app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)  # Access tokens expire after 1 hour
+def ensure_jwt_secret() -> str:
+    ENV_PATH.touch(exist_ok=True)
+    load_dotenv(ENV_PATH)
+    secret = os.getenv("JWT_SECRET_KEY")
+    if not secret:
+        secret = secrets.token_urlsafe(64)
+        set_key(str(ENV_PATH), "JWT_SECRET_KEY", secret)
+        os.environ["JWT_SECRET_KEY"] = secret
+        print(f"[init] Generated new JWT_SECRET_KEY and wrote to {ENV_PATH}")
+    try:
+        ENV_PATH.chmod(0o600)
+    except OSError:
+        pass
+    return secret
+
+app.config["JWT_SECRET_KEY"] = ensure_jwt_secret()
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 
 # SQLite Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///privatescribe.db'  # SQLite database
