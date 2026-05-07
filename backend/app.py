@@ -11,6 +11,7 @@ from faster_whisper import WhisperModel
 import ollama
 import os
 import secrets
+from functools import wraps
 from pathlib import Path
 from dotenv import load_dotenv, set_key
 from pydub import AudioSegment
@@ -47,6 +48,16 @@ migrate = Migrate(app, db)
 
 # JWT Manager
 jwt = JWTManager(app)
+
+def require_admin(fn):
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        user = User.query.get(get_jwt_identity())
+        if not user or user.role != 'admin':
+            return jsonify({"error": "Admin privileges required"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
 
 # Load Faster-Whisper Model
 model_size = "base"
@@ -161,44 +172,27 @@ with app.app_context():
     db.create_all()
 
 
-# API route to create a new user (for authentication)
-@app.route('/api/signup', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
-def register():
-    data = request.get_json()
-
-    # Validate input data
-    if not data or not all(k in data for k in ['firstName', 'lastName', 'email', 'password']):
-        return jsonify({"error": "Missing name, email, or password."}), 400
-
-    # Check if user already exists
-    if User.query.filter_by(email=data['email']).first():
-        return jsonify({"error": "User email already exists"}), 400
-
-    # Hash the password before saving
-    hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
-
-    # Create new user with UUID id
-    new_user = User(
-        first_name=data['firstName'], 
-        last_name=data['lastName'], 
-        email=data['email'], 
-        password=hashed_password,
-        )
-    db.session.add(new_user)
-    db.session.commit()
-
-    return jsonify({"message": "User created successfully"}), 201
-
 @app.route('/api/validateToken', methods=['GET'])
 @jwt_required()
 def validate_token():
-    current_user = get_jwt_identity()
-    return jsonify({"message": "Valid token", "user": current_user})
+    user = User.query.get(get_jwt_identity())
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    return jsonify({
+        "message": "Valid token",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+            "role": user.role,
+            "lastLogin": user.last_login,
+        }
+    })
 
 @app.route('/api/getAllUsers', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
-@jwt_required()
+@require_admin
 def get_all_users():
     users = User.query.all()
     if not users:
@@ -209,11 +203,49 @@ def get_all_users():
         "email": user.email,
         "firstName": user.first_name,
         "lastName": user.last_name,
+        "role": user.role,
         "createdAt": user.created_at,
         "lastLogin": user.last_login
     } for user in users]
-    
+
     return jsonify(users_list)
+
+@app.route('/api/admin/users', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def admin_create_user():
+    data = request.get_json(silent=True) or {}
+
+    required = ('firstName', 'lastName', 'email', 'password')
+    if not all(data.get(k) for k in required):
+        return jsonify({"error": "firstName, lastName, email, and password are required"}), 400
+
+    role = data.get('role', 'user')
+    if role not in ('user', 'admin'):
+        return jsonify({"error": "Invalid role"}), 400
+
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({"error": "User email already exists"}), 400
+
+    new_user = User(
+        first_name=data['firstName'],
+        last_name=data['lastName'],
+        email=data['email'],
+        role=role,
+        password=generate_password_hash(data['password'], method='pbkdf2:sha256'),
+    )
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({
+        "id": new_user.id,
+        "email": new_user.email,
+        "firstName": new_user.first_name,
+        "lastName": new_user.last_name,
+        "role": new_user.role,
+        "createdAt": new_user.created_at,
+        "lastLogin": new_user.last_login,
+    }), 201
 
 # API route to authenticate and get JWT token
 @app.route('/api/login', methods=['POST'])
@@ -234,7 +266,7 @@ def login():
         refresh_token = create_refresh_token(identity=user.id)
         
         # Update the last login time
-        user.lastLogin = datetime.utcnow()
+        user.last_login = datetime.utcnow()
         db.session.commit()
         
         return jsonify({
@@ -245,6 +277,7 @@ def login():
                 "email": user.email,
                 "firstName": user.first_name,
                 "lastName": user.last_name,
+                "role": user.role,
                 "lastLogin": user.last_login
             }}), 200
 
@@ -1114,6 +1147,7 @@ def create_admin(email, first_name, last_name):
         email=email,
         first_name=first_name,
         last_name=last_name,
+        role='admin',
         password=generate_password_hash(password, method='pbkdf2:sha256')
     )
     
