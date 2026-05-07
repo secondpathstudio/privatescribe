@@ -651,15 +651,17 @@ def mark_note_as_restored(id):
 @jwt_required()
 def get_notes_for_user(user_id):
     print("Getting notes for userId: " + user_id)
-    
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
 
-    # Ensure the user is authorized to access notes for the given authorId
+    current_user = get_jwt_identity()
     if current_user != user_id:
         return jsonify({"error": "Not authorized to access notes for this user"}), 403
 
-    notes = Note.query.filter_by(author_id=user_id).all()
+    include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
+    query = Note.query.filter_by(author_id=user_id)
+    if not include_deleted:
+        query = query.filter_by(is_deleted=False)
+
+    notes = query.all()
     if not notes:
         return jsonify([]), 200
 
@@ -742,15 +744,17 @@ def create_template():
 @jwt_required()
 def get_templates_for_user(user_id):
     print("Getting templates for userId: " + user_id)
-    
-    # Get the current user from the JWT
-    current_user = get_jwt_identity()
 
-    # Ensure the user is authorized to access notes for the given authorId
+    current_user = get_jwt_identity()
     if current_user != user_id:
         return jsonify({"error": "Not authorized to access templates for this user"}), 403
 
-    templates = Template.query.filter_by(author_id=user_id).all()
+    include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
+    query = Template.query.filter_by(author_id=user_id)
+    if not include_deleted:
+        query = query.filter_by(is_deleted=False)
+
+    templates = query.all()
     if not templates:
         print('no templates found for user', current_user)
         return jsonify([]), 200
@@ -1007,32 +1011,33 @@ def transcribe():
 @app.route('/api/getMarkdown', methods=['POST'])
 @jwt_required()
 def getMarkdown():
-    request_data = request.get_json()
-    
+    request_data = request.get_json(silent=True) or {}
     if not request_data:
         return jsonify({"error": "No JSON data provided"}), 400
-    
-    # Extract raw_note and note_details
+
     raw_note = request_data.get('raw_note')
     note_details = request_data.get('note_details', {})
-    
-    # Validate required fields
-    if not all(k in note_details for k in (
-        'note_date', 
-        'author_id',
-        'template_id',
-        'participants')):
+
+    # author_id is taken from the JWT, not the client
+    if not all(k in note_details for k in ('note_date', 'template_id', 'participants')):
         return jsonify({"error": "Missing required fields in note_details"}), 400
-    
-    # Fetch template
-    template = None
-    if 'template_id' in note_details and note_details['template_id']:
-        template = Template.query.get(note_details['template_id'])
-        if not template:
-            return jsonify({"message": f"Template with ID {note_details['template_id']} not found"}), 400
-    else:
+
+    template_id = note_details.get('template_id')
+    if not template_id:
         return jsonify({"error": "Invalid template_id"}), 400
-    
+
+    current_user = get_jwt_identity()
+    template = Template.query.filter_by(
+        id=template_id,
+        author_id=current_user,
+        is_deleted=False,
+    ).first()
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
+
+    # Trust the JWT, not the client, for the author identity in the prompt
+    note_details['author_id'] = current_user
+
     print(f"template: {template.content}")
     
     #TODO add author + participant names?

@@ -16,7 +16,7 @@ const Notes = () => {
     const fetchNotes = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`http://127.0.0.1:5000/api/notes/user/${auth.user?.id}`, {
+        const response = await fetch(`http://127.0.0.1:5000/api/notes/user/${auth.user?.id}?include_deleted=true`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
