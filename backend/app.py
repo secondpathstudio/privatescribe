@@ -488,8 +488,10 @@ def update_note(id):
         return jsonify({"error": "Note not found"}), 404
     
     data = request.get_json()
-    
-    # Update note attributes if provided
+
+    # template_id is intentionally not updatable — a note is locked to its
+    # original template. Re-recording with a different template should create
+    # a new note instead.
     note.note_content_markdown = data.get('noteContentMarkdown', note.note_content_markdown)
     note.note_type = data.get('noteType', note.note_type)
     note.updated_at = datetime.now()

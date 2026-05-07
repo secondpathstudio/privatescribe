@@ -42,12 +42,22 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
             createdAt: note?.createdAt,
             updatedAt: note?.updatedAt,
             participants: note?.participants || '',
-            noteTemplate: note?.noteTemplate ? templates.find((template) => template.id === note.noteTemplate)?.id : 1,
+            noteTemplate: note?.noteTemplate ?? '',
         }
     });
 
     const formState = useFormState({
         control: form.control,})
+
+    // Templates may load after the form mounts; reconcile noteTemplate once the
+    // saved template is actually present in the dropdown options.
+    useEffect(() => {
+        if (!note?.noteTemplate || templates.length === 0) return;
+        const match = templates.find((t) => t.id === note.noteTemplate);
+        if (match && form.getValues('noteTemplate') !== match.id) {
+            form.setValue('noteTemplate', match.id, { shouldDirty: false });
+        }
+    }, [templates, note?.noteTemplate]);
 
     const handleUpdateNote = async (e: FormEvent, form: any) => {
         e.preventDefault();
@@ -259,11 +269,12 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                         <FormItem>
                             <FormLabel>Note Template</FormLabel>
                             <FormControl>
-                                <Select 
+                                <Select
                                     onValueChange={(value) => {
                                         field.onChange(value);
-                                    }} 
+                                    }}
                                     value={field.value}
+                                    disabled
                                 >
                                     <SelectTrigger className='z-10 bg-white'>
                                         <SelectValue placeholder="Select a template">
@@ -272,8 +283,8 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                                     </SelectTrigger>
                                     <SelectContent className='z-10 bg-white'>
                                         {templates.map((template: any) => (
-                                            <SelectItem  
-                                                key={template.id} 
+                                            <SelectItem
+                                                key={template.id}
                                                 value={template.id}
                                                 className='hover:bg-[#fd3777]'
                                                 >
@@ -283,6 +294,9 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                                     </SelectContent>
                                 </Select>
                             </FormControl>
+                            <p className="text-xs text-muted-foreground italic mt-1">
+                                Templates are locked to a note. Re-record with a different template to create a new note.
+                            </p>
                             <FormMessage />
                         </FormItem>
                     )}}
