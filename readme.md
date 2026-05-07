@@ -71,12 +71,15 @@ flask run
 ```
 
 Your backend will start at `http://127.0.0.1:5000`
+A unique JWT will be created on first run and stored in the `backend/.env` file for authentication.
 
 ### Create Admin User
 
 With the flask server running, run the following command to create an admin user:
 
-```flask create-admin```
+```bash
+flask create-admin
+```
 
 and you will be prompted to enter an email and password for the admin account. Once created, you can login.
 
