@@ -72,4 +72,4 @@ frontend/yarn-error.log*
 frontend/pnpm-debug.log*
 frontend/lerna-debug.log*
 
-.env.todo
+.env.todo*
