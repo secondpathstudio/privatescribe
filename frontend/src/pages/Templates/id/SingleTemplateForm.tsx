@@ -211,7 +211,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                                     editorRef={mdxEditorRef}
                                     markdown={field.value}
                                     onChange={(value) => {
-                                        field.onChange(value);
+                                        form.setValue('content', value, { shouldDirty: true });
                                     }}
                                 />
                             </FormControl>

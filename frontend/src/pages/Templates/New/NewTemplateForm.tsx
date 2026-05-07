@@ -124,7 +124,7 @@ const NewTemplateForm = () => {
                                     editorRef={mdxEditorRef}
                                     markdown={field.value}
                                     onChange={(value) => {
-                                        field.onChange(value);
+                                        form.setValue('content', value, { shouldDirty: true });
                                     }}
                                 />
                             </FormControl>
@@ -146,9 +146,9 @@ const NewTemplateForm = () => {
         {/* Buttons */}
         {!savingTemplate && (
         <div className='flex justify-center items-center gap-4'>
-            <NeoButton 
+            <NeoButton
                 type="submit"
-                disabled={form.getValues("content") === '' || form.getValues('name') === '' || form.formState.isSubmitting}
+                disabled={!form.watch('content') || !form.watch('name') || form.formState.isSubmitting}
             >
                 Save Template
             </NeoButton>
