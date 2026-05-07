@@ -34,9 +34,10 @@ export default function AddUserForm({ onSuccess, onCancel }: Props) {
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isValid },
   } = useForm({
     resolver: zodResolver(schema),
+    mode: "onChange",
     defaultValues: { role: "user" as const },
   });
 
@@ -117,7 +118,7 @@ export default function AddUserForm({ onSuccess, onCancel }: Props) {
       <div className="flex gap-4 pt-2">
         <NeoButton
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || !isValid}
           backgroundColor="#fd3777"
           textColor="#ffffff"
         >
