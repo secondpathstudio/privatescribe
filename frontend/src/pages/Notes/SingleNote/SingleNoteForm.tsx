@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { ArchiveRestore, CalendarIcon, RefreshCcw, Trash, Trash2 } from 'lucide-react'
+import { ArchiveRestore, CalendarIcon, ChevronRight, RefreshCcw, Trash, Trash2 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
@@ -32,6 +32,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const [showRetranscribe, setShowRetranscribe] = React.useState(false);
     const [retranscribeTemplateId, setRetranscribeTemplateId] = React.useState('');
     const [retranscribing, setRetranscribing] = React.useState(false);
+    const [siblingsExpanded, setSiblingsExpanded] = React.useState(false);
     const navigation = useNavigate();
 
     const form = useForm({
@@ -547,26 +548,40 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         </div>
         )}
 
-        {/* Other formats of this transcript (siblings) */}
+        {/* Other formats of this transcript (collapsible tree) */}
         {siblings.length > 0 && (
             <div className='mt-8 pt-4 border-t'>
-                <h3 className='text-lg font-bold mb-2'>Other formats of this transcript</h3>
-                <ul className='flex flex-col gap-2'>
-                    {siblings.map((s) => {
-                        const t = templates.find((t: any) => t.id === s.noteTemplate);
-                        return (
-                            <li key={s.id} className='flex items-center justify-between border rounded-md px-3 py-2'>
-                                <div>
-                                    <span className='font-semibold'>{t?.name || 'Unknown template'}</span>
-                                    <span className='text-xs text-muted-foreground ml-2'>
-                                        {s.createdAt ? new Date(s.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''}
-                                    </span>
-                                </div>
-                                <a href={`/notes/${s.id}`} className='text-sm underline'>View</a>
-                            </li>
-                        );
-                    })}
-                </ul>
+                <button
+                    type='button'
+                    onClick={() => setSiblingsExpanded(!siblingsExpanded)}
+                    className='flex items-center gap-2 text-lg font-bold hover:opacity-70 transition-opacity'
+                    aria-expanded={siblingsExpanded}
+                >
+                    <ChevronRight
+                        size={18}
+                        className={`transition-transform duration-200 ${siblingsExpanded ? 'rotate-90' : ''}`}
+                    />
+                    Other formats of this transcript ({siblings.length})
+                </button>
+                {siblingsExpanded && (
+                    <ul className='mt-3 ml-2 pl-4 border-l-2 border-gray-300 flex flex-col gap-2'>
+                        {siblings.map((s) => {
+                            const t = templates.find((t: any) => t.id === s.noteTemplate);
+                            return (
+                                <li key={s.id} className='flex items-center justify-between'>
+                                    <div className='flex items-center gap-2'>
+                                        <span className='text-gray-400 select-none'>└</span>
+                                        <span className='font-semibold'>{t?.name || 'Unknown template'}</span>
+                                        <span className='text-xs text-muted-foreground'>
+                                            {s.createdAt ? new Date(s.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''}
+                                        </span>
+                                    </div>
+                                    <a href={`/notes/${s.id}`} className='text-sm underline'>View</a>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                )}
             </div>
         )}
 
