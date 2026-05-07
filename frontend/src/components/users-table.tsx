@@ -13,6 +13,12 @@ interface User {
   lastLogin: string;
 }
 
+const formatLocal = (value?: string) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? value : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
+
 export default function UsersTable({ users }: { users: User[] }) {
     const [data, setData] = useState<User[]>(users);
   const [sortConfig, setSortConfig] = useState<{ key: keyof User; direction: "asc" | "desc" } | null>(null);
@@ -24,9 +30,21 @@ export default function UsersTable({ users }: { users: User[] }) {
     }
     setSortConfig({ key, direction });
 
+    const isDateColumn = key === "createdAt" || key === "lastLogin";
+    const compareKey = (u: User) => {
+      const v = u[key];
+      if (isDateColumn) {
+        const t = new Date(v as string).getTime();
+        return isNaN(t) ? -Infinity : t;
+      }
+      return v;
+    };
+
     const sortedData = [...data].sort((a, b) => {
-      if (a[key] < b[key]) return direction === "asc" ? -1 : 1;
-      if (a[key] > b[key]) return direction === "asc" ? 1 : -1;
+      const av = compareKey(a);
+      const bv = compareKey(b);
+      if (av < bv) return direction === "asc" ? -1 : 1;
+      if (av > bv) return direction === "asc" ? 1 : -1;
       return 0;
     });
 
@@ -67,7 +85,7 @@ export default function UsersTable({ users }: { users: User[] }) {
             <TableCell>{user.email}</TableCell>
             <TableCell>{user.firstName}</TableCell>
             <TableCell>{user.lastName}</TableCell>
-            <TableCell>{user.lastLogin}</TableCell>
+            <TableCell>{formatLocal(user.lastLogin)}</TableCell>
           </TableRow>
         ))}
       </TableBody>
