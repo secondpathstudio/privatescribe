@@ -21,9 +21,10 @@ type Props = {
     note: any;
     templates: any[];
     savedParticipants: any[];
+    siblings?: any[];
 }
 
-const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
+const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [savingNote, setSavingNote] = React.useState(false);
@@ -276,6 +277,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                     noteTemplate: retranscribeTemplateId,
                     participants: note.participants,
                     version: 1,
+                    sourceNoteId: note.id,
                 }),
             });
 
@@ -317,6 +319,15 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
             }
         }
     }
+
+    // Templates already used in this transcript group (current note + siblings).
+    // Re-transcribe should only offer templates not yet used.
+    const usedTemplateIds = new Set<string>(
+        [note?.noteTemplate, ...siblings.map((s: any) => s.noteTemplate)].filter(Boolean)
+    );
+    const availableRetranscribeTemplates = templates.filter(
+        (t: any) => !t.isDeleted && !usedTemplateIds.has(t.id)
+    );
 
   return (
     <Form {...form}>
@@ -536,9 +547,32 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
         </div>
         )}
 
+        {/* Other formats of this transcript (siblings) */}
+        {siblings.length > 0 && (
+            <div className='mt-8 pt-4 border-t'>
+                <h3 className='text-lg font-bold mb-2'>Other formats of this transcript</h3>
+                <ul className='flex flex-col gap-2'>
+                    {siblings.map((s) => {
+                        const t = templates.find((t: any) => t.id === s.noteTemplate);
+                        return (
+                            <li key={s.id} className='flex items-center justify-between border rounded-md px-3 py-2'>
+                                <div>
+                                    <span className='font-semibold'>{t?.name || 'Unknown template'}</span>
+                                    <span className='text-xs text-muted-foreground ml-2'>
+                                        {s.createdAt ? new Date(s.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : ''}
+                                    </span>
+                                </div>
+                                <a href={`/notes/${s.id}`} className='text-sm underline'>View</a>
+                            </li>
+                        );
+                    })}
+                </ul>
+            </div>
+        )}
+
         {/* Re-transcribe with a different template (creates a new note) */}
         {!savingNote && note?.noteContentRaw && !note?.isDeleted &&
-         templates.filter((t: any) => t.id !== note?.noteTemplate && !t.isDeleted).length > 0 && (
+         availableRetranscribeTemplates.length > 0 && (
             <div className='mt-8 pt-4 border-t'>
                 {!showRetranscribe ? (
                     <NeoButton
@@ -561,17 +595,15 @@ const SingleNoteForm = ({ note, templates, savedParticipants }: Props) => {
                                 <SelectValue placeholder='Select a template' />
                             </SelectTrigger>
                             <SelectContent className='z-10 bg-white'>
-                                {templates
-                                    .filter((t: any) => t.id !== note?.noteTemplate && !t.isDeleted)
-                                    .map((t: any) => (
-                                        <SelectItem
-                                            key={t.id}
-                                            value={t.id}
-                                            className='hover:bg-[#fd3777]'
-                                        >
-                                            {t.name}
-                                        </SelectItem>
-                                    ))}
+                                {availableRetranscribeTemplates.map((t: any) => (
+                                    <SelectItem
+                                        key={t.id}
+                                        value={t.id}
+                                        className='hover:bg-[#fd3777]'
+                                    >
+                                        {t.name}
+                                    </SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                         <div className='flex gap-3'>

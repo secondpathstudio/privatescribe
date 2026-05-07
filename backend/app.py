@@ -1,7 +1,8 @@
 import click
 from flask import Flask, request, jsonify
+from flask.json.provider import DefaultJSONProvider
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, create_refresh_token, get_jwt_identity
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -19,7 +20,15 @@ from dotenv import load_dotenv, set_key
 from pydub import AudioSegment
 import io
 
+class ISODateJSONProvider(DefaultJSONProvider):
+    """Serialize datetimes/dates as ISO 8601 instead of Flask's default RFC 1123."""
+    def default(self, o):
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        return super().default(o)
+
 app = Flask(__name__)
+app.json = ISODateJSONProvider(app)
 CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
 
 ENV_PATH = Path(__file__).parent / ".env"
@@ -168,7 +177,11 @@ class Note(db.Model):
     version = db.Column(db.Integer(), nullable=False, default=1)
     is_deleted = db.Column(db.Boolean, default=False)
     is_deleted_timestamp = db.Column(db.DateTime, nullable=True)
-    
+
+    # All notes formatted from the same raw transcript share this id.
+    # Singletons get their own UUID; re-transcribes inherit from the source.
+    transcript_group_id = db.Column(db.String(36), nullable=True, index=True)
+
     # Foreign key: Link the note to a template
     template_id = db.Column(db.Integer, db.ForeignKey('template.id'), nullable=True)
     
@@ -354,6 +367,19 @@ def create_note():
     # Get the current user from the JWT
     current_user = get_jwt_identity()
 
+    # Resolve transcript_group_id: re-transcribes inherit the source's group,
+    # everything else gets a fresh UUID.
+    source_note_id = data.get('sourceNoteId')
+    if source_note_id:
+        source_note = Note.query.filter_by(id=source_note_id, author_id=current_user).first()
+        if not source_note:
+            return jsonify({"error": "Source note not found"}), 404
+        if not source_note.transcript_group_id:
+            source_note.transcript_group_id = str(uuid.uuid4())
+        transcript_group_id = source_note.transcript_group_id
+    else:
+        transcript_group_id = str(uuid.uuid4())
+
     # Handle participants - convert dicts to Participant objects
     participants = []
     if 'participants' in data:
@@ -392,7 +418,8 @@ def create_note():
         template_id=data['noteTemplate'],
         is_deleted=False,
         is_deleted_timestamp=None,
-        participants=participants,  
+        transcript_group_id=transcript_group_id,
+        participants=participants,
         author_id=current_user  # Link the note to the current user (UUID)
     )
     
@@ -471,11 +498,43 @@ def get_note(id):
         "authorName": note.author_name,
         "noteType": note.note_type,
         "noteTemplate": note.template_id,
+        "transcriptGroupId": note.transcript_group_id,
         "participants": participants,
         "version": note.version,
         "isDeleted": note.is_deleted,
         "isDeletedTimestamp": note.is_deleted_timestamp,
     })
+
+@app.route('/api/notes/<string:id>/siblings', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def get_note_siblings(id):
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    if not note.transcript_group_id:
+        return jsonify([]), 200
+
+    siblings = (
+        Note.query
+        .filter_by(
+            author_id=current_user,
+            transcript_group_id=note.transcript_group_id,
+            is_deleted=False,
+        )
+        .filter(Note.id != id)
+        .all()
+    )
+
+    return jsonify([{
+        "id": s.id,
+        "noteDate": s.note_date,
+        "noteTemplate": s.template_id,
+        "createdAt": s.created_at,
+        "updatedAt": s.updated_at,
+    } for s in siblings])
 
 # API route to update a note by ID (requires authentication)
 @app.route('/api/notes/<string:id>', methods=['PUT'])

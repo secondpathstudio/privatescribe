@@ -12,6 +12,7 @@ const SingleNote = () => {
   const auth = useAuth();
   const [templates, setTemplates] = useState<any[]>([]);
   const [savedParticipants, setSavedParticipants] = useState<any[]>([]);
+  const [siblings, setSiblings] = useState<any[]>([]);
 
   useEffect(() => {
     const fetchNote = async () => {
@@ -89,6 +90,26 @@ useEffect(() => {
     fetchSavedParticipants();
   }, []);
 
+  useEffect(() => {
+    if (!id) return;
+    const fetchSiblings = async () => {
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/api/notes/${id}/siblings`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.token}`,
+          },
+        });
+        if (!response.ok) return;
+        setSiblings(await response.json());
+      } catch (error) {
+        console.log('Error fetching siblings: ', error);
+      }
+    };
+    fetchSiblings();
+  }, [id]);
+
 
   return (
     <div className="max-w-screen-lg mx-auto px-4 py-10">
@@ -107,11 +128,13 @@ useEffect(() => {
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
-              {note && 
-              <SingleNoteForm 
-                note={note} 
+              {note &&
+              <SingleNoteForm
+                key={note.id}
+                note={note}
                 templates={templates}
                 savedParticipants={savedParticipants}
+                siblings={siblings}
               />
               }
             </CardTitle>
