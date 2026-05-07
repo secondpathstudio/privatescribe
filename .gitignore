@@ -1,0 +1,73 @@
+# ===== Shared =====
+# Environment files
+.env
+*.env
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+*.log
+
+# Claude
+CLAUDE.md
+
+# ===== Backend (Flask) =====
+# Byte-compiled / optimized / DLL files
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.py[cod]
+backend/**/*.py[cod]
+backend/*$py.class
+
+# Distribution / packaging
+backend/build/
+backend/dist/
+backend/*.egg-info/
+backend/**/*.egg-info/
+
+# Virtual environments
+backend/.venv
+backend/venv/
+backend/ENV/
+backend/env/
+backend/env.bak/
+backend/venv.bak/
+
+# Databases
+backend/*.sql
+backend/*.sqlite
+backend/*.db
+backend/**/*.sqlite
+backend/**/*.db
+
+# Flask instance folder
+backend/instance/
+
+# ===== Frontend (Vite) =====
+# Dependencies
+frontend/node_modules
+
+# Build output
+frontend/dist
+frontend/dist-ssr
+frontend/*.local
+
+# Frontend-specific logs
+frontend/logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/lerna-debug.log*
