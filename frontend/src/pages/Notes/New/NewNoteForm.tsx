@@ -347,30 +347,14 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         {/* Tabs Component for Raw Transcript and Markdown Editor */}
         {/* only show tabs when there is a raw transcript and markdown */}
         {form.getValues("noteContentRaw") != '' && (
-        <Tabs defaultValue="transcript" className="w-full mt-4">
+        <Tabs defaultValue="markdown" className="w-full mt-4">
             <TabsList className="flex w-full">
-                <TabsTrigger className='grow' value="transcript">Raw Transcript</TabsTrigger>
                 <TabsTrigger className='grow' value="markdown">Markdown Editor</TabsTrigger>
+                <TabsTrigger className='grow' value="transcript">Raw Transcript</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="transcript">
-                <FormField 
-                    control={form.control} 
-                    name="noteContentRaw" 
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col mt-4">
-                            <FormLabel>Raw Transcription</FormLabel>
-                            <FormControl>
-                                <Textarea {...field} disabled />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
-            </TabsContent>
-
             <TabsContent value="markdown">
-                    <MarkdownEditor 
+                    <MarkdownEditor
                         className="w-full mt-4"
                         plugins={[
                             headingsPlugin(),
@@ -396,6 +380,22 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                             setMarkdown(value);
                         }}
                     />
+            </TabsContent>
+
+            <TabsContent value="transcript">
+                <FormField
+                    control={form.control}
+                    name="noteContentRaw"
+                    render={({ field }) => (
+                        <FormItem className="flex flex-col mt-4">
+                            <FormLabel>Raw Transcription</FormLabel>
+                            <FormControl>
+                                <Textarea {...field} disabled />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
             </TabsContent>
         </Tabs>
         )}
