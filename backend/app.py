@@ -695,30 +695,33 @@ def get_notes_for_user(user_id):
         
     return jsonify(notes_list)
 
+TEMPLATE_NAME_MAX = 50
+TEMPLATE_CONTENT_MAX = 32_000  # ~8K tokens, fits llama3.2 default context with prompt overhead
+
 # API route to create a template (requires authentication)
 @app.route('/api/templates', methods=['POST'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_template():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
-    # Validate required fields
-    if not all(k in data for k in (
-        'name', 
-        'content')):
-        return jsonify({"error": "Missing required fields"}), 400
-        
-    # Get the current user from the JWT
+    if not all(data.get(k) for k in ('name', 'content')):
+        return jsonify({"error": "name and content are required"}), 400
+
+    if len(data['name']) > TEMPLATE_NAME_MAX:
+        return jsonify({"error": f"Name must be {TEMPLATE_NAME_MAX} characters or fewer"}), 400
+    if len(data['content']) > TEMPLATE_CONTENT_MAX:
+        return jsonify({"error": f"Content must be {TEMPLATE_CONTENT_MAX} characters or fewer"}), 400
+
     current_user = get_jwt_identity()
 
-    # Create a new note instance
     new_template = Template(
         content=data['content'],
         name=data['name'],
         created_at=datetime.now(),
         updated_at=datetime.now(),
         version=1,
-        author_id=current_user  # Link the note to the current user (UUID)
+        author_id=current_user
     )
     
     print('adding template', new_template)
@@ -816,9 +819,19 @@ def update_template(id):
     if not template:
         return jsonify({"error": "Template not found"}), 404
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
-    # Update note attributes if provided
+    if 'name' in data:
+        if not data['name']:
+            return jsonify({"error": "Name cannot be empty"}), 400
+        if len(data['name']) > TEMPLATE_NAME_MAX:
+            return jsonify({"error": f"Name must be {TEMPLATE_NAME_MAX} characters or fewer"}), 400
+    if 'content' in data:
+        if not data['content']:
+            return jsonify({"error": "Content cannot be empty"}), 400
+        if len(data['content']) > TEMPLATE_CONTENT_MAX:
+            return jsonify({"error": f"Content must be {TEMPLATE_CONTENT_MAX} characters or fewer"}), 400
+
     template.name = data.get('name', template.name)
     template.content = data.get('content', template.content)
     template.updated_at = datetime.now()

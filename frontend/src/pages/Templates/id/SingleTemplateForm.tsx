@@ -1,5 +1,7 @@
 import React, { FormEvent } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import * as z from 'zod'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
@@ -9,6 +11,15 @@ import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import { Trash2 } from 'lucide-react'
+
+// Mirrors backend caps in app.py (TEMPLATE_NAME_MAX, TEMPLATE_CONTENT_MAX)
+const TEMPLATE_NAME_MAX = 50;
+const TEMPLATE_CONTENT_MAX = 32_000;
+
+const templateSchema = z.object({
+    name: z.string().min(1, 'Name is required').max(TEMPLATE_NAME_MAX, `Name must be ${TEMPLATE_NAME_MAX} characters or fewer`),
+    content: z.string().min(1, 'Content is required').max(TEMPLATE_CONTENT_MAX, `Content must be ${TEMPLATE_CONTENT_MAX} characters or fewer`),
+}).passthrough();
 
 type Props = {
     template: any;
@@ -21,6 +32,8 @@ const SingleTemplateForm = ({ template }: Props) => {
     const navigate = useNavigate();
     
     const form = useForm({
+        resolver: zodResolver(templateSchema),
+        mode: 'onChange',
         defaultValues: {
             name: template?.name,
             content: template?.content,
@@ -243,7 +256,7 @@ const SingleTemplateForm = ({ template }: Props) => {
         <div className='flex justify-between items-center gap-4 mt-4'>
             <NeoButton 
                 type="submit"
-                disabled={!formState.isDirty}
+                disabled={!formState.isDirty || !formState.isValid}
                 backgroundColor='#fd3777'
                 textColor='#ffffff'
             >
@@ -252,7 +265,7 @@ const SingleTemplateForm = ({ template }: Props) => {
             <div className='flex gap-4 items-center'>
                 <NeoButton 
                     type="button"
-                    disabled={!formState.isDirty}
+                    disabled={!formState.isDirty || !formState.isValid}
                     onClick={() => {
                         form.reset();
                         mdxEditorRef.current?.setMarkdown(template?.content);
