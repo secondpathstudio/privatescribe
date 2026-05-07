@@ -184,7 +184,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${auth.token}`,
                 },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     raw_note: rawNote,
                     note_details: {
                         note_date: form.getValues('noteDate'),
@@ -196,7 +196,18 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             });
 
             if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
+                const errorData = await response.json().catch(() => ({}));
+                if (response.status === 503) {
+                    // Ollama unavailable — fall back to the raw transcript so the
+                    // user can edit/save manually instead of losing the recording.
+                    const fallback = errorData.raw_note || rawNote;
+                    form.setValue('noteContentMarkdown', fallback);
+                    mdxEditorRef.current?.setMarkdown(fallback);
+                    setMarkdown(fallback);
+                    alert(errorData.error || 'AI formatting unavailable. Showing the raw transcript so you can edit and save manually.');
+                    return; // don't auto-save; let the user review
+                }
+                throw new Error(errorData.error || `Server error: ${response.status}`);
             }
 
             const result = await response.json();
@@ -204,15 +215,14 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             mdxEditorRef.current?.setMarkdown(result.formatted_markdown);
             setMarkdown(result.formatted_markdown);
 
-            // console.log('Markdown Result:', result);
-
             //save note
             handleAddNewNote({ preventDefault: () => {} } as React.FormEvent, form);
         } catch (error: any) {
             console.error('Failed to get markdown:', error);
-        } 
-        
-        setGettingMarkdown(false);
+            alert(`Formatting failed: ${error.message}`);
+        } finally {
+            setGettingMarkdown(false);
+        }
     }
 
   return (
