@@ -198,6 +198,7 @@ def validate_token():
 
 @app.route('/api/getAllUsers', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
 def get_all_users():
     users = User.query.all()
     if not users:
