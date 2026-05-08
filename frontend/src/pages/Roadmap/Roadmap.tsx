@@ -13,7 +13,8 @@ const Roadmap = () => {
         { text: "Local AI Model Integration", completed: true },
         { text: "Basic Speech-to-Text Engine", completed: true },
         { text: "Privacy-First Architecture", completed: true },
-        { text: "Local database structure", completed: true }
+        { text: "Local database structure", completed: true },
+        { text: "Encryption at Rest", completed: true },
       ],
       gradient: "linear-gradient(135deg, #fd3777, #ff6b9d)",
       icon: <Shield className="w-8 h-8" />
