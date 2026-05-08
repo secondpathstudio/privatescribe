@@ -10,13 +10,13 @@ No API keys. No accounts. No telemetry. No cloud round-trips. The only network c
 
 ## Why this exists
 
-If you're a physician, you have a documentation problem. The visit ends, the note still has to be written, and every commercial AI scribe on the market wants to send your patient's voice and your clinical reasoning to someone else's servers. The same is true for attorneys with privileged conversations, therapists with session content, and anyone whose work involves things that should never leak.
+Most AI scribes send your audio and notes to someone else's servers. That's a problem if you're a physician, therapist, or attorney handling things that shouldn't leak.
 
-PrivateScribe is built on a simple premise: **the audio, the transcript, and the generated note should never leave the device they were created on.** Everything runs locally — speech-to-text via Whisper, language model inference via Ollama, storage in a local database. You can pull the network cable out of your computer and it will keep working.
+PrivateScribe runs everything on your own machine. Speech-to-text, language model, and storage all stay local. Pull the network cable and it keeps working.
 
-The other half of what makes this useful is the **template system**. Raw transcripts aren't documents. A SOAP note has a structure. An H&P has a structure. A therapy progress note, a legal client intake, a deposition summary — each has its own shape. PrivateScribe lets you define those shapes once and apply them to any conversation, with the local LLM doing the structuring work.
+Templates turn raw transcripts into the documents you actually need — SOAP notes, intake summaries, session notes, whatever shape your work requires. Define the structure once, apply it to any conversation.
 
-And because the raw transcript is preserved as the canonical artifact, **a single recording can produce many documents in parallel** — a SOAP note for the chart, a plain-language patient summary, a billing-focused extract; or a deposition summary, a highlight reel, and a follow-up question outline. Every generated document is a child of the original transcript and a sibling of its peers, with the relationship preserved. Refine a template later and re-run it: the new output becomes a new sibling, the old one stays intact, and nothing is lost.
+One recording can produce many documents. Apply several templates to the same transcript and get a SOAP note, a patient summary, and a billing extract side by side. Refine a template and re-run it: the new output is added without overwriting the old one.
 
 ---
 
@@ -34,6 +34,7 @@ And because the raw transcript is preserved as the canonical artifact, **a singl
 
 - **Whisper-based transcription** running locally — no audio leaves your machine
 - **Local LLM formatting** via Ollama (defaults to Llama 3.2, swap in any model you prefer)
+- **Encrypted database at rest** via SQLCipher — transcripts, generated documents, templates, and participant records are all stored encrypted on disk
 - **Customizable templates** — define the document structure once, apply it to any transcript
 - **One transcript, many documents** — apply multiple templates to the same recording and keep them linked as siblings of a single source. Refine a template, re-run it, get a new sibling without losing the old one.
 - **Participant and role management** — track who was in the conversation and have templates use that context
@@ -79,13 +80,15 @@ Honest disclosure of what PrivateScribe protects against and what it doesn't:
 
 **What this is *not*:** A HIPAA compliance certification. HIPAA compliance is an organizational and procedural matter, not a software feature. PrivateScribe gives you the *technical* foundation a covered entity would need (data never leaves the device, no third-party processors involved), but the policies, BAAs, audit procedures, and risk assessments remain your responsibility.
 
-**Encryption status:** Encryption-at-rest is on the roadmap (SQLCipher for the database, encrypted audio files). Today, data on disk is protected by your operating system's file permissions and whatever full-disk encryption you have enabled (FileVault, BitLocker, LUKS). If you're handling regulated data, full-disk encryption is non-negotiable.
+**Encryption status:** The database is encrypted at rest using SQLCipher. On first admin login, an encryption key is auto-generated and displayed to the admin — record it somewhere safe. The key is subsequently viewable by any admin after password authentication, and can be reset by an admin if needed. Note that resetting the key is a destructive operation with respect to existing encrypted data, so the reset flow is intentionally admin-gated to avoid accidental database loss.
+
+Audio files on disk are not yet encrypted at the application layer and currently rely on your operating system's file permissions and full-disk encryption (FileVault, BitLocker, LUKS). Application-layer audio file encryption is on the roadmap. If you're handling regulated data, full-disk encryption is non-negotiable.
 
 ---
 
 ## Tech stack
 
-- **Backend:** Flask + SQLAlchemy + SQLite
+- **Backend:** Flask + SQLAlchemy + SQLite (SQLCipher)
 - **Frontend:** Vite + React + TypeScript
 - **Transcription:** Whisper (faster-whisper)
 - **LLM inference:** Ollama
@@ -147,6 +150,8 @@ Create your admin user:
 flask create-admin
 ```
 
+On first admin login, the database encryption key will be displayed once. **Record it in a secure location** (a password manager is the right tool here). It will remain accessible to any admin after password re-authentication, and can be reset from the admin panel if necessary.
+
 Start the frontend (from `frontend/`):
 
 ```bash
@@ -177,7 +182,7 @@ PrivateScribe is general enough to handle any domain where structured documentat
 ## Long-term Roadmap
 
 - Speaker diarization with named participant assignment
-- Encryption at rest (SQLCipher + audio file encryption with passphrase-derived keys)
+- Application-layer encryption for audio files (passphrase-derived keys)
 - Signed desktop installers (`.dmg`, `.exe`, `.AppImage`) for non-developer users
 - Optional Postgres backend for office-server deployments with multiple devices on a closed LAN
 - Template gallery with community-contributed structures
