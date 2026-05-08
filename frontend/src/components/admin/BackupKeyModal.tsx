@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { ReactNode, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import NeoButton from "@/components/neo/neo-button";
 
@@ -10,9 +10,18 @@ interface Props {
   // and we render a "Done" button instead.
   blocking?: boolean;
   onClose?: () => void;
+  title?: string;
+  description?: ReactNode;
 }
 
-export default function BackupKeyModal({ backupKey, onAcknowledge, blocking = true, onClose }: Props) {
+export default function BackupKeyModal({
+  backupKey,
+  onAcknowledge,
+  blocking = true,
+  onClose,
+  title,
+  description,
+}: Props) {
   const [copied, setCopied] = useState(false);
   const [acking, setAcking] = useState(false);
 
@@ -43,16 +52,20 @@ export default function BackupKeyModal({ backupKey, onAcknowledge, blocking = tr
       >
         <CardHeader>
           <CardTitle className="text-2xl font-black text-black">
-            {blocking ? "Save your encryption key" : "Encryption key"}
+            {title ?? (blocking ? "Save your encryption key" : "Encryption key")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-black">
-          {blocking && (
-            <p className="text-sm">
-              This is the only key that can decrypt your database. Save it somewhere durable
-              (password manager, encrypted backup) <strong>now</strong> — once you click acknowledge,
-              you'll need to re-enter your password from the admin page to see it again.
-            </p>
+          {description !== undefined ? (
+            <div className="text-sm">{description}</div>
+          ) : (
+            blocking && (
+              <p className="text-sm">
+                This is the only key that can decrypt your database. Save it somewhere durable
+                (password manager, encrypted backup) <strong>now</strong> — once you click acknowledge,
+                you'll need to re-enter your password from the admin page to see it again.
+              </p>
+            )
           )}
           <pre className="rounded border-2 border-black bg-gray-100 p-3 text-sm font-mono break-all whitespace-pre-wrap select-all text-black">
             {backupKey}

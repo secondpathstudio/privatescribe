@@ -19,6 +19,36 @@ export default function Admin() {
   const [exportedKey, setExportedKey] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [showRotateForm, setShowRotateForm] = useState(false);
+  const [rotatePassword, setRotatePassword] = useState("");
+  const [rotateError, setRotateError] = useState<string | null>(null);
+  const [rotating, setRotating] = useState(false);
+  const [rotatedKey, setRotatedKey] = useState<string | null>(null);
+
+  const handleRotateKey = async (e: FormEvent) => {
+    e.preventDefault();
+    setRotating(true);
+    setRotateError(null);
+    try {
+      const res = await fetch("http://127.0.0.1:5000/api/admin/rotate-backup-key", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ password: rotatePassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server error: ${res.status}`);
+      setRotatedKey(data.backup_key);
+      setRotatePassword("");
+      setShowRotateForm(false);
+    } catch (e: any) {
+      setRotateError(e.message ?? "Failed to rotate key");
+    } finally {
+      setRotating(false);
+    }
+  };
 
   const handleExportKey = async (e: FormEvent) => {
     e.preventDefault();
@@ -153,6 +183,50 @@ export default function Admin() {
               </div>
             </form>
           )}
+
+          <hr className="border-t-2 border-black my-4" />
+
+          <p className="text-sm text-muted-foreground">
+            Rotate the SQLCipher key. The database is re-encrypted in place with a fresh key —
+            no data is lost, but <strong>any existing backup of the database file becomes unopenable</strong>,
+            and the previous key is permanently invalidated. Save the new key shown after rotation.
+          </p>
+          {!showRotateForm ? (
+            <NeoButton
+              onClick={() => setShowRotateForm(true)}
+              backgroundColor="#ffffff"
+              textColor="#000000"
+            >
+              Rotate encryption key
+            </NeoButton>
+          ) : (
+            <form onSubmit={handleRotateKey} className="space-y-3">
+              <div>
+                <Label htmlFor="rotate-password" className="font-black">Confirm password to rotate</Label>
+                <Input
+                  id="rotate-password"
+                  type="password"
+                  value={rotatePassword}
+                  onChange={(e) => setRotatePassword(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {rotateError && <p className="text-red-600 text-sm">{rotateError}</p>}
+              <div className="flex gap-2">
+                <NeoButton type="submit" backgroundColor="#fd3777" textColor="#ffffff" disabled={rotating}>
+                  {rotating ? "Rotating..." : "Rotate now"}
+                </NeoButton>
+                <NeoButton
+                  type="button"
+                  onClick={() => { setShowRotateForm(false); setRotatePassword(""); setRotateError(null); }}
+                  backgroundColor="#ffffff"
+                  textColor="#000000"
+                >
+                  Cancel
+                </NeoButton>
+              </div>
+            </form>
+          )}
         </CardContent>
       </Card>
 
@@ -171,6 +245,29 @@ export default function Admin() {
           onAcknowledge={async () => {}}
           blocking={false}
           onClose={() => setExportedKey(null)}
+        />
+      )}
+
+      {rotatedKey && (
+        <BackupKeyModal
+          backupKey={rotatedKey}
+          onAcknowledge={async () => {}}
+          blocking={false}
+          onClose={() => setRotatedKey(null)}
+          title="New encryption key"
+          description={
+            <>
+              <p className="mb-2">
+                The database has been re-encrypted with this new key. The previous key is now
+                invalid and any backup of the database file taken before this rotation can no
+                longer be opened.
+              </p>
+              <p>
+                Save this key somewhere durable <strong>now</strong>. Other admins will be
+                prompted to save it on their next login.
+              </p>
+            </>
+          }
         />
       )}
     </div>

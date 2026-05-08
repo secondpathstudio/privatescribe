@@ -421,6 +421,73 @@ def export_backup_key():
     db.session.commit()
     return jsonify({"backup_key": SQLCIPHER_KEY}), 200
 
+@app.route('/api/admin/rotate-backup-key', methods=['POST'])
+@require_admin
+@limiter.limit("3 per hour")
+def rotate_backup_key():
+    global SQLCIPHER_KEY
+    data = request.get_json() or {}
+    password = data.get('password')
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+    user = User.query.get(get_jwt_identity())
+    if not user or not check_password_hash(user.password, password):
+        return jsonify({"error": "Invalid password"}), 401
+
+    new_key = secrets.token_hex(32)
+
+    # Step 1: rekey the file on disk via a fresh raw connection so we don't
+    # fight SQLAlchemy's pool. PRAGMA rekey is atomic at the SQLCipher layer
+    # — if it fails, nothing on disk has changed and we bail without touching
+    # in-memory state.
+    rekey_conn = sqlcipher3.connect(str(DB_PATH), check_same_thread=False)
+    try:
+        rekey_conn.execute(f"PRAGMA key = \"x'{SQLCIPHER_KEY}'\"")
+        # Verify the current key actually opens the DB before rekeying.
+        rekey_conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+        rekey_conn.execute(f"PRAGMA rekey = \"x'{new_key}'\"")
+        rekey_conn.commit()
+    finally:
+        rekey_conn.close()
+
+    # Step 2: write the audit log entry via the existing session BEFORE we
+    # dispose the pool. The current connection was opened with the old key
+    # but SQLCipher keeps already-open connections working across a rekey.
+    log = KeyExportLog(
+        admin_id=user.id,
+        admin_email=user.email,
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
+
+    # Step 3: housekeeping. Disk is already on the new key; if any of this
+    # fails, the running process keeps working but a restart would boot with
+    # the old key in .env and fail to open the DB. Log the new key loudly so
+    # the operator can recover by hand-patching .env.
+    try:
+        SQLCIPHER_KEY = new_key
+        os.environ["SQLCIPHER_KEY"] = new_key
+        set_key(str(ENV_PATH), "SQLCIPHER_KEY", new_key)
+        # Reset the global ack flag so other admins get the one-shot save
+        # modal on their next login with the new key.
+        set_key(str(ENV_PATH), "SQLCIPHER_KEY_ACKNOWLEDGED", "false")
+        os.environ["SQLCIPHER_KEY_ACKNOWLEDGED"] = "false"
+        try:
+            ENV_PATH.chmod(0o600)
+        except OSError:
+            pass
+        # Drop pooled connections so subsequent requests open with the new key.
+        db.engine.dispose()
+    except Exception as e:
+        app.logger.error(
+            f"CRITICAL: SQLCipher rekey succeeded on disk but housekeeping failed. "
+            f"NEW KEY (save and patch backend/.env, then restart): {new_key}. Error: {e}"
+        )
+        raise
+
+    return jsonify({"backup_key": new_key, "rotated": True}), 200
+
 @app.route('/api/admin/key-exports/unseen', methods=['GET'])
 @require_admin
 def unseen_key_exports():
