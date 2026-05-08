@@ -24,7 +24,15 @@ import sqlcipher3
 class ISODateJSONProvider(DefaultJSONProvider):
     """Serialize datetimes/dates as ISO 8601 instead of Flask's default RFC 1123."""
     def default(self, o):
-        if isinstance(o, (datetime, date)):
+        if isinstance(o, datetime):
+            # Naive datetimes are stored as UTC by convention (datetime.utcnow()).
+            # Append "Z" so the browser parses them as UTC; without it, JS reads
+            # naive ISO strings as local time and the displayed clock is off by
+            # the viewer's UTC offset.
+            if o.tzinfo is None:
+                return o.isoformat() + "Z"
+            return o.isoformat()
+        if isinstance(o, date):
             return o.isoformat()
         return super().default(o)
 
@@ -243,6 +251,19 @@ class Note(db.Model):
     def __repr__(self):
         return f"<Note {self.id}>"
     
+class KeyExportLog(db.Model):
+    __tablename__ = 'key_export_log'
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    admin_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True)
+    admin_email = db.Column(db.String(100), nullable=False)
+    exported_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    ip = db.Column(db.String(64), nullable=True)
+
+class KeyExportDismissal(db.Model):
+    __tablename__ = 'key_export_dismissal'
+    user_id = db.Column(db.String(36), db.ForeignKey('user.id'), primary_key=True)
+    dismissed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
 with app.app_context():
     db.create_all()
 
@@ -382,7 +403,7 @@ def acknowledge_backup_key():
 
 @app.route('/api/admin/backup-key', methods=['POST'])
 @require_admin
-@limiter.limit("5 per minute")
+@limiter.limit("3 per hour")
 def export_backup_key():
     data = request.get_json() or {}
     password = data.get('password')
@@ -391,7 +412,48 @@ def export_backup_key():
     user = User.query.get(get_jwt_identity())
     if not user or not check_password_hash(user.password, password):
         return jsonify({"error": "Invalid password"}), 401
+    log = KeyExportLog(
+        admin_id=user.id,
+        admin_email=user.email,
+        ip=request.remote_addr,
+    )
+    db.session.add(log)
+    db.session.commit()
     return jsonify({"backup_key": SQLCIPHER_KEY}), 200
+
+@app.route('/api/admin/key-exports/unseen', methods=['GET'])
+@require_admin
+def unseen_key_exports():
+    user_id = get_jwt_identity()
+    dismissal = KeyExportDismissal.query.get(user_id)
+    cutoff = dismissal.dismissed_at if dismissal else datetime(1970, 1, 1)
+    logs = (KeyExportLog.query
+            .filter(KeyExportLog.exported_at > cutoff)
+            .order_by(KeyExportLog.exported_at.desc())
+            .all())
+    return jsonify({
+        "exports": [
+            {
+                "adminEmail": log.admin_email,
+                "isSelf": log.admin_id == user_id,
+                "exportedAt": log.exported_at,
+                "ip": log.ip,
+            } for log in logs
+        ]
+    }), 200
+
+@app.route('/api/admin/key-exports/dismiss', methods=['POST'])
+@require_admin
+def dismiss_key_exports():
+    user_id = get_jwt_identity()
+    dismissal = KeyExportDismissal.query.get(user_id)
+    now = datetime.utcnow()
+    if dismissal:
+        dismissal.dismissed_at = now
+    else:
+        db.session.add(KeyExportDismissal(user_id=user_id, dismissed_at=now))
+    db.session.commit()
+    return jsonify({"dismissed": True}), 200
 
 # API route to create a note (requires authentication)
 @app.route('/api/notes', methods=['POST'])
@@ -401,7 +463,7 @@ def create_note():
     data = request.get_json()
     print('creating note', data)
     
-    note_date = datetime.now()
+    note_date = datetime.utcnow()
     if 'noteDate' in data:
             note_date = datetime.fromisoformat(data['noteDate'].replace("Z", ""))
 
@@ -486,8 +548,8 @@ def create_note():
         note_content_markdown=data['noteContentMarkdown'],
         note_type='text',
         note_date=note_date,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
         author_name=data['authorName'],
         version=data['version'],
         template_id=data['noteTemplate'],
@@ -628,7 +690,7 @@ def update_note(id):
     # a new note instead.
     note.note_content_markdown = data.get('noteContentMarkdown', note.note_content_markdown)
     note.note_type = data.get('noteType', note.note_type)
-    note.updated_at = datetime.now()
+    note.updated_at = datetime.utcnow()
     note.version = note.version + 1
     
     # Update participants if provided
@@ -719,8 +781,8 @@ def mark_note_as_deleted(id):
         
     # Mark the note as deleted with current timestamp
     note.is_deleted = True
-    note.is_deleted_timestamp = datetime.now()
-    note.updated_at = datetime.now()
+    note.is_deleted_timestamp = datetime.utcnow()
+    note.updated_at = datetime.utcnow()
     
     # Commit the changes to the database
     db.session.commit()
@@ -771,7 +833,7 @@ def mark_note_as_restored(id):
     # Mark the note as deleted with current timestamp
     note.is_deleted = False
     note.is_deleted_timestamp = None
-    note.updated_at = datetime.now()
+    note.updated_at = datetime.utcnow()
     
     # Commit the changes to the database
     db.session.commit()
@@ -854,8 +916,8 @@ def create_template():
     new_template = Template(
         content=data['content'],
         name=data['name'],
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
         version=1,
         author_id=current_user
     )
@@ -970,7 +1032,7 @@ def update_template(id):
 
     template.name = data.get('name', template.name)
     template.content = data.get('content', template.content)
-    template.updated_at = datetime.now()
+    template.updated_at = datetime.utcnow()
     template.version = template.version + 1
     
     # Commit the changes to the database
@@ -1001,8 +1063,8 @@ def mark_template_as_deleted(id):
         
     # Mark the note as deleted with current timestamp
     template.is_deleted = True
-    template.is_deleted_timestamp = datetime.now()
-    template.updated_at = datetime.now()
+    template.is_deleted_timestamp = datetime.utcnow()
+    template.updated_at = datetime.utcnow()
     
     # Commit the changes to the database
     db.session.commit()
@@ -1027,7 +1089,7 @@ def mark_template_as_restored(id):
     # Mark the note as deleted with current timestamp
     template.is_deleted = False
     template.is_deleted_timestamp = None
-    template.updated_at = datetime.now()
+    template.updated_at = datetime.utcnow()
     
     # Commit the changes to the database
     db.session.commit()
@@ -1058,8 +1120,8 @@ def create_participant():
         first_name=data['firstName'],
         last_name=data['lastName'] if 'lastName' in data else None,
         email=data['email'] if 'email' in data else None,
-        created_at=datetime.now(),
-        updated_at=datetime.now(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
         author_id=current_user  # Link the note to the current user (UUID)
     )
     

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState } from "react";
 import BackupKeyModal from "@/components/admin/BackupKeyModal";
+import KeyExportBanner from "@/components/admin/KeyExportBanner";
 
 interface AuthContextType {
   token: string | null;
@@ -59,6 +60,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout }}>
+      <KeyExportBanner />
       {children}
       {pendingBackupKey && (
         <BackupKeyModal
