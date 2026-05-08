@@ -76,7 +76,7 @@ Honest disclosure of what PrivateScribe protects against and what it doesn't:
 
 **What stays local:** All audio. All transcripts. All generated documents. All template definitions. All participant records.
 
-**The single network exception:** When you first install Ollama and pull a model, that download happens over the internet. After that, you can disconnect entirely and everything will keep working - forever. If you want to update your model or pull a different one, you'll need to reconnect temporarily.
+**The single network exception:** When you first install Ollama and pull a model, that download happens over the internet. After that, you can disconnect entirely and everything will keep working - forever. If you want to update your model or pull a different one, you'll need to reconnect temporarily. You could also do this on a different machine, transfer the model files via USB, and load them into Ollama locally if you want to avoid any network connection at all.
 
 **What this is *not*:** A HIPAA compliance certification. HIPAA compliance is an organizational and procedural matter, not a software feature. PrivateScribe gives you the *technical* foundation a covered entity would need (data never leaves the device, no third-party processors involved), but the policies, BAAs, audit procedures, and risk assessments remain your responsibility.
 
