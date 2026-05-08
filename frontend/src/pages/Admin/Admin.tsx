@@ -1,9 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useAuth } from "@/context/auth-context";
 import UsersTable from "@/components/users-table";
 import AddUserForm from "@/components/admin/AddUserForm";
+import BackupKeyModal from "@/components/admin/BackupKeyModal";
 import NeoButton from "@/components/neo/neo-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function Admin() {
   const auth = useAuth();
@@ -11,6 +14,36 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const [keyFormPassword, setKeyFormPassword] = useState("");
+  const [exportedKey, setExportedKey] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportKey = async (e: FormEvent) => {
+    e.preventDefault();
+    setExporting(true);
+    setExportError(null);
+    try {
+      const res = await fetch("http://127.0.0.1:5000/api/admin/backup-key", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ password: keyFormPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Server error: ${res.status}`);
+      setExportedKey(data.backup_key);
+      setKeyFormPassword("");
+      setShowKeyForm(false);
+    } catch (e: any) {
+      setExportError(e.message ?? "Failed to fetch key");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -77,12 +110,69 @@ export default function Admin() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Encryption</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Re-export the SQLCipher key that protects your database. You'll need to confirm your password.
+            Save it somewhere durable — losing both this key and <code>backend/.env</code> means the database is unrecoverable.
+          </p>
+          {!showKeyForm ? (
+            <NeoButton
+              onClick={() => setShowKeyForm(true)}
+              backgroundColor="#fd3777"
+              textColor="#ffffff"
+            >
+              Show backup key
+            </NeoButton>
+          ) : (
+            <form onSubmit={handleExportKey} className="space-y-3">
+              <div>
+                <Label htmlFor="export-password" className="font-black">Confirm password</Label>
+                <Input
+                  id="export-password"
+                  type="password"
+                  value={keyFormPassword}
+                  onChange={(e) => setKeyFormPassword(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              {exportError && <p className="text-red-600 text-sm">{exportError}</p>}
+              <div className="flex gap-2">
+                <NeoButton type="submit" backgroundColor="#fd3777" textColor="#ffffff" disabled={exporting}>
+                  {exporting ? "Verifying..." : "Reveal"}
+                </NeoButton>
+                <NeoButton
+                  type="button"
+                  onClick={() => { setShowKeyForm(false); setKeyFormPassword(""); setExportError(null); }}
+                  backgroundColor="#ffffff"
+                  textColor="#000000"
+                >
+                  Cancel
+                </NeoButton>
+              </div>
+            </form>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>System</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-muted-foreground">Coming soon: model status, storage usage, audit log.</p>
         </CardContent>
       </Card>
+
+      {exportedKey && (
+        <BackupKeyModal
+          backupKey={exportedKey}
+          onAcknowledge={async () => {}}
+          blocking={false}
+          onClose={() => setExportedKey(null)}
+        />
+      )}
     </div>
   );
 }

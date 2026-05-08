@@ -19,6 +19,7 @@ from pathlib import Path
 from dotenv import load_dotenv, set_key
 from pydub import AudioSegment
 import io
+import sqlcipher3
 
 class ISODateJSONProvider(DefaultJSONProvider):
     """Serialize datetimes/dates as ISO 8601 instead of Flask's default RFC 1123."""
@@ -48,11 +49,59 @@ def ensure_jwt_secret() -> str:
         pass
     return secret
 
+def ensure_sqlcipher_key() -> str:
+    ENV_PATH.touch(exist_ok=True)
+    load_dotenv(ENV_PATH)
+    key = os.getenv("SQLCIPHER_KEY")
+    if not key:
+        key = secrets.token_hex(32)
+        set_key(str(ENV_PATH), "SQLCIPHER_KEY", key)
+        os.environ["SQLCIPHER_KEY"] = key
+        bar = "=" * 78
+        print(f"\n{bar}")
+        print("  SQLCIPHER_KEY GENERATED — back this up NOW")
+        print(bar)
+        print(f"  Key (hex): {key}")
+        print(f"  Stored in: {ENV_PATH}")
+        print()
+        print("  This key is the only thing that can decrypt your database.")
+        print("  Save it somewhere durable (password manager, encrypted backup).")
+        print("  Lose both the key and this .env file and your data is unrecoverable.")
+        print(f"{bar}\n")
+    try:
+        ENV_PATH.chmod(0o600)
+    except OSError:
+        pass
+    return key
+
+def is_backup_key_acknowledged() -> bool:
+    return os.getenv("SQLCIPHER_KEY_ACKNOWLEDGED", "").lower() == "true"
+
+def mark_backup_key_acknowledged() -> None:
+    set_key(str(ENV_PATH), "SQLCIPHER_KEY_ACKNOWLEDGED", "true")
+    os.environ["SQLCIPHER_KEY_ACKNOWLEDGED"] = "true"
+
 app.config["JWT_SECRET_KEY"] = ensure_jwt_secret()
+SQLCIPHER_KEY = ensure_sqlcipher_key()
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 
-# SQLite Database configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///privatescribe.db'  # SQLite database
+# SQLite Database configuration (encrypted at rest via SQLCipher).
+# The `creator` callable bypasses URL-based connecting so every pooled
+# connection is opened with `PRAGMA key` set as its first statement.
+DB_PATH = Path(app.instance_path) / "privatescribe.db"
+Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+
+def _open_keyed_connection():
+    # check_same_thread=False mirrors what SQLAlchemy's default sqlite dialect does
+    # for URL-driven connections; without it, werkzeug's threaded dev server hands
+    # pooled connections to other threads and sqlcipher3 raises ProgrammingError.
+    # Safe because SQLAlchemy's pool serializes access to each connection.
+    conn = sqlcipher3.connect(str(DB_PATH), check_same_thread=False)
+    conn.execute(f"PRAGMA key = \"x'{SQLCIPHER_KEY}'\"")
+    return conn
+
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{DB_PATH}'
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'creator': _open_keyed_connection}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -297,7 +346,7 @@ def login():
         user.last_login = datetime.utcnow()
         db.session.commit()
         
-        return jsonify({
+        response_body = {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "user": {
@@ -307,7 +356,14 @@ def login():
                 "lastName": user.last_name,
                 "role": user.role,
                 "lastLogin": user.last_login
-            }}), 200
+            }
+        }
+        # First-admin-login one-shot: surface the SQLCipher key so the operator
+        # can back it up. Cleared the moment any admin acknowledges via
+        # /api/acknowledge-backup-key — never returned by login again after that.
+        if user.role == 'admin' and not is_backup_key_acknowledged():
+            response_body["backup_key"] = SQLCIPHER_KEY
+        return jsonify(response_body), 200
 
     return jsonify({"error": "Invalid username or password"}), 401
 
@@ -317,6 +373,25 @@ def refresh():
     current_user = get_jwt_identity()
     new_access_token = create_access_token(identity=current_user)
     return jsonify(access_token=new_access_token)
+
+@app.route('/api/acknowledge-backup-key', methods=['POST'])
+@require_admin
+def acknowledge_backup_key():
+    mark_backup_key_acknowledged()
+    return jsonify({"acknowledged": True}), 200
+
+@app.route('/api/admin/backup-key', methods=['POST'])
+@require_admin
+@limiter.limit("5 per minute")
+def export_backup_key():
+    data = request.get_json() or {}
+    password = data.get('password')
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+    user = User.query.get(get_jwt_identity())
+    if not user or not check_password_hash(user.password, password):
+        return jsonify({"error": "Invalid password"}), 401
+    return jsonify({"backup_key": SQLCIPHER_KEY}), 200
 
 # API route to create a note (requires authentication)
 @app.route('/api/notes', methods=['POST'])

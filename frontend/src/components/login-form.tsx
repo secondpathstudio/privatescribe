@@ -40,8 +40,7 @@ export default function LoginForm() {
         const data = await response.json();
 
         if (response.ok) {
-            console.log("Login successful:", data);
-            auth.login(data.access_token, data.refresh_token, data.user);
+            auth.login(data.access_token, data.refresh_token, data.user, data.backup_key);
             redirect("/notes");
         } else {
             alert(data.error || "Login failed");
