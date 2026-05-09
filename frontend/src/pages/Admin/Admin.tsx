@@ -3,6 +3,7 @@ import { useAuth } from "@/context/auth-context";
 import UsersTable from "@/components/users-table";
 import AddUserForm from "@/components/admin/AddUserForm";
 import BackupKeyModal from "@/components/admin/BackupKeyModal";
+import ModelsCard from "@/components/admin/ModelsCard";
 import NeoButton from "@/components/neo/neo-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -230,12 +231,14 @@ export default function Admin() {
         </CardContent>
       </Card>
 
+      <ModelsCard />
+
       <Card>
         <CardHeader>
           <CardTitle>System</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">Coming soon: model status, storage usage, audit log.</p>
+          <p className="text-muted-foreground">Coming soon: storage usage, audit log.</p>
         </CardContent>
       </Card>
 
