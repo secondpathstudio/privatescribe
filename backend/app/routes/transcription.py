@@ -1,8 +1,11 @@
-from flask import Blueprint, jsonify, request
+import json
+
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.models import Template
+from app.security.auth import require_admin
 from app.services import ollama_client
 from app.services.whisper import transcribe_file
 
@@ -75,6 +78,30 @@ def get_markdown():
     model_name = template.llm_model or ollama_client.DEFAULT_OLLAMA_MODEL
     print(f"using model: {model_name}")
 
+    # Pre-flight: distinguish "Ollama unreachable" (503) from "model not
+    # installed" (422). Without this, both fall through to a generic 503 from
+    # the chat() call and the operator can't tell which they need to fix.
+    try:
+        installed = ollama_client.is_model_installed(model_name)
+    except Exception as e:
+        print(f"Ollama unreachable during preflight: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "AI formatting unavailable. Make sure Ollama is running.",
+            "raw_note": raw_note,
+        }), 503
+
+    if not installed:
+        return jsonify({
+            "error": "model_not_installed",
+            "model": model_name,
+            "message": (
+                f"The model '{model_name}' assigned to template '{template.name}' is not "
+                f"installed. An admin must run `ollama pull {model_name}` (or use the "
+                f"admin Models page) before this template can be used."
+            ),
+            "raw_note": raw_note,
+        }), 422
+
     try:
         formatted_markdown = ollama_client.generate_markdown(
             template, raw_note, note_details, model_name
@@ -89,3 +116,36 @@ def get_markdown():
     print("Formatted markdown: " + formatted_markdown)
 
     return jsonify({"formatted_markdown": formatted_markdown})
+
+
+@bp.route('/api/ollama/pull', methods=['POST'])
+@require_admin
+def pull_ollama_model():
+    """Stream `ollama pull <model>` progress to an admin client as NDJSON.
+
+    Each line of the response body is a JSON object with at minimum a
+    `status` field; download chunks also include `digest`, `total`,
+    `completed`. The final line is `{"status":"success","done":true}` on
+    success or `{"error": "...","done":true}` on failure. The connection
+    stays open for the duration of the pull (potentially many minutes for
+    multi-GB models), so the client should consume the stream incrementally.
+    """
+    data = request.get_json(silent=True) or {}
+    model_name = (data.get('model') or '').strip()
+    if not model_name:
+        return jsonify({"error": "model is required"}), 400
+    # Reasonable upper bound. Ollama tags themselves can be ~80 chars.
+    if len(model_name) > 200:
+        return jsonify({"error": "model name too long"}), 400
+
+    @stream_with_context
+    def generate():
+        try:
+            for progress in ollama_client.pull_model_stream(model_name):
+                yield json.dumps(progress) + "\n"
+            yield json.dumps({"status": "success", "done": True}) + "\n"
+        except Exception as e:
+            print(f"Ollama pull failure: {type(e).__name__}: {e}")
+            yield json.dumps({"error": str(e), "done": True}) + "\n"
+
+    return Response(generate(), mimetype="application/x-ndjson")
