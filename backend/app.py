@@ -176,6 +176,8 @@ class Template(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(50), nullable=False)
     content = db.Column(db.Text, nullable=True)
+    # Ollama model tag (e.g. "llama3.2", "mistral:7b"). Null falls back to DEFAULT_OLLAMA_MODEL.
+    llm_model = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     version = db.Column(db.Integer, nullable=False)
@@ -962,6 +964,8 @@ def get_notes_for_user(user_id):
 
 TEMPLATE_NAME_MAX = 50
 TEMPLATE_CONTENT_MAX = 32_000  # ~8K tokens, fits llama3.2 default context with prompt overhead
+TEMPLATE_LLM_MODEL_MAX = 100
+DEFAULT_OLLAMA_MODEL = "llama3.2"
 
 # API route to create a template (requires authentication)
 @app.route('/api/templates', methods=['POST'])
@@ -978,17 +982,22 @@ def create_template():
     if len(data['content']) > TEMPLATE_CONTENT_MAX:
         return jsonify({"error": f"Content must be {TEMPLATE_CONTENT_MAX} characters or fewer"}), 400
 
+    llm_model = data.get('llmModel') or None
+    if llm_model is not None and len(llm_model) > TEMPLATE_LLM_MODEL_MAX:
+        return jsonify({"error": f"LLM model must be {TEMPLATE_LLM_MODEL_MAX} characters or fewer"}), 400
+
     current_user = get_jwt_identity()
 
     new_template = Template(
         content=data['content'],
         name=data['name'],
+        llm_model=llm_model,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
         version=1,
         author_id=current_user
     )
-    
+
     print('adding template', new_template)
 
     # Add the note to the database
@@ -1001,6 +1010,7 @@ def create_template():
         "updatedAt": new_template.updated_at,
         "content": new_template.content,
         "name": new_template.name,
+        "llmModel": new_template.llm_model,
         "authorId": new_template.author_id,
         "version": new_template.version
     }), 201
@@ -1036,6 +1046,7 @@ def get_templates_for_user(user_id):
                 "id": template.id,
                 "content": template.content,
                 "name": template.name,
+                "llmModel": template.llm_model,
                 "version": template.version,
                 "createdAt": template.created_at,
                 "updatedAt": template.updated_at,
@@ -1066,6 +1077,7 @@ def get_template(id):
         "id": template.id,
         "name": template.name,
         "content": template.content,
+        "llmModel": template.llm_model,
         "isDeleted": template.is_deleted,
         "isDeletedTimestamp": template.is_deleted_timestamp,
         "createdAt": template.created_at,
@@ -1096,12 +1108,17 @@ def update_template(id):
             return jsonify({"error": "Content cannot be empty"}), 400
         if len(data['content']) > TEMPLATE_CONTENT_MAX:
             return jsonify({"error": f"Content must be {TEMPLATE_CONTENT_MAX} characters or fewer"}), 400
+    if 'llmModel' in data and data['llmModel'] is not None:
+        if len(data['llmModel']) > TEMPLATE_LLM_MODEL_MAX:
+            return jsonify({"error": f"LLM model must be {TEMPLATE_LLM_MODEL_MAX} characters or fewer"}), 400
 
     template.name = data.get('name', template.name)
     template.content = data.get('content', template.content)
+    if 'llmModel' in data:
+        template.llm_model = data['llmModel'] or None
     template.updated_at = datetime.utcnow()
     template.version = template.version + 1
-    
+
     # Commit the changes to the database
     db.session.commit()
 
@@ -1111,6 +1128,7 @@ def update_template(id):
         "updatedAt": template.updated_at,
         "content": template.content,
         "name": template.name,
+        "llmModel": template.llm_model,
         "authorId": template.author_id,
         "version": template.version,
         "isDeleted": template.is_deleted,
@@ -1286,6 +1304,35 @@ def transcribe():
         # "formatted_markdown": formatted_markdown
     })
 
+@app.route('/api/ollama/models', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def list_ollama_models():
+    """Return the list of models installed in the local Ollama server."""
+    try:
+        response = ollama.list()
+    except Exception as e:
+        print(f"Ollama list failure: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "Could not reach Ollama. Make sure `ollama serve` is running.",
+            "models": [],
+        }), 503
+
+    raw_models = response.get('models', []) if isinstance(response, dict) else getattr(response, 'models', [])
+    names = []
+    for m in raw_models:
+        # ollama 0.4.x returns objects with .model; older shapes used dict['name'].
+        name = getattr(m, 'model', None) or getattr(m, 'name', None)
+        if name is None and isinstance(m, dict):
+            name = m.get('model') or m.get('name')
+        if name:
+            names.append(name)
+
+    return jsonify({
+        "models": names,
+        "default": DEFAULT_OLLAMA_MODEL,
+    })
+
 @app.route('/api/getMarkdown', methods=['POST'])
 @jwt_required()
 def getMarkdown():
@@ -1317,12 +1364,15 @@ def getMarkdown():
     note_details['author_id'] = current_user
 
     print(f"template: {template.content}")
-    
+
+    model_name = template.llm_model or DEFAULT_OLLAMA_MODEL
+    print(f"using model: {model_name}")
+
     #TODO add author + participant names?
     # Format note with Ollama LLM
     try:
         formatted_markdown = ollama.chat(
-            model="llama3.2",
+            model=model_name,
             messages=[
                 {
                     "role": "system",

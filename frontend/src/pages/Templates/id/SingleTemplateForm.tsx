@@ -1,9 +1,10 @@
-import React, { FormEvent } from 'react'
+import React, { FormEvent, useEffect } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { useAuth } from '../../../context/auth-context'
@@ -19,6 +20,7 @@ const TEMPLATE_CONTENT_MAX = 32_000;
 const templateSchema = z.object({
     name: z.string().min(1, 'Name is required').max(TEMPLATE_NAME_MAX, `Name must be ${TEMPLATE_NAME_MAX} characters or fewer`),
     content: z.string().min(1, 'Content is required').max(TEMPLATE_CONTENT_MAX, `Content must be ${TEMPLATE_CONTENT_MAX} characters or fewer`),
+    llmModel: z.string().min(1, 'Select a model'),
 }).passthrough();
 
 type Props = {
@@ -29,20 +31,45 @@ const SingleTemplateForm = ({ template }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [updating, setUpdating] = React.useState(false);
+    const [models, setModels] = React.useState<string[]>([]);
+    const [modelsError, setModelsError] = React.useState<string | null>(null);
     const navigate = useNavigate();
-    
+
     const form = useForm({
         resolver: zodResolver(templateSchema),
         mode: 'onChange',
         defaultValues: {
             name: template?.name,
             content: template?.content,
+            llmModel: template?.llmModel || '',
             version: template?.version,
             authorId: template?.authorId,
             createdAt: template?.createdAt,
             updatedAt: template?.updatedAt,
         }
     });
+
+    useEffect(() => {
+        const fetchModels = async () => {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/ollama/models', {
+                    headers: { 'Authorization': `Bearer ${auth.token}` },
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    setModelsError(data.error || 'Could not load models');
+                    setModels([]);
+                    return;
+                }
+                setModels(data.models || []);
+                setModelsError(null);
+            } catch (err) {
+                console.log('Error fetching models', err);
+                setModelsError('Could not reach the server');
+            }
+        };
+        fetchModels();
+    }, [auth.token]);
 
     const formState = useFormState({
         control: form.control,})
@@ -73,6 +100,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                 form.reset({
                     name: data.name,
                     content: data.content,
+                    llmModel: data.llmModel || '',
                     version: data.version,
                     authorId: data.authorId,
                     createdAt: data.createdAt,
@@ -183,9 +211,43 @@ const SingleTemplateForm = ({ template }: Props) => {
                         </FormItem>
                     )}
                 />
-                <FormField 
-                    control={form.control} 
-                    name="authorId" 
+                <FormField
+                    control={form.control}
+                    name="llmModel"
+                    render={({ field }) => (
+                        <FormItem className="flex flex-col">
+                            <FormLabel>LLM Model</FormLabel>
+                            <FormControl>
+                                <Select
+                                    onValueChange={(value) => {
+                                        field.onChange(value);
+                                        form.setValue('llmModel', value, { shouldDirty: true, shouldValidate: true });
+                                    }}
+                                    value={field.value}
+                                    disabled={models.length === 0}
+                                >
+                                    <SelectTrigger className='z-10 bg-white min-w-[200px]'>
+                                        <SelectValue placeholder={models.length === 0 ? (modelsError || "Loading models...") : "Select a model"} />
+                                    </SelectTrigger>
+                                    <SelectContent className='z-10 bg-white'>
+                                        {models.map((m) => (
+                                            <SelectItem key={m} value={m} className='hover:bg-[#fd3777]'>
+                                                {m}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </FormControl>
+                            <FormMessage />
+                            {modelsError && (
+                                <p className="text-xs text-red-600">{modelsError}</p>
+                            )}
+                        </FormItem>
+                    )}
+                />
+                <FormField
+                    control={form.control}
+                    name="authorId"
                     render={({ field }) => (
                         <FormItem className="flex flex-col">
                             <FormLabel>Author ID</FormLabel>
