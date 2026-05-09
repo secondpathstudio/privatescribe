@@ -53,7 +53,9 @@ def create_app() -> Flask:
 
     # Importing the models package triggers registration on db.metadata so
     # create_all() and Flask-Migrate's autogenerate see every table.
-    import app.models  # noqa: F401
+    # Use `from . import` so the statement binds `models`, not `app` — an
+    # `import app.models` here would shadow the local `app` Flask instance.
+    from . import models  # noqa: F401
 
     register_blueprints(app)
     register_error_handlers(app)
