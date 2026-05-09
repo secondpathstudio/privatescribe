@@ -31,8 +31,36 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
+    const [selectedTemplateLlmModel, setSelectedTemplateLlmModel] = React.useState<string | null>(null);
     const [currentParticipants, setCurrentParticipants] = React.useState<Participant[]>([]);
+    const [installedModels, setInstalledModels] = React.useState<string[] | null>(null);
     const navigate = useNavigate();
+
+    // Load installed models once so we can flag templates whose LLM is missing
+    // before the user spends time recording. null = still loading; empty array
+    // = Ollama reachable but no models; we treat unreachable the same as empty
+    // since the actual /api/getMarkdown call will surface a 503 either way.
+    useEffect(() => {
+        const fetchModels = async () => {
+            try {
+                const response = await fetch('http://127.0.0.1:5000/api/ollama/models', {
+                    headers: { 'Authorization': `Bearer ${auth.token}` },
+                });
+                const data = await response.json();
+                const names = (data.models || []).map((m: any) => m.name);
+                setInstalledModels(names);
+            } catch (err) {
+                console.log('Error fetching installed models', err);
+                setInstalledModels([]);
+            }
+        };
+        fetchModels();
+    }, [auth.token]);
+
+    const modelMissing =
+        !!selectedTemplateLlmModel &&
+        installedModels !== null &&
+        !installedModels.includes(selectedTemplateLlmModel);
 
     const handleAddNewNote = async (e: FormEvent, form: any) => {
         e.preventDefault();
@@ -83,13 +111,14 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         }
     });
 
-    //update local state for template name when selected template id changes
+    //update local state for template name + llm model when selected template id changes
     useEffect(() => {
         const currentTemplateId = form.watch('noteTemplate');
             if (currentTemplateId && templates) {
             const selectedTemplate = templates.find(template => template.id === currentTemplateId);
             if (selectedTemplate) {
                 setSelectedTemplateName(selectedTemplate.name);
+                setSelectedTemplateLlmModel(selectedTemplate.llmModel || null);
             }
         }
     }, [form.watch('noteTemplate'), templates]);
@@ -197,6 +226,17 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
 
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
+                // 422 = template's assigned model isn't installed in Ollama. Same
+                // raw-transcript fallback as 503, but with a clearer message that
+                // tells the operator which model is missing.
+                if (response.status === 422 && errorData.error === 'model_not_installed') {
+                    const fallback = errorData.raw_note || rawNote;
+                    form.setValue('noteContentMarkdown', fallback);
+                    mdxEditorRef.current?.setMarkdown(fallback);
+                    setMarkdown(fallback);
+                    alert(errorData.message || `The model '${errorData.model}' isn't installed. An admin needs to pull it before this template can be used.`);
+                    return;
+                }
                 if (response.status === 503) {
                     // Ollama unavailable — fall back to the raw transcript so the
                     // user can edit/save manually instead of losing the recording.
@@ -237,14 +277,15 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         <FormItem>
                             <FormLabel>Note Template</FormLabel>
                             <FormControl>
-                                <Select 
+                                <Select
                                     onValueChange={(value) => {
                                         field.onChange(value);
                                         const selectedTemplate = templates.find(t => t.id === value);
                                         if (selectedTemplate) {
                                             setSelectedTemplateName(selectedTemplate.name);
+                                            setSelectedTemplateLlmModel(selectedTemplate.llmModel || null);
                                         }
-                                    }} 
+                                    }}
                                     value={field.value}
                                 >
                                     <SelectTrigger className='z-10 bg-white'>
@@ -298,6 +339,15 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     )}
                 />
             </fieldset>
+            {modelMissing && (
+                <div className="border-2 border-black bg-yellow-100 p-3 text-sm">
+                    <strong>Heads up:</strong> this template is set to use the
+                    <code className="mx-1 px-1 bg-white border border-black">{selectedTemplateLlmModel}</code>
+                    model, which isn't installed in Ollama. Recording will still work, but the
+                    transcript won't be auto-formatted — an admin needs to pull the model from
+                    the Admin → Models page before this template can format notes.
+                </div>
+            )}
             <fieldset className="flex flex-col gap-2">
                 <FormField
                     control={form.control}
