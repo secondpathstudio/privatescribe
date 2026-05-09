@@ -11,6 +11,28 @@ import ollama
 DEFAULT_OLLAMA_MODEL = "llama3.2"
 
 
+def _normalize_progress(chunk) -> dict:
+    """Convert a pull-stream chunk (object or dict) into a plain JSON-safe dict.
+
+    ollama 0.4.x yields ProgressResponse objects with `.status`, `.digest`,
+    `.total`, `.completed` attrs; older versions yielded dicts.
+    """
+    out = {}
+    for key in ("status", "digest"):
+        val = getattr(chunk, key, None)
+        if val is None and isinstance(chunk, dict):
+            val = chunk.get(key)
+        if val is not None:
+            out[key] = val
+    for key in ("total", "completed"):
+        val = getattr(chunk, key, None)
+        if val is None and isinstance(chunk, dict):
+            val = chunk.get(key)
+        if val is not None:
+            out[key] = val
+    return out
+
+
 def list_installed_models() -> list[dict]:
     """Returns [{"name": str, "parameter_size": str | None}, ...].
 
@@ -40,6 +62,23 @@ def list_installed_models() -> list[dict]:
 
         out.append({"name": name, "parameter_size": parameter_size})
     return out
+
+
+def is_model_installed(model_name: str) -> bool:
+    """Cheap membership check against the installed model list.
+
+    Re-fetches the list on every call (Ollama is local, so this is fast and
+    we don't have to invalidate a cache when the admin pulls/deletes a model).
+    Raises whatever ollama raises if the daemon is unreachable; callers should
+    distinguish 'unreachable' from 'reachable but missing'.
+    """
+    return any(m["name"] == model_name for m in list_installed_models())
+
+
+def pull_model_stream(model_name: str):
+    """Yield normalized progress dicts for a `ollama pull <model>` operation."""
+    for chunk in ollama.pull(model_name, stream=True):
+        yield _normalize_progress(chunk)
 
 
 def generate_markdown(template, raw_note: str, note_details: dict, model_name: str) -> str:
