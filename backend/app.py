@@ -1319,17 +1319,29 @@ def list_ollama_models():
         }), 503
 
     raw_models = response.get('models', []) if isinstance(response, dict) else getattr(response, 'models', [])
-    names = []
+    models = []
     for m in raw_models:
         # ollama 0.4.x returns objects with .model; older shapes used dict['name'].
         name = getattr(m, 'model', None) or getattr(m, 'name', None)
         if name is None and isinstance(m, dict):
             name = m.get('model') or m.get('name')
-        if name:
-            names.append(name)
+        if not name:
+            continue
+
+        # `details.parameter_size` is a human-readable string like "3.2B" or "7B"
+        details = getattr(m, 'details', None)
+        if details is None and isinstance(m, dict):
+            details = m.get('details')
+        parameter_size = None
+        if details is not None:
+            parameter_size = getattr(details, 'parameter_size', None)
+            if parameter_size is None and isinstance(details, dict):
+                parameter_size = details.get('parameter_size')
+
+        models.append({"name": name, "parameter_size": parameter_size})
 
     return jsonify({
-        "models": names,
+        "models": models,
         "default": DEFAULT_OLLAMA_MODEL,
     })
 

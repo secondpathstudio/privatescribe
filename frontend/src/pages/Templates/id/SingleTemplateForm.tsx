@@ -31,7 +31,7 @@ const SingleTemplateForm = ({ template }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
     const [updating, setUpdating] = React.useState(false);
-    const [models, setModels] = React.useState<string[]>([]);
+    const [models, setModels] = React.useState<{ name: string; parameter_size?: string | null }[]>([]);
     const [modelsError, setModelsError] = React.useState<string | null>(null);
     const navigate = useNavigate();
 
@@ -231,8 +231,11 @@ const SingleTemplateForm = ({ template }: Props) => {
                                     </SelectTrigger>
                                     <SelectContent className='z-10 bg-white'>
                                         {models.map((m) => (
-                                            <SelectItem key={m} value={m} className='hover:bg-[#fd3777]'>
-                                                {m}
+                                            <SelectItem key={m.name} value={m.name} className='hover:bg-[#fd3777]'>
+                                                {m.name}
+                                                {m.parameter_size && (
+                                                    <span className="ml-2 text-xs text-muted-foreground">({m.parameter_size})</span>
+                                                )}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
