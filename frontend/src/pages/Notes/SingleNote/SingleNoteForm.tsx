@@ -477,19 +477,33 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             </TabsContent>
 
             <TabsContent value="transcript">
-                <FormField
-                    control={form.control}
-                    name="noteContentRaw"
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col mt-4">
-                            <FormLabel>Raw Transcription</FormLabel>
-                            <FormControl>
-                                <Textarea {...field} disabled />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
+                {note?.noteContentSegments ? (
+                    <div className="flex flex-col mt-4 gap-1">
+                        <FormLabel>Raw Transcription</FormLabel>
+                        <div className="border-2 border-black bg-white p-3 max-h-96 overflow-y-auto">
+                            {note.noteContentSegments.map((s: any, i: number) => (
+                                <div key={i} className="mb-2 last:mb-0">
+                                    <span className="font-semibold text-[#fd3777]">{s.speaker}:</span>{' '}
+                                    <span>{s.text}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <FormField
+                        control={form.control}
+                        name="noteContentRaw"
+                        render={({ field }) => (
+                            <FormItem className="flex flex-col mt-4">
+                                <FormLabel>Raw Transcription</FormLabel>
+                                <FormControl>
+                                    <Textarea {...field} disabled />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                )}
             </TabsContent>
         </Tabs>
         )}

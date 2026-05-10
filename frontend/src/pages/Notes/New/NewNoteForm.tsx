@@ -104,12 +104,17 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             noteDate: new Date(),
             noteContentRaw: '',
             noteContentMarkdown: '',
+            noteContentSegments: null as null | { speaker: string; start: number; end: number; text: string }[],
             noteTemplate: '',
             noteType: '',
             version: 1,
             status: 'draft',
         }
     });
+
+    // Diarization is a UX choice, not a persisted note field — hold it in
+    // local state so it isn't sent to /api/notes alongside form values.
+    const [diarize, setDiarize] = React.useState(true);
 
     //update local state for template name + llm model when selected template id changes
     useEffect(() => {
@@ -164,8 +169,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         setIsTranscribing(true);
         const formData = new FormData();
         formData.append('file', blob, 'recording.webm'); // Use WebM if you're recording with MediaRecorder
+        formData.append('diarize', diarize ? 'true' : 'false');
 
-        console.log('Uploading audio for transcription...', blob);
+        console.log('Uploading audio for transcription...', blob, 'diarize:', diarize);
         try {
             const response = await fetch('http://127.0.0.1:5000/api/transcribe', {
             method: 'POST',
@@ -175,11 +181,29 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             body: formData,
             });
 
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
+            const result = await response.json().catch(() => ({}));
+
+            // 422 = diarization was requested but the pyannote pipeline isn't
+            // available (missing HF_TOKEN, gated model not accepted, etc.).
+            // Server returns the plain transcript so we can still proceed.
+            if (response.status === 422 && result.error === 'diarization_unavailable') {
+                console.warn('Diarization unavailable, falling back to flat transcript:', result.message);
+                alert(
+                    `Speaker identification is unavailable: ${result.message || 'pipeline not configured'}\n\n` +
+                    `Continuing with a single-speaker transcript. Uncheck "Identify speakers" to skip this warning.`
+                );
+                if (result.raw_note) {
+                    form.setValue('noteContentRaw', result.raw_note);
+                    form.setValue('noteContentSegments', null);
+                    getMarkdown(result.raw_note);
+                }
+                return;
             }
 
-            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || `Server error: ${response.status}`);
+            }
+
             console.log('Transcription Result:', result);
 
             //handle if transcription is empty
@@ -190,6 +214,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             }
 
             form.setValue('noteContentRaw', result.raw_note);
+            form.setValue('noteContentSegments', result.segments ?? null);
 
             // Format the transcription in Markdown
             getMarkdown(result.raw_note);
@@ -372,9 +397,25 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             </fieldset>
         </div>
 
+        {/* Diarization toggle — defaults on. Sent to /api/transcribe so the
+            backend knows whether to run pyannote and return per-speaker segments. */}
+        <div className="flex items-center gap-2 mt-4">
+            <input
+                id="diarize-toggle"
+                type="checkbox"
+                checked={diarize}
+                onChange={(e) => setDiarize(e.target.checked)}
+                disabled={isTranscribing || gettingMarkdown}
+                className="h-4 w-4 cursor-pointer accent-[#fd3777]"
+            />
+            <label htmlFor="diarize-toggle" className="text-sm cursor-pointer select-none">
+                Identify speakers (diarize)
+            </label>
+        </div>
+
         {/* Microphone Component */}
         <div className="flex justify-between items-center mt-4">
-            <Microphone 
+            <Microphone
                 key={microphoneKey}
                 onRecordingFinished={transcribeRecording}
             />
@@ -433,19 +474,33 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             </TabsContent>
 
             <TabsContent value="transcript">
-                <FormField
-                    control={form.control}
-                    name="noteContentRaw"
-                    render={({ field }) => (
-                        <FormItem className="flex flex-col mt-4">
-                            <FormLabel>Raw Transcription</FormLabel>
-                            <FormControl>
-                                <Textarea {...field} disabled />
-                            </FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )}
-                />
+                {form.getValues("noteContentSegments") ? (
+                    <div className="flex flex-col mt-4 gap-1">
+                        <FormLabel>Raw Transcription</FormLabel>
+                        <div className="border-2 border-black bg-white p-3 max-h-96 overflow-y-auto">
+                            {form.getValues("noteContentSegments")!.map((s, i) => (
+                                <div key={i} className="mb-2 last:mb-0">
+                                    <span className="font-semibold text-[#fd3777]">{s.speaker}:</span>{' '}
+                                    <span>{s.text}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <FormField
+                        control={form.control}
+                        name="noteContentRaw"
+                        render={({ field }) => (
+                            <FormItem className="flex flex-col mt-4">
+                                <FormLabel>Raw Transcription</FormLabel>
+                                <FormControl>
+                                    <Textarea {...field} disabled />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                )}
             </TabsContent>
         </Tabs>
         )}
