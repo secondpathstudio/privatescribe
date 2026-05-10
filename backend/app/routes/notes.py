@@ -192,6 +192,16 @@ def get_note(id):
         print(f"Error accessing participants: {str(e)}")
         participants = []
 
+    # Audio metadata so the frontend can render the player conditionally and
+    # show file info without a separate round-trip. The actual bytes come
+    # from GET /api/notes/<id>/audio.
+    audio_row = None
+    if note.transcript_group_id:
+        audio_row = AudioFile.query.filter_by(
+            author_id=current_user,
+            transcript_group_id=note.transcript_group_id,
+        ).first()
+
     return jsonify({
         "id": note.id,
         "createdAt": note.created_at,
@@ -205,6 +215,10 @@ def get_note(id):
         "noteType": note.note_type,
         "noteTemplate": note.template_id,
         "transcriptGroupId": note.transcript_group_id,
+        "hasAudio": audio_row is not None,
+        "audioMimeType": audio_row.mime_type if audio_row else None,
+        "audioOriginalFilename": audio_row.original_filename if audio_row else None,
+        "audioSizeBytes": audio_row.size_bytes if audio_row else None,
         "participants": participants,
         "version": note.version,
         "isDeleted": note.is_deleted,

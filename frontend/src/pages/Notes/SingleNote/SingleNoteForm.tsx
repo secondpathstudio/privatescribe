@@ -16,6 +16,7 @@ import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
+import NoteAudioPlayer from '@/components/recording/note-audio-player'
 
 type Props = {
     note: any;
@@ -428,6 +429,20 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     />
             </fieldset>
         </div>
+
+        {/* Source audio playback. Rendered above the tabs so the user can
+            scrub the recording while reading either the markdown or the raw
+            transcript. Only present for notes that came from a recording —
+            text-only notes have hasAudio=false. */}
+        {note?.hasAudio && (
+            <div className="mt-4">
+                <NoteAudioPlayer
+                    noteId={note.id}
+                    filename={note.audioOriginalFilename}
+                    sizeBytes={note.audioSizeBytes}
+                />
+            </div>
+        )}
 
         {/* Tabs Component for Raw Transcript and Markdown Editor */}
         {/* only show tabs when there is a raw transcript and markdown */}
