@@ -477,20 +477,40 @@ def get_notes_for_user(user_id):
     if not notes:
         return jsonify([]), 200
 
+    # Bulk-resolve template names so the table can display + filter on
+    # them without an N+1 (one query per note). Soft-deleted templates
+    # are still mapped — the note keeps its name even if the template
+    # was later trashed.
+    template_ids = {n.template_id for n in notes if n.template_id}
+    template_names: dict[int, str] = {}
+    if template_ids:
+        for t in Template.query.filter(Template.id.in_(template_ids)).all():
+            template_names[t.id] = t.name
+
     notes_list = []
 
     try:
         for note in notes:
-            participant_ids = [participant.id for participant in note.participants]
-
+            participants = [
+                {
+                    "id": p.id,
+                    "firstName": p.first_name,
+                    "lastName": p.last_name,
+                }
+                for p in note.participants
+            ]
+            # noteContentRaw is intentionally omitted here — transcripts can
+            # be many KB each and the list view doesn't render them. Fetch
+            # the single-note endpoint when the raw text is actually needed.
             note_data = {
                 "id": note.id,
                 "createdAt": note.created_at,
                 "updatedAt": note.updated_at,
                 "noteDate": note.note_date,
-                "noteContentRaw": note.note_content_raw,
                 "noteContentMarkdown": note.note_content_markdown,
-                "participantIds": participant_ids,
+                "participants": participants,
+                "templateId": note.template_id,
+                "templateName": template_names.get(note.template_id) if note.template_id else None,
                 "noteType": note.note_type,
                 "authorId": note.author_id,
                 "isDeleted": note.is_deleted,
