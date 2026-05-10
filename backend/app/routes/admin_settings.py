@@ -8,7 +8,7 @@ from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
 
 from app.security.auth import require_admin
-from app.services import settings as settings_service
+from app.services import diarization, settings as settings_service
 
 bp = Blueprint("admin_settings", __name__, url_prefix="/api/admin/settings")
 
@@ -21,6 +21,15 @@ def get_settings():
         "upload_limit_mb": settings_service.get_upload_limit_mb(),
         "upload_limit_mb_min": settings_service.MIN_UPLOAD_LIMIT_MB,
         "upload_limit_mb_max": settings_service.MAX_UPLOAD_LIMIT_MB,
+        # Diarization device:
+        # - configured: admin's choice ("auto" or a concrete device)
+        # - effective: the concrete device the loaded pipeline is on, or null
+        #   if the pipeline hasn't been loaded yet
+        # - available: list of concrete devices torch reports usable on this host
+        "diarization_device": diarization.configured_device(),
+        "diarization_device_effective": diarization.effective_device(),
+        "diarization_devices_available": diarization.available_devices(),
+        "diarization_device_options": list(diarization.VALID_DEVICES),
     })
 
 
@@ -52,3 +61,54 @@ def update_upload_limit():
     current_app.config['MAX_CONTENT_LENGTH'] = value * 1024 * 1024
 
     return jsonify({"upload_limit_mb": value})
+
+
+@bp.route('/diarization-device', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_diarization_device():
+    """Set which torch device pyannote runs on.
+
+    Accepts one of "auto" / "mps" / "cuda" / "cpu". "auto" picks the fastest
+    device available on the host at load time. If the pipeline is already
+    loaded, this moves it onto the new device with `pipeline.to()` — fast,
+    no full reload. Persisted to the system_setting table so it survives
+    backend restarts.
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if not isinstance(value, str) or value not in diarization.VALID_DEVICES:
+        return jsonify({
+            "error": f"value must be one of {list(diarization.VALID_DEVICES)}",
+        }), 400
+
+    # Reject concrete devices that torch doesn't see on this host. "auto" is
+    # always allowed; it'll resolve to whatever's available at load time.
+    if value != "auto" and value not in diarization.available_devices():
+        return jsonify({
+            "error": (
+                f"device {value!r} is not available on this host. Available: "
+                f"{diarization.available_devices()}"
+            ),
+        }), 400
+
+    current_user = get_jwt_identity()
+    settings_service.set_value(settings_service.DIARIZATION_DEVICE, value, updated_by=current_user)
+
+    try:
+        effective = diarization.set_configured_device(value)
+    except Exception as e:
+        # set_configured_device persisted the choice via settings_service above,
+        # but the live move failed. Surface so the admin knows the next
+        # transcription will retry on the new device from cold load.
+        print(f"Failed to apply diarization device {value!r}: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": f"saved, but could not apply live: {e}",
+            "diarization_device": value,
+            "diarization_device_effective": diarization.effective_device(),
+        }), 500
+
+    return jsonify({
+        "diarization_device": value,
+        "diarization_device_effective": effective,
+    })

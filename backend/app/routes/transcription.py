@@ -26,39 +26,92 @@ def _truthy(value: str | None) -> bool:
 @bp.route('/api/transcribe', methods=['POST'])
 @jwt_required()
 def transcribe():
+    """Stream stage progress as NDJSON.
+
+    Emits one JSON object per line:
+      {"stage": "transcribing"}
+      {"stage": "diarizing"}                              # only if diarize=true
+      {"stage": "complete", "raw_note": "...", "segments": [...] | null}
+      {"stage": "error", "error": "...", "message": "...", "raw_note"?: "..."}
+
+    The HTTP status is always 200 once the stream starts — errors are surfaced
+    as inline events because chunked responses can't change status mid-stream.
+    """
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
     diarize = _truthy(request.form.get('diarize', 'true'))
+    file = request.files['file']
 
-    audio_path = prepare_wav(request.files['file'])
-    try:
-        raw_text, whisper_segments = transcribe_path(audio_path)
-
-        if not diarize:
-            return jsonify({"raw_note": raw_text, "segments": None})
-
+    # Optional speaker-count hint. Frontend sends the participant-list size,
+    # which we treat as an upper bound (max_speakers) rather than an exact
+    # count — listing 3 participants doesn't guarantee all 3 spoke. Silently
+    # drop unparseable / out-of-range values; auto-detect is the safe default.
+    max_speakers: int | None = None
+    raw_max = request.form.get('max_speakers')
+    if raw_max:
         try:
-            turns = diarize_path(audio_path)
-        except DiarizationUnavailable as e:
-            # Surface a 422 so the client can decide whether to retry without
-            # diarization or alert an admin. Returning the raw transcript would
-            # silently swallow the user's "identify speakers" choice.
-            print(f"Diarization unavailable: {e}")
-            return jsonify({
-                "error": "diarization_unavailable",
-                "message": str(e),
-                "raw_note": raw_text,
-            }), 422
-
-        merged = merge_segments(whisper_segments, turns)
-        labeled_text = segments_to_text(merged) if merged else raw_text
-        return jsonify({"raw_note": labeled_text, "segments": merged})
-    finally:
-        try:
-            os.unlink(audio_path)
-        except OSError:
+            parsed = int(raw_max)
+            if 1 <= parsed <= 20:
+                max_speakers = parsed
+        except (ValueError, TypeError):
             pass
+
+    @stream_with_context
+    def generate():
+        # Emit the first stage immediately so the client spinner gets a label
+        # before prepare_wav (which can be slow for large non-WAV uploads) runs.
+        audio_path = None
+        try:
+            yield json.dumps({"stage": "transcribing"}) + "\n"
+            audio_path = prepare_wav(file)
+            raw_text, whisper_segments = transcribe_path(audio_path)
+
+            if not diarize:
+                yield json.dumps({
+                    "stage": "complete",
+                    "raw_note": raw_text,
+                    "segments": None,
+                }) + "\n"
+                return
+
+            yield json.dumps({"stage": "diarizing"}) + "\n"
+            try:
+                turns = diarize_path(audio_path, max_speakers=max_speakers)
+            except DiarizationUnavailable as e:
+                # Same contract as the old 422: client falls back to the raw
+                # transcript and surfaces the message.
+                print(f"Diarization unavailable: {e}")
+                yield json.dumps({
+                    "stage": "error",
+                    "error": "diarization_unavailable",
+                    "message": str(e),
+                    "raw_note": raw_text,
+                }) + "\n"
+                return
+
+            merged = merge_segments(whisper_segments, turns)
+            labeled_text = segments_to_text(merged) if merged else raw_text
+            yield json.dumps({
+                "stage": "complete",
+                "raw_note": labeled_text,
+                "segments": merged,
+            }) + "\n"
+        except Exception as e:
+            print(f"Transcription failure: {type(e).__name__}: {e}")
+            yield json.dumps({
+                "stage": "error",
+                "error": "transcription_failed",
+                "message": str(e),
+            }) + "\n"
+        finally:
+            if audio_path:
+                try:
+                    os.unlink(audio_path)
+                except OSError:
+                    pass
+
+    return Response(generate(), mimetype="application/x-ndjson")
 
 
 @bp.route('/api/ollama/models', methods=['GET'])

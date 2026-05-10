@@ -25,9 +25,14 @@ type Props = {
 const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
-    const [gettingMarkdown, setGettingMarkdown] = React.useState(false);
+    // Single pipeline state: null = idle, otherwise the currently-running stage.
+    // The backend streams transcribing → diarizing; the frontend sets
+    // 'formatting' itself before calling /api/getMarkdown.
+    type Stage = null | 'transcribing' | 'diarizing' | 'formatting';
+    const [stage, setStage] = React.useState<Stage>(null);
+    const [elapsed, setElapsed] = React.useState(0);
+    const busy = stage !== null;
     const [markdown, setMarkdown] = React.useState('');
-    const [isTranscribing, setIsTranscribing] = React.useState(false);
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
@@ -56,6 +61,23 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         };
         fetchModels();
     }, [auth.token]);
+
+    // Tick elapsed seconds while a stage is active. The dep is a primitive
+    // boolean so transitioning between stages doesn't reset the timer — the
+    // user sees one continuous "X:XX elapsed" across the pipeline.
+    const isActive = stage !== null;
+    React.useEffect(() => {
+        if (!isActive) {
+            setElapsed(0);
+            return;
+        }
+        const start = Date.now();
+        setElapsed(0);
+        const id = setInterval(() => {
+            setElapsed(Math.floor((Date.now() - start) / 1000));
+        }, 250);
+        return () => clearInterval(id);
+    }, [isActive]);
 
     const modelMissing =
         !!selectedTemplateLlmModel &&
@@ -210,8 +232,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             return;
         }
 
-        // get transcription from whisper
-        setIsTranscribing(true);
+        setStage('transcribing');
         const formData = new FormData();
         // Backend uses the filename's extension to pick a pydub decoder, so we
         // pass through the real filename for uploads (mp3/m4a/wav/...) and
@@ -219,70 +240,139 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         formData.append('file', blob, filename);
         formData.append('diarize', diarize ? 'true' : 'false');
 
-        console.log('Uploading audio for transcription...', filename, blob, 'diarize:', diarize);
+        // Hint pyannote with an upper bound on speaker count when we have
+        // a participant list. The backend treats this as max_speakers (not
+        // exact) so over-listing is safe — pyannote can still settle on
+        // fewer if not everyone spoke.
+        const participantCount = (form.getValues('participants') ?? []).length;
+        if (diarize && participantCount > 0) {
+            formData.append('max_speakers', String(participantCount));
+        }
+
+        console.log('Uploading audio for transcription...', filename, blob, 'diarize:', diarize, 'max_speakers:', participantCount || 'auto');
         try {
             const response = await fetch('http://127.0.0.1:5000/api/transcribe', {
-            method: 'POST',
-            headers: {
-                "Authorization": `Bearer ${auth.token}`,
-            },
-            body: formData,
+                method: 'POST',
+                headers: {
+                    "Authorization": `Bearer ${auth.token}`,
+                },
+                body: formData,
             });
 
-            const result = await response.json().catch(() => ({}));
-
-            // 413 = file exceeded the admin-configured upload cap.
+            // 413 is enforced by Flask before our handler runs and comes back
+            // as a normal (non-streamed) response, so handle it before reading
+            // the body as a stream.
             if (response.status === 413) {
-                alert(result.message || 'That file is too large to upload.');
-                setIsTranscribing(false);
+                const errBody = await response.json().catch(() => ({}));
+                alert(errBody.message || 'That file is too large to upload.');
+                setStage(null);
                 return;
             }
 
-            // 422 = diarization was requested but the pyannote pipeline isn't
-            // available (missing HF_TOKEN, gated model not accepted, etc.).
-            // Server returns the plain transcript so we can still proceed.
-            if (response.status === 422 && result.error === 'diarization_unavailable') {
-                console.warn('Diarization unavailable, falling back to flat transcript:', result.message);
+            if (!response.ok || !response.body) {
+                const errBody = await response.json().catch(() => ({}));
+                throw new Error(errBody.error || `Server error: ${response.status}`);
+            }
+
+            // Consume the NDJSON stream. Each line is one JSON event; the last
+            // event is either {stage: "complete", ...} or {stage: "error", ...}.
+            // We have to buffer across chunks because a JSON object can span
+            // network reads.
+            type StageEvent =
+                | { stage: 'transcribing' | 'diarizing' }
+                | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null }
+                | { stage: 'error'; error?: string; message?: string; raw_note?: string };
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalEvent: StageEvent | null = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    let evt: StageEvent;
+                    try {
+                        evt = JSON.parse(line) as StageEvent;
+                    } catch (e) {
+                        console.error('Bad NDJSON line from /api/transcribe:', line, e);
+                        continue;
+                    }
+                    if (evt.stage === 'transcribing' || evt.stage === 'diarizing') {
+                        setStage(evt.stage);
+                    } else {
+                        // 'complete' or 'error' — terminal events. We don't
+                        // break here because the server should have closed the
+                        // stream right after; the next read() returns done.
+                        finalEvent = evt;
+                    }
+                }
+            }
+            // Flush any trailing line (server should always end with \n, but
+            // guard anyway).
+            if (buffer.trim()) {
+                try { finalEvent = JSON.parse(buffer) as StageEvent; } catch { /* ignore */ }
+            }
+
+            if (!finalEvent) {
+                throw new Error('Transcription stream ended without a result');
+            }
+
+            // Diarization-unavailable: fall back to the flat transcript and
+            // keep going to the formatting step (matches old 422 behavior).
+            if (finalEvent.stage === 'error' && finalEvent.error === 'diarization_unavailable') {
+                console.warn('Diarization unavailable, falling back to flat transcript:', finalEvent.message);
                 alert(
-                    `Speaker identification is unavailable: ${result.message || 'pipeline not configured'}\n\n` +
+                    `Speaker identification is unavailable: ${finalEvent.message || 'pipeline not configured'}\n\n` +
                     `Continuing with a single-speaker transcript. Uncheck "Identify speakers" to skip this warning.`
                 );
-                if (result.raw_note) {
-                    form.setValue('noteContentRaw', result.raw_note);
+                if (finalEvent.raw_note) {
+                    form.setValue('noteContentRaw', finalEvent.raw_note);
                     form.setValue('noteContentSegments', null);
-                    getMarkdown(result.raw_note);
+                    setStage('formatting');
+                    await getMarkdown(finalEvent.raw_note);
+                } else {
+                    setStage(null);
                 }
                 return;
             }
 
-            if (!response.ok) {
-                throw new Error(result.error || `Server error: ${response.status}`);
+            if (finalEvent.stage === 'error') {
+                throw new Error(finalEvent.message || finalEvent.error || 'Transcription failed');
             }
 
-            console.log('Transcription Result:', result);
+            console.log('Transcription Result:', finalEvent);
 
-            //handle if transcription is empty
-            if (result.raw_note === '') {
+            if (finalEvent.raw_note === '') {
                 alert('Transcription unable to identify speech. Please try again.');
-                setIsTranscribing(false);
+                setStage(null);
                 return;
             }
 
-            form.setValue('noteContentRaw', result.raw_note);
-            form.setValue('noteContentSegments', result.segments ?? null);
+            form.setValue('noteContentRaw', finalEvent.raw_note);
+            form.setValue('noteContentSegments', finalEvent.segments ?? null);
 
-            // Format the transcription in Markdown
-            getMarkdown(result.raw_note);
+            // Hand off to the formatting stage. getMarkdown clears stage in
+            // its finally block, so we don't clear it here.
+            setStage('formatting');
+            await getMarkdown(finalEvent.raw_note);
         } catch (error: any) {
             console.error('Upload failed:', error);
             alert(`Upload failed: ${error.message}`);
+            setStage(null);
         }
-        setIsTranscribing(false);
     }
 
     const getMarkdown = async (rawNote: string) => {
-        // get markdown from ollama
-        setGettingMarkdown(true);
+        // Caller sets stage='formatting' before invoking this so the spinner
+        // label is correct from the moment the request goes out. We only
+        // need to clear it in our finally.
+        setStage('formatting');
         form.setValue('noteContentMarkdown', '');
         mdxEditorRef.current?.setMarkdown('');
 
@@ -341,7 +431,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             console.error('Failed to get markdown:', error);
             alert(`Formatting failed: ${error.message}`);
         } finally {
-            setGettingMarkdown(false);
+            setStage(null);
         }
     }
 
@@ -460,7 +550,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 type="checkbox"
                 checked={diarize}
                 onChange={(e) => setDiarize(e.target.checked)}
-                disabled={isTranscribing || gettingMarkdown}
+                disabled={busy}
                 className="h-4 w-4 cursor-pointer accent-[#fd3777]"
             />
             <label htmlFor="diarize-toggle" className="text-sm cursor-pointer select-none">
@@ -501,14 +591,14 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         type="file"
                         accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.mp4,.ogg,.flac,.aac"
                         onChange={handleFilePicked}
-                        disabled={isTranscribing || gettingMarkdown || !templateSelected}
+                        disabled={busy || !templateSelected}
                         className="hidden"
                     />
                     {!uploadedFile ? (
                         <NeoButton
                             type="button"
                             onClick={() => fileInputRef.current?.click()}
-                            disabled={isTranscribing || gettingMarkdown || !templateSelected}
+                            disabled={busy || !templateSelected}
                         >
                             Choose audio file
                         </NeoButton>
@@ -525,14 +615,14 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                                 <NeoButton
                                     type="button"
                                     onClick={handleTranscribeUpload}
-                                    disabled={isTranscribing || gettingMarkdown || !templateSelected}
+                                    disabled={busy || !templateSelected}
                                 >
                                     Transcribe this file
                                 </NeoButton>
                                 <NeoButton
                                     type="button"
                                     onClick={clearUploadedFile}
-                                    disabled={isTranscribing || gettingMarkdown}
+                                    disabled={busy}
                                 >
                                     Choose a different file
                                 </NeoButton>
@@ -547,17 +637,24 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             </TabsContent>
         </Tabs>
 
-        {/* animation for server processing */}
-        {isTranscribing && (
-        <div className="flex flex-col w-full justify-center items-center mt-4">
-            Transcribing note...
-        </div>
-        )}
-
-        {gettingMarkdown && (
-        <div className="flex flex-col justify-center items-center mt-4">
-            Formatting note...
-        </div>
+        {/* Pipeline progress: spinner + current stage label + elapsed time.
+            Stage transitions are driven by the NDJSON stream from /api/transcribe
+            (transcribing → diarizing) and by the frontend before /api/getMarkdown
+            (formatting). */}
+        {stage && (
+            <div className="flex flex-col w-full justify-center items-center mt-4 gap-1">
+                <div className="flex items-center gap-2">
+                    <span className="inline-block h-4 w-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                    <span>
+                        {stage === 'transcribing' && 'Transcribing audio (Whisper)...'}
+                        {stage === 'diarizing' && 'Identifying speakers (pyannote)...'}
+                        {stage === 'formatting' && 'Formatting note (LLM)...'}
+                    </span>
+                </div>
+                <span className="text-xs text-gray-600 tabular-nums">
+                    {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')} elapsed
+                </span>
+            </div>
         )}
 
 
@@ -590,7 +687,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         ]}
                         editorRef={mdxEditorRef}
                         placeholder="Formatted note will appear here after dictation..."
-                        readOnly={gettingMarkdown}
+                        readOnly={stage === 'formatting'}
                         markdown={form.getValues("noteContentMarkdown")}
                         onChange={(value) => {
                             form.setValue("noteContentMarkdown", value);

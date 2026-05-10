@@ -7,7 +7,11 @@ Creates a fully wired Flask app:
 - Initializes JWT, CORS, rate limiter, and Flask-Migrate.
 - Imports all models so db.create_all() / Alembic see them on metadata.
 - Registers blueprints, error handlers, and CLI commands.
+- Pre-warms the pyannote diarization pipeline in a background thread so the
+  first /api/transcribe call doesn't pay the ~5–10s cold-load cost.
 """
+import os
+import threading
 from datetime import timedelta
 from pathlib import Path
 
@@ -72,7 +76,31 @@ def create_app() -> Flask:
         # Load the admin-configured upload cap from the DB so MAX_CONTENT_LENGTH
         # reflects whatever was set in the previous session. Per-request PUTs
         # to /api/admin/settings/upload-limit-mb update this live.
-        from app.services.settings import get_upload_limit_mb
+        from app.services.settings import get_diarization_device, get_upload_limit_mb
         app.config['MAX_CONTENT_LENGTH'] = get_upload_limit_mb() * 1024 * 1024
+
+        # Seed the diarization service with the admin-configured device so the
+        # first load (whether from pre-warm below or from a real request) uses
+        # it. Defaults to "auto" if never set.
+        from app.services import diarization
+        try:
+            diarization.set_configured_device(get_diarization_device())
+        except ValueError:
+            # Persisted value is no longer in VALID_DEVICES (e.g. we removed
+            # an option). Fall back to auto rather than crashing the app.
+            diarization.set_configured_device("auto")
+
+    # Pre-warm the pyannote pipeline in a background thread so the first
+    # /api/transcribe doesn't pay cold-load cost. Gated on HF_TOKEN being set —
+    # otherwise get_pipeline() raises DiarizationUnavailable on every boot,
+    # which we'd just have to swallow and log noisily.
+    if os.getenv("HF_TOKEN"):
+        def _prewarm():
+            try:
+                from app.services.diarization import get_pipeline
+                get_pipeline()
+            except Exception as e:
+                print(f"Diarization pre-warm failed (will retry on first request): {type(e).__name__}: {e}")
+        threading.Thread(target=_prewarm, daemon=True, name="diarization-prewarm").start()
 
     return app
