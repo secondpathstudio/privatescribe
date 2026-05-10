@@ -3,8 +3,13 @@
 The model is loaded lazily on first use and cached process-wide. Loading it
 is slow (hundreds of MB of weights), so create_app() can call get_model()
 during boot to warm the cache and avoid a stall on the first /api/transcribe.
+
+Audio is decoded to a temp WAV file once so both Whisper and pyannote
+diarization can read it without re-decoding.
 """
 import io
+import os
+import tempfile
 
 from faster_whisper import WhisperModel
 from pydub import AudioSegment
@@ -19,26 +24,37 @@ def get_model() -> WhisperModel:
     return _model
 
 
-def _convert_to_wav(audio_data: bytes, src_format: str) -> io.BytesIO:
-    """Re-encode non-WAV audio via pydub/ffmpeg into an in-memory WAV."""
-    audio = AudioSegment.from_file(io.BytesIO(audio_data), format=src_format)
-    wav_io = io.BytesIO()
-    audio.export(wav_io, format="wav")
-    wav_io.seek(0)
-    return wav_io
+def prepare_wav(file_storage) -> str:
+    """Decode an upload to a temp WAV file and return the path. Caller owns deletion."""
+    src_format = file_storage.filename.split('.')[-1].lower()
+    file_storage.seek(0)
+    audio_bytes = file_storage.read()
+    audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format=src_format)
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    audio.export(tmp.name, format="wav")
+    tmp.close()
+    return tmp.name
+
+
+def transcribe_path(audio_path: str, language: str = "en") -> tuple[str, list[dict]]:
+    """Transcribe a WAV path and return (concatenated_text, [{start, end, text}, ...])."""
+    segments, _info = get_model().transcribe(audio_path, language=language)
+    out = []
+    parts = []
+    for s in segments:
+        out.append({"start": float(s.start), "end": float(s.end), "text": s.text})
+        parts.append(s.text)
+    return " ".join(parts), out
 
 
 def transcribe_file(file_storage, language: str = "en") -> str:
-    """Transcribe a Werkzeug FileStorage uploaded via multipart and return the
-    concatenated text of all segments."""
-    src_format = file_storage.filename.split('.')[-1]
-    file_storage.seek(0)
-    audio_bytes = file_storage.read()
-
-    if src_format.lower() != "wav":
-        audio_io = _convert_to_wav(audio_bytes, src_format)
-    else:
-        audio_io = io.BytesIO(audio_bytes)
-
-    segments, _info = get_model().transcribe(audio_io, language=language)
-    return " ".join(s.text for s in segments)
+    """Back-compat helper for callers that only need the flat transcript text."""
+    path = prepare_wav(file_storage)
+    try:
+        text, _ = transcribe_path(path, language=language)
+        return text
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass

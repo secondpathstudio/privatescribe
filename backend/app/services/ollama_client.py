@@ -104,6 +104,7 @@ def generate_markdown(template, raw_note: str, note_details: dict, model_name: s
                     "3. Format all dates as MM/DD/YYYY.\n"
                     "4. Return the filled-in template **as plain text markdown**. No code fences, no extra commentary, no word “markdown”."
                     "5. Do not include any other text or explanation. Do not include the [] tags.\n"
+                    "6. If the transcript contains lines starting with `Speaker N:` (e.g. `Speaker 1:`, `Speaker 2:`), treat each line as that speaker's contribution. Preserve speaker attribution when an instruction asks for quotes, who said what, or per-speaker summaries.\n"
                 ),
             },
             {

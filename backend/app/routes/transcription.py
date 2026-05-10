@@ -1,4 +1,5 @@
 import json
+import os
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_cors import cross_origin
@@ -7,9 +8,19 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.models import Template
 from app.security.auth import require_admin
 from app.services import ollama_client
-from app.services.whisper import transcribe_file
+from app.services.diarization import (
+    DiarizationUnavailable,
+    diarize_path,
+    merge_segments,
+    segments_to_text,
+)
+from app.services.whisper import prepare_wav, transcribe_path
 
 bp = Blueprint("transcription", __name__)
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 @bp.route('/api/transcribe', methods=['POST'])
@@ -18,9 +29,36 @@ def transcribe():
     if 'file' not in request.files:
         return jsonify({"error": "No file uploaded"}), 400
 
-    note = transcribe_file(request.files['file'])
+    diarize = _truthy(request.form.get('diarize', 'true'))
 
-    return jsonify({"raw_note": note})
+    audio_path = prepare_wav(request.files['file'])
+    try:
+        raw_text, whisper_segments = transcribe_path(audio_path)
+
+        if not diarize:
+            return jsonify({"raw_note": raw_text, "segments": None})
+
+        try:
+            turns = diarize_path(audio_path)
+        except DiarizationUnavailable as e:
+            # Surface a 422 so the client can decide whether to retry without
+            # diarization or alert an admin. Returning the raw transcript would
+            # silently swallow the user's "identify speakers" choice.
+            print(f"Diarization unavailable: {e}")
+            return jsonify({
+                "error": "diarization_unavailable",
+                "message": str(e),
+                "raw_note": raw_text,
+            }), 422
+
+        merged = merge_segments(whisper_segments, turns)
+        labeled_text = segments_to_text(merged) if merged else raw_text
+        return jsonify({"raw_note": labeled_text, "segments": merged})
+    finally:
+        try:
+            os.unlink(audio_path)
+        except OSError:
+            pass
 
 
 @bp.route('/api/ollama/models', methods=['GET'])

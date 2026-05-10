@@ -12,6 +12,9 @@ class Note(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     note_content_raw = db.Column(db.Text, nullable=False)
     note_content_markdown = db.Column(db.Text, nullable=False)
+    # Diarized turns: [{speaker, start, end, text}, ...] — None when diarization
+    # was off or unavailable. Stored as JSON (SQLite TEXT under the hood).
+    note_content_segments = db.Column(db.JSON, nullable=True)
     note_type = db.Column(db.String(50), nullable=False)
     version = db.Column(db.Integer(), nullable=False, default=1)
     is_deleted = db.Column(db.Boolean, default=False)
