@@ -92,14 +92,17 @@ def get_markdown():
     note_details = request_data.get('note_details', {})
 
     # author_id is taken from the JWT, not the client
-    if not all(k in note_details for k in ('note_date', 'template_id', 'participants')):
+    if not all(k in note_details for k in ('note_date', 'participants')):
         return jsonify({"error": "Missing required fields in note_details"}), 400
 
+    current_user = get_jwt_identity()
+
+    # No template = save the raw transcript verbatim. The user gets a regular
+    # note they can edit; we just skip the LLM formatting step.
     template_id = note_details.get('template_id')
     if not template_id:
-        return jsonify({"error": "Invalid template_id"}), 400
+        return jsonify({"formatted_markdown": raw_note})
 
-    current_user = get_jwt_identity()
     template = Template.query.filter_by(
         id=template_id,
         author_id=current_user,

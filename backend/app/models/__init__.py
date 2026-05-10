@@ -8,6 +8,7 @@ from app.models.template import Template
 from app.models.participant import Participant, note_participants, user_participants
 from app.models.note import Note
 from app.models.key_export import KeyExportLog, KeyExportDismissal
+from app.models.system_setting import SystemSetting
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "Note",
     "KeyExportLog",
     "KeyExportDismissal",
+    "SystemSetting",
 ]

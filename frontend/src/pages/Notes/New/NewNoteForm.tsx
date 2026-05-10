@@ -116,6 +116,39 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     // local state so it isn't sent to /api/notes alongside form values.
     const [diarize, setDiarize] = React.useState(true);
 
+    // File-upload-as-source state. Distinct from the Microphone path so the
+    // user can preview before kicking off transcription.
+    const [uploadedFile, setUploadedFile] = React.useState<File | null>(null);
+    const [uploadedAudioUrl, setUploadedAudioUrl] = React.useState<string | null>(null);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+    React.useEffect(() => {
+        // Free the object URL when the file changes/unmounts to avoid leaks.
+        return () => {
+            if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
+        };
+    }, [uploadedAudioUrl]);
+
+    const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
+        setUploadedFile(file);
+        setUploadedAudioUrl(URL.createObjectURL(file));
+    };
+
+    const handleTranscribeUpload = () => {
+        if (!uploadedFile) return;
+        transcribeRecording(uploadedFile, uploadedFile.name);
+    };
+
+    const clearUploadedFile = () => {
+        if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
+        setUploadedFile(null);
+        setUploadedAudioUrl(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
     //update local state for template name + llm model when selected template id changes
     useEffect(() => {
         const currentTemplateId = form.watch('noteTemplate');
@@ -163,15 +196,30 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         return createdParticipant;
     };
 
-  //TODO validate that template is chosen before recording
-    const transcribeRecording = async (blob: Blob) => {
+    // A template is required before recording/uploading. Without one, the user
+    // would burn minutes of CPU on whisper+diarization only to find out at the
+    // formatting step that there's nothing to format against.
+    const noteTemplate = form.watch('noteTemplate');
+    const templateSelected = !!noteTemplate;
+
+    const transcribeRecording = async (blob: Blob, filename: string = 'recording.webm') => {
+        // Belt-and-suspenders: even if the disabled buttons are bypassed, refuse
+        // to spend minutes on whisper+diarization without a template to format against.
+        if (!form.getValues('noteTemplate')) {
+            alert('Please select a template before recording or uploading audio.');
+            return;
+        }
+
         // get transcription from whisper
         setIsTranscribing(true);
         const formData = new FormData();
-        formData.append('file', blob, 'recording.webm'); // Use WebM if you're recording with MediaRecorder
+        // Backend uses the filename's extension to pick a pydub decoder, so we
+        // pass through the real filename for uploads (mp3/m4a/wav/...) and
+        // default to recording.webm for live MediaRecorder blobs.
+        formData.append('file', blob, filename);
         formData.append('diarize', diarize ? 'true' : 'false');
 
-        console.log('Uploading audio for transcription...', blob, 'diarize:', diarize);
+        console.log('Uploading audio for transcription...', filename, blob, 'diarize:', diarize);
         try {
             const response = await fetch('http://127.0.0.1:5000/api/transcribe', {
             method: 'POST',
@@ -182,6 +230,13 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             });
 
             const result = await response.json().catch(() => ({}));
+
+            // 413 = file exceeded the admin-configured upload cap.
+            if (response.status === 413) {
+                alert(result.message || 'That file is too large to upload.');
+                setIsTranscribing(false);
+                return;
+            }
 
             // 422 = diarization was requested but the pyannote pipeline isn't
             // available (missing HF_TOKEN, gated model not accepted, etc.).
@@ -413,13 +468,84 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             </label>
         </div>
 
-        {/* Microphone Component */}
-        <div className="flex justify-between items-center mt-4">
-            <Microphone
-                key={microphoneKey}
-                onRecordingFinished={transcribeRecording}
-            />
-        </div>
+        {/* Audio source: live recording vs. file upload. The transcribe pipeline
+            is identical for both — they both feed into transcribeRecording(). */}
+        <Tabs defaultValue="record" className="w-full mt-4">
+            <TabsList className="flex w-full">
+                <TabsTrigger className="grow" value="record">Record</TabsTrigger>
+                <TabsTrigger className="grow" value="upload">Upload</TabsTrigger>
+            </TabsList>
+
+            {!templateSelected && (
+                <div className="border-2 border-black bg-yellow-100 p-3 text-sm mt-4">
+                    <strong>Pick a template above first.</strong> Recording and uploading are
+                    disabled until a template is selected — otherwise the transcript can't be
+                    auto-formatted.
+                </div>
+            )}
+
+            <TabsContent value="record">
+                <div className="flex justify-between items-center mt-4">
+                    <Microphone
+                        key={microphoneKey}
+                        onRecordingFinished={transcribeRecording}
+                        disabled={!templateSelected}
+                    />
+                </div>
+            </TabsContent>
+
+            <TabsContent value="upload">
+                <div className="flex flex-col items-center w-full mt-4 gap-3">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.mp4,.ogg,.flac,.aac"
+                        onChange={handleFilePicked}
+                        disabled={isTranscribing || gettingMarkdown || !templateSelected}
+                        className="hidden"
+                    />
+                    {!uploadedFile ? (
+                        <NeoButton
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isTranscribing || gettingMarkdown || !templateSelected}
+                        >
+                            Choose audio file
+                        </NeoButton>
+                    ) : (
+                        <div className="flex flex-col items-center w-full gap-2">
+                            <div className="text-sm">
+                                <span className="font-semibold">{uploadedFile.name}</span>
+                                {' '}({(uploadedFile.size / (1024 * 1024)).toFixed(1)} MB)
+                            </div>
+                            {uploadedAudioUrl && (
+                                <audio controls src={uploadedAudioUrl} className="w-full" />
+                            )}
+                            <div className="flex gap-2">
+                                <NeoButton
+                                    type="button"
+                                    onClick={handleTranscribeUpload}
+                                    disabled={isTranscribing || gettingMarkdown || !templateSelected}
+                                >
+                                    Transcribe this file
+                                </NeoButton>
+                                <NeoButton
+                                    type="button"
+                                    onClick={clearUploadedFile}
+                                    disabled={isTranscribing || gettingMarkdown}
+                                >
+                                    Choose a different file
+                                </NeoButton>
+                            </div>
+                        </div>
+                    )}
+                    <p className="text-xs text-gray-600 text-center max-w-md">
+                        Supports common audio formats (mp3, m4a, wav, webm, ogg, flac) and video files
+                        (audio track is extracted). Large files may take a while to transcribe.
+                    </p>
+                </div>
+            </TabsContent>
+        </Tabs>
 
         {/* animation for server processing */}
         {isTranscribing && (
@@ -526,6 +652,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     setMarkdown('');
                     mdxEditorRef.current?.setMarkdown('');
                     setMicrophoneKey(microphoneKey + 1);
+                    clearUploadedFile();
                 }}
             >
                 Reset

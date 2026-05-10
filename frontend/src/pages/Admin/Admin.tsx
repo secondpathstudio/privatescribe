@@ -4,6 +4,7 @@ import UsersTable from "@/components/users-table";
 import AddUserForm from "@/components/admin/AddUserForm";
 import BackupKeyModal from "@/components/admin/BackupKeyModal";
 import ModelsCard from "@/components/admin/ModelsCard";
+import UploadLimitCard from "@/components/admin/UploadLimitCard";
 import NeoButton from "@/components/neo/neo-button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -232,6 +233,8 @@ export default function Admin() {
       </Card>
 
       <ModelsCard />
+
+      <UploadLimitCard />
 
       <Card>
         <CardHeader>

@@ -26,17 +26,20 @@ def create_note():
         'noteContentRaw',
         'noteContentMarkdown',
         'authorName',
-        'noteTemplate',
         'noteDate',
     )):
         print('missing required fields', data)
         return jsonify({"error": "Missing required fields"}), 400
 
-    if 'templateId' in data and data['templateId']:
-        template = Template.query.get(data['templateId'])
+    # Empty/missing noteTemplate is allowed — the note just stores the raw
+    # transcript with no template association. Coerce '' to None so the FK
+    # column doesn't receive a stringy empty value.
+    template_id = data.get('noteTemplate') or None
+    if template_id:
+        template = Template.query.get(template_id)
         if not template:
-            print('template not found', data['templateId'])
-            return jsonify({"error": f"Template with ID {data['templateId']} not found"}), 400
+            print('template not found', template_id)
+            return jsonify({"error": f"Template with ID {template_id} not found"}), 400
 
     if not isinstance(data['participants'], list):
         return jsonify({"error": "participants must be a list"}), 400
@@ -96,7 +99,7 @@ def create_note():
         updated_at=datetime.utcnow(),
         author_name=data['authorName'],
         version=data['version'],
-        template_id=data['noteTemplate'],
+        template_id=template_id,
         is_deleted=False,
         is_deleted_timestamp=None,
         transcript_group_id=transcript_group_id,

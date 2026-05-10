@@ -45,6 +45,12 @@ def create_app() -> Flask:
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'creator': sqlcipher.open_keyed_connection}
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+    # Provisional upload cap; the real value is loaded from the system_setting
+    # table after db.create_all() below. Pre-DB requests (none in practice)
+    # would otherwise be uncapped.
+    from app.services.settings import DEFAULT_UPLOAD_LIMIT_MB
+    app.config['MAX_CONTENT_LENGTH'] = DEFAULT_UPLOAD_LIMIT_MB * 1024 * 1024
+
     # Bind extensions to this app.
     db.init_app(app)
     migrate.init_app(app, db)
@@ -63,5 +69,10 @@ def create_app() -> Flask:
 
     with app.app_context():
         db.create_all()
+        # Load the admin-configured upload cap from the DB so MAX_CONTENT_LENGTH
+        # reflects whatever was set in the previous session. Per-request PUTs
+        # to /api/admin/settings/upload-limit-mb update this live.
+        from app.services.settings import get_upload_limit_mb
+        app.config['MAX_CONTENT_LENGTH'] = get_upload_limit_mb() * 1024 * 1024
 
     return app
