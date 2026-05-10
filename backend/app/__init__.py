@@ -45,6 +45,15 @@ def create_app() -> Flask:
     db_path = Path(app.instance_path) / "privatescribe.db"
     sqlcipher.configure(db_path=db_path, key=sqlcipher_key)
 
+    # Encrypted audio uploads live alongside the DB; they're encrypted with
+    # a key derived from SQLCIPHER_KEY (see app/services/audio_storage.py).
+    from app.services import audio_storage
+    audio_storage.configure(Path(app.instance_path) / "audio")
+    # Finish any in-flight key rotation that crashed between PRAGMA rekey
+    # and the audio file rename sweep. Idempotent and cheap when there's
+    # nothing pending.
+    audio_storage.recover_pending_reencryption()
+
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'creator': sqlcipher.open_keyed_connection}
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

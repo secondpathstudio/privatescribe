@@ -5,9 +5,10 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
-from app.models import Template
+from app.extensions import db
+from app.models import AudioFile, Template
 from app.security.auth import require_admin
-from app.services import ollama_client
+from app.services import audio_storage, ollama_client
 from app.services.diarization import (
     DiarizationUnavailable,
     diarize_path,
@@ -42,6 +43,7 @@ def transcribe():
 
     diarize = _truthy(request.form.get('diarize', 'true'))
     file = request.files['file']
+    current_user = get_jwt_identity()
 
     # Optional speaker-count hint. Frontend sends the participant-list size,
     # which we treat as an upper bound (max_speakers) rather than an exact
@@ -62,8 +64,29 @@ def transcribe():
         # Emit the first stage immediately so the client spinner gets a label
         # before prepare_wav (which can be slow for large non-WAV uploads) runs.
         audio_path = None
+        audio_file_id: str | None = None
+        stored_filename: str | None = None
         try:
             yield json.dumps({"stage": "transcribing"}) + "\n"
+
+            # Persist the original upload encrypted to disk before we touch
+            # transcription. If the user abandons the form the row is left
+            # with transcript_group_id=NULL and can be swept later; if
+            # transcription fails the audio is still kept so the user can
+            # retry without re-uploading.
+            file.seek(0)
+            stored_filename, size_bytes = audio_storage.save_encrypted(file.stream)
+            audio_row = AudioFile(
+                author_id=current_user,
+                original_filename=(file.filename or 'recording.webm')[:512],
+                stored_filename=stored_filename,
+                mime_type=(file.mimetype or None),
+                size_bytes=size_bytes,
+            )
+            db.session.add(audio_row)
+            db.session.commit()
+            audio_file_id = audio_row.id
+
             audio_path = prepare_wav(file)
             raw_text, whisper_segments = transcribe_path(audio_path)
 
@@ -72,6 +95,7 @@ def transcribe():
                     "stage": "complete",
                     "raw_note": raw_text,
                     "segments": None,
+                    "audio_file_id": audio_file_id,
                 }) + "\n"
                 return
 
@@ -87,6 +111,7 @@ def transcribe():
                     "error": "diarization_unavailable",
                     "message": str(e),
                     "raw_note": raw_text,
+                    "audio_file_id": audio_file_id,
                 }) + "\n"
                 return
 
@@ -96,6 +121,7 @@ def transcribe():
                 "stage": "complete",
                 "raw_note": labeled_text,
                 "segments": merged,
+                "audio_file_id": audio_file_id,
             }) + "\n"
         except Exception as e:
             print(f"Transcription failure: {type(e).__name__}: {e}")
@@ -103,6 +129,7 @@ def transcribe():
                 "stage": "error",
                 "error": "transcription_failed",
                 "message": str(e),
+                "audio_file_id": audio_file_id,
             }) + "\n"
         finally:
             if audio_path:

@@ -15,6 +15,7 @@ from app.security.auth import require_admin
 from app.security.secrets import (mark_backup_key_acknowledged,
                                   persist_sqlcipher_key,
                                   reset_backup_key_acknowledgement)
+from app.services import audio_storage
 
 bp = Blueprint("admin_keys", __name__)
 
@@ -63,20 +64,52 @@ def rotate_backup_key():
     db_path = Path(current_app.instance_path) / "privatescribe.db"
     old_key = sqlcipher_state.current_key()
 
-    # Step 1: rekey the file on disk via a fresh raw connection so we don't
-    # fight SQLAlchemy's pool. PRAGMA rekey is atomic at the SQLCipher layer
-    # — if it fails, nothing on disk has changed and we bail without touching
-    # in-memory state.
-    rekey_conn = sqlcipher3.connect(str(db_path), check_same_thread=False)
+    # Step 1: prepare audio files for the new key by writing <uuid>.new
+    # siblings encrypted with new_key. Originals are untouched, so a
+    # failure here leaves nothing to clean up beyond what begin_reencryption
+    # already removed itself. This runs before PRAGMA rekey so a corrupt or
+    # tampered audio file aborts the rotation without leaving the DB and
+    # audio fleet on different keys.
     try:
-        rekey_conn.execute(f"PRAGMA key = \"x'{old_key}'\"")
-        rekey_conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
-        rekey_conn.execute(f"PRAGMA rekey = \"x'{new_key}'\"")
-        rekey_conn.commit()
-    finally:
-        rekey_conn.close()
+        audio_pending = audio_storage.begin_reencryption(old_key, new_key)
+    except Exception as e:
+        current_app.logger.error(f"Audio re-encryption prepare failed: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "Could not re-encrypt audio files; rotation aborted.",
+            "detail": str(e),
+        }), 500
 
-    # Step 2: write the audit log entry via the existing session BEFORE we
+    # Step 2: rekey the DB file on disk via a fresh raw connection so we
+    # don't fight SQLAlchemy's pool. PRAGMA rekey is atomic at the SQLCipher
+    # layer — if it fails, nothing on disk has changed. Roll back the audio
+    # .new siblings and bail without touching in-memory state.
+    try:
+        rekey_conn = sqlcipher3.connect(str(db_path), check_same_thread=False)
+        try:
+            rekey_conn.execute(f"PRAGMA key = \"x'{old_key}'\"")
+            rekey_conn.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchone()
+            rekey_conn.execute(f"PRAGMA rekey = \"x'{new_key}'\"")
+            rekey_conn.commit()
+        finally:
+            rekey_conn.close()
+    except Exception:
+        audio_storage.rollback_reencryption(audio_pending)
+        raise
+
+    # Step 3: commit the audio re-encryption (atomic per-file os.replace).
+    # If this fails partway, surviving <uuid>.new files will be picked up
+    # by recover_pending_reencryption() at next boot. We log loudly and let
+    # the rest of housekeeping continue so .env catches up to the new key.
+    try:
+        audio_storage.commit_reencryption(audio_pending)
+    except Exception as e:
+        current_app.logger.error(
+            f"Audio commit_reencryption failed after PRAGMA rekey "
+            f"({len(audio_pending)} files queued). Boot recovery will finish the swap. "
+            f"Error: {type(e).__name__}: {e}"
+        )
+
+    # Step 4: write the audit log entry via the existing session BEFORE we
     # dispose the pool. The current connection was opened with the old key
     # but SQLCipher keeps already-open connections working across a rekey.
     log = KeyExportLog(
@@ -87,7 +120,7 @@ def rotate_backup_key():
     db.session.add(log)
     db.session.commit()
 
-    # Step 3: housekeeping. Disk is already on the new key; if any of this
+    # Step 5: housekeeping. Disk is already on the new key; if any of this
     # fails, the running process keeps working but a restart would boot with
     # the old key in .env and fail to open the DB. Log the new key loudly so
     # the operator can recover by hand-patching .env.

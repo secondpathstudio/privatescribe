@@ -127,6 +127,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             noteContentRaw: '',
             noteContentMarkdown: '',
             noteContentSegments: null as null | { speaker: string; start: number; end: number; text: string }[],
+            // Set by /api/transcribe response so the saved note can be linked
+            // to its encrypted source audio. Stays empty for text-only notes.
+            audioFileId: '' as string,
             noteTemplate: '',
             noteType: '',
             version: 1,
@@ -280,8 +283,8 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // network reads.
             type StageEvent =
                 | { stage: 'transcribing' | 'diarizing' }
-                | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null }
-                | { stage: 'error'; error?: string; message?: string; raw_note?: string };
+                | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null; audio_file_id?: string }
+                | { stage: 'error'; error?: string; message?: string; raw_note?: string; audio_file_id?: string };
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -334,6 +337,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 if (finalEvent.raw_note) {
                     form.setValue('noteContentRaw', finalEvent.raw_note);
                     form.setValue('noteContentSegments', null);
+                    if (finalEvent.audio_file_id) form.setValue('audioFileId', finalEvent.audio_file_id);
                     setStage('formatting');
                     await getMarkdown(finalEvent.raw_note);
                 } else {
@@ -356,6 +360,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
 
             form.setValue('noteContentRaw', finalEvent.raw_note);
             form.setValue('noteContentSegments', finalEvent.segments ?? null);
+            if (finalEvent.audio_file_id) form.setValue('audioFileId', finalEvent.audio_file_id);
 
             // Hand off to the formatting stage. getMarkdown clears stage in
             // its finally block, so we don't clear it here.

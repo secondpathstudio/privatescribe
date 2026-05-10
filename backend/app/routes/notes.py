@@ -1,12 +1,13 @@
 import uuid
 from datetime import datetime
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
-from app.models import Note, Participant, Template
+from app.models import AudioFile, Note, Participant, Template
+from app.services import audio_storage
 
 bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 
@@ -68,6 +69,31 @@ def create_note():
         transcript_group_id = source_note.transcript_group_id
     else:
         transcript_group_id = str(uuid.uuid4())
+
+    # Link the encrypted audio uploaded during /api/transcribe to this
+    # group. Three cases handled here:
+    #   1. New recording: the orphan AudioFile (transcript_group_id=NULL)
+    #      gets stamped with the new group and finalized_at.
+    #   2. Re-transcribe of an existing note: the source group already has
+    #      an audio row, so we just verify the client-provided id matches
+    #      it and skip the stamp. A mismatched id is silently ignored —
+    #      the user re-formatting a note shouldn't be able to replace its
+    #      audio.
+    #   3. No audio_file_id (legacy clients, or text-only): nothing to do.
+    audio_file_id = data.get('audioFileId')
+    if audio_file_id:
+        audio_row = AudioFile.query.filter_by(
+            id=audio_file_id, author_id=current_user
+        ).first()
+        if not audio_row:
+            return jsonify({"error": "audioFileId not found"}), 400
+        if audio_row.transcript_group_id is None:
+            audio_row.transcript_group_id = transcript_group_id
+            audio_row.finalized_at = datetime.utcnow()
+        elif audio_row.transcript_group_id != transcript_group_id:
+            # Already attached to a different group — refuse rather than
+            # silently re-link, which would orphan the previous group's audio.
+            return jsonify({"error": "audioFileId already linked to a different note"}), 409
 
     participants = []
     if 'participants' in data:
@@ -216,6 +242,56 @@ def get_note_siblings(id):
         "createdAt": s.created_at,
         "updatedAt": s.updated_at,
     } for s in siblings])
+
+
+@bp.route('/<string:id>/audio', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def get_note_audio(id):
+    """Stream the decrypted source audio for a note.
+
+    The audio is associated with the note's transcript_group_id, so all
+    notes that share a recording resolve to the same file. 404 if the
+    note has no group, no audio row exists for the group, or the on-disk
+    file is missing.
+    """
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+    if not note.transcript_group_id:
+        return jsonify({"error": "Note has no audio"}), 404
+
+    audio_row = AudioFile.query.filter_by(
+        author_id=current_user,
+        transcript_group_id=note.transcript_group_id,
+    ).first()
+    if not audio_row or not audio_storage.file_exists(audio_row.stored_filename):
+        return jsonify({"error": "Audio file not found"}), 404
+
+    mime = audio_row.mime_type or 'application/octet-stream'
+    # Quote the filename so commas/semicolons in user-supplied names don't
+    # break the Content-Disposition header parser.
+    safe_name = audio_row.original_filename.replace('"', '')
+    headers = {
+        'Content-Disposition': f'inline; filename="{safe_name}"',
+        # Audio files are encrypted at rest with a per-install key, but the
+        # decrypted stream we hand back to the browser is the original
+        # plaintext — don't let intermediaries cache it.
+        'Cache-Control': 'private, no-store',
+    }
+
+    @stream_with_context
+    def generate():
+        try:
+            yield from audio_storage.open_decrypted_stream(audio_row.stored_filename)
+        except Exception as e:
+            # The browser has already received a 200 + headers by this point,
+            # so we can't switch to a JSON error. Log and let the body end
+            # short; the <audio> element will surface a decode error.
+            print(f"audio decrypt failure for {audio_row.id}: {type(e).__name__}: {e}")
+
+    return Response(generate(), mimetype=mime, headers=headers)
 
 
 @bp.route('/<string:id>', methods=['PUT'])
