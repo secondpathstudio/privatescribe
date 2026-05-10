@@ -37,7 +37,7 @@ const Roadmap = () => {
       status: "upcoming",
       items: [
         { text: "Feedback and Sentiment Extraction", completed: true },
-        { text: "On-the-fly model selection", completed: false },
+        { text: "Per-template model selection", completed: true },
         { text: "Transcription time-stamps", completed: false },
         { text: "Speaker Identification", completed: false },
       ],
