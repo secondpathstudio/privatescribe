@@ -36,6 +36,7 @@ const Roadmap = () => {
       title: "ADVANCED FEATURES",
       status: "upcoming",
       items: [
+        { text: "Audio file storage + encryption", completed: true },
         { text: "Feedback and Sentiment Extraction", completed: true },
         { text: "Per-template model selection", completed: true },
         { text: "Speaker Identification", completed: true },
