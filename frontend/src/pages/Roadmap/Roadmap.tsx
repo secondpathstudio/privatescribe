@@ -38,8 +38,8 @@ const Roadmap = () => {
       items: [
         { text: "Feedback and Sentiment Extraction", completed: true },
         { text: "Per-template model selection", completed: true },
+        { text: "Speaker Identification", completed: true },
         { text: "Transcription time-stamps", completed: false },
-        { text: "Speaker Identification", completed: false },
       ],
       gradient: "linear-gradient(135deg, #2b0f54, #5d1d91)",
       icon: <Zap className="w-8 h-8" />
