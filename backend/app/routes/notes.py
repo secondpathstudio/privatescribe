@@ -17,7 +17,7 @@ bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_note():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     print('creating note', data)
 
     note_date = datetime.utcnow()
@@ -344,7 +344,7 @@ def update_note(id):
     if not note:
         return jsonify({"error": "Note not found"}), 404
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     # Snapshot pre-edit values so we can record a diff in the audit log.
     # note_content_markdown can be many KB; record just "changed?" instead

@@ -36,7 +36,7 @@ def validate_token():
 @bp.route('/api/login', methods=['POST'])
 @limiter.limit("10 per minute")
 def login():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
 
     if not data.get('email') or not data.get('password'):
         return jsonify({"error": "Email and password are required"}), 400

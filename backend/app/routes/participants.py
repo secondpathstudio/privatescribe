@@ -15,7 +15,7 @@ bp = Blueprint("participants", __name__, url_prefix="/api/participants")
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_participant():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     print('creating participant', data)
 
     if not all(k in data for k in ('firstName',)):

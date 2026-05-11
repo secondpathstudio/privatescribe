@@ -34,7 +34,7 @@ def acknowledge_backup_key():
 @require_admin
 @limiter.limit("3 per hour")
 def export_backup_key():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     password = data.get('password')
     if not password:
         return jsonify({"error": "Password required"}), 400
@@ -68,7 +68,7 @@ def export_backup_key():
 @require_admin
 @limiter.limit("3 per hour")
 def rotate_backup_key():
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     password = data.get('password')
     if not password:
         return jsonify({"error": "Password required"}), 400
