@@ -6,6 +6,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models import Participant
+from app.services.audit import log_action
 
 bp = Blueprint("participants", __name__, url_prefix="/api/participants")
 
@@ -34,6 +35,17 @@ def create_participant():
     print('adding template', new_participant)
 
     db.session.add(new_participant)
+    db.session.flush()
+    log_action(
+        'participant.create',
+        user_id=current_user,
+        resource_type='participant',
+        resource_id=new_participant.id,
+        extra={
+            'first_name': new_participant.first_name,
+            'last_name': new_participant.last_name,
+        },
+    )
     db.session.commit()
 
     return jsonify({

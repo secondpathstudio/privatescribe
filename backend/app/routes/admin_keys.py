@@ -16,6 +16,7 @@ from app.security.secrets import (mark_backup_key_acknowledged,
                                   persist_sqlcipher_key,
                                   reset_backup_key_acknowledgement)
 from app.services import audio_storage
+from app.services.audit import log_action
 
 bp = Blueprint("admin_keys", __name__)
 
@@ -24,6 +25,8 @@ bp = Blueprint("admin_keys", __name__)
 @require_admin
 def acknowledge_backup_key():
     mark_backup_key_acknowledged()
+    log_action('admin.backup_key_acknowledge', user_id=get_jwt_identity())
+    db.session.commit()
     return jsonify({"acknowledged": True}), 200
 
 
@@ -37,6 +40,14 @@ def export_backup_key():
         return jsonify({"error": "Password required"}), 400
     user = User.query.get(get_jwt_identity())
     if not user or not check_password_hash(user.password, password):
+        log_action(
+            'admin.backup_key_export',
+            user_id=user.id if user else None,
+            user_email=user.email if user else None,
+            status='failure',
+            extra={'reason': 'invalid_password'},
+        )
+        db.session.commit()
         return jsonify({"error": "Invalid password"}), 401
     log = KeyExportLog(
         admin_id=user.id,
@@ -44,6 +55,11 @@ def export_backup_key():
         ip=request.remote_addr,
     )
     db.session.add(log)
+    log_action(
+        'admin.backup_key_export',
+        user_id=user.id,
+        user_email=user.email,
+    )
     db.session.commit()
     return jsonify({"backup_key": sqlcipher_state.current_key()}), 200
 
@@ -58,6 +74,14 @@ def rotate_backup_key():
         return jsonify({"error": "Password required"}), 400
     user = User.query.get(get_jwt_identity())
     if not user or not check_password_hash(user.password, password):
+        log_action(
+            'admin.backup_key_rotate',
+            user_id=user.id if user else None,
+            user_email=user.email if user else None,
+            status='failure',
+            extra={'reason': 'invalid_password'},
+        )
+        db.session.commit()
         return jsonify({"error": "Invalid password"}), 401
 
     new_key = secrets.token_hex(32)
@@ -118,6 +142,12 @@ def rotate_backup_key():
         ip=request.remote_addr,
     )
     db.session.add(log)
+    log_action(
+        'admin.backup_key_rotate',
+        user_id=user.id,
+        user_email=user.email,
+        extra={'audio_files_rekeyed': len(audio_pending)},
+    )
     db.session.commit()
 
     # Step 5: housekeeping. Disk is already on the new key; if any of this

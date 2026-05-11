@@ -18,6 +18,7 @@ import NeobrutalHome from './components/neo/neobrutal-home.tsx'
 import SingleTemplate from './pages/Templates/id/SingleTemplate.tsx'
 import Roadmap from './pages/Roadmap/Roadmap.tsx'
 import Admin from './pages/Admin/Admin.tsx'
+import AuditLogPage from './pages/Admin/AuditLog.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -39,6 +40,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path=":id" element={<RequireAuth><SingleTemplate /></RequireAuth>} />
           </Route>
           <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
+          <Route path="/admin/audit-log" element={<RequireAdmin><AuditLogPage /></RequireAdmin>} />
           <Route path="/roadmap" element={<Roadmap />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Navigate to="/login" replace />} />

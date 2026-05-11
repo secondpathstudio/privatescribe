@@ -6,6 +6,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models import Template
+from app.services.audit import diff_fields, log_action
 
 bp = Blueprint("templates", __name__, url_prefix="/api/templates")
 
@@ -47,6 +48,17 @@ def create_template():
     print('adding template', new_template)
 
     db.session.add(new_template)
+    db.session.flush()
+    log_action(
+        'template.create',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=new_template.id,
+        extra={
+            'name': new_template.name,
+            'llm_model': new_template.llm_model,
+        },
+    )
     db.session.commit()
 
     return jsonify({
@@ -114,6 +126,14 @@ def get_template(id):
     if not template:
         return jsonify({"error": "Template not found"}), 404
 
+    log_action(
+        'template.view',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template.id,
+    )
+    db.session.commit()
+
     return jsonify({
         "id": template.id,
         "name": template.name,
@@ -153,6 +173,12 @@ def update_template(id):
         if len(data['llmModel']) > TEMPLATE_LLM_MODEL_MAX:
             return jsonify({"error": f"LLM model must be {TEMPLATE_LLM_MODEL_MAX} characters or fewer"}), 400
 
+    before = {
+        'name': template.name,
+        'llm_model': template.llm_model,
+    }
+    before_content = template.content
+
     template.name = data.get('name', template.name)
     template.content = data.get('content', template.content)
     if 'llmModel' in data:
@@ -160,6 +186,19 @@ def update_template(id):
     template.updated_at = datetime.utcnow()
     template.version = template.version + 1
 
+    diff = diff_fields(
+        before,
+        {'name': template.name, 'llm_model': template.llm_model},
+    )
+    if before_content != template.content:
+        diff['content'] = {'changed': True}
+    log_action(
+        'template.update',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template.id,
+        extra={'changes': diff, 'new_version': template.version},
+    )
     db.session.commit()
 
     return jsonify({
@@ -190,6 +229,12 @@ def mark_template_as_deleted(id):
     template.is_deleted_timestamp = datetime.utcnow()
     template.updated_at = datetime.utcnow()
 
+    log_action(
+        'template.delete_soft',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template.id,
+    )
     db.session.commit()
 
     return jsonify({
@@ -213,6 +258,12 @@ def mark_template_as_restored(id):
     template.is_deleted_timestamp = None
     template.updated_at = datetime.utcnow()
 
+    log_action(
+        'template.restore',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template.id,
+    )
     db.session.commit()
 
     return jsonify({

@@ -1,4 +1,5 @@
 import { useEffect, useState, FormEvent } from "react";
+import { Link } from "react-router";
 import { useAuth } from "@/context/auth-context";
 import UsersTable from "@/components/users-table";
 import AddUserForm from "@/components/admin/AddUserForm";
@@ -241,10 +242,27 @@ export default function Admin() {
 
       <Card>
         <CardHeader>
+          <CardTitle>Audit log</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Every login, note, template, participant, and admin action is recorded. Use the audit
+            log to answer "who did what, when, and from where."
+          </p>
+          <Link to="/admin/audit-log">
+            <NeoButton backgroundColor="#fd3777" textColor="#ffffff">
+              Open audit log
+            </NeoButton>
+          </Link>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>System</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">Coming soon: storage usage, audit log.</p>
+          <p className="text-muted-foreground">Coming soon: storage usage.</p>
         </CardContent>
       </Card>
 

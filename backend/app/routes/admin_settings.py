@@ -7,8 +7,10 @@ from flask import Blueprint, current_app, jsonify, request
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
 
+from app.extensions import db
 from app.security.auth import require_admin
 from app.services import diarization, settings as settings_service
+from app.services.audit import log_action
 
 bp = Blueprint("admin_settings", __name__, url_prefix="/api/admin/settings")
 
@@ -53,12 +55,22 @@ def update_upload_limit():
         }), 400
 
     current_user = get_jwt_identity()
+    previous = settings_service.get_upload_limit_mb()
     settings_service.set_value(settings_service.UPLOAD_LIMIT_MB, value, updated_by=current_user)
 
     # Apply immediately — Flask reads MAX_CONTENT_LENGTH per-request, so updating
     # the live config means the next /api/transcribe POST honors the new cap
     # without a restart.
     current_app.config['MAX_CONTENT_LENGTH'] = value * 1024 * 1024
+
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.UPLOAD_LIMIT_MB,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
 
     return jsonify({"upload_limit_mb": value})
 
@@ -93,7 +105,16 @@ def update_diarization_device():
         }), 400
 
     current_user = get_jwt_identity()
+    previous = diarization.configured_device()
     settings_service.set_value(settings_service.DIARIZATION_DEVICE, value, updated_by=current_user)
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.DIARIZATION_DEVICE,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
 
     try:
         effective = diarization.set_configured_device(value)

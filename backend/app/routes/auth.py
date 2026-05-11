@@ -9,6 +9,7 @@ from app.extensions import db, limiter
 from app.models import User
 from app.security import sqlcipher
 from app.security.secrets import is_backup_key_acknowledged
+from app.services.audit import log_action
 
 bp = Blueprint("auth", __name__)
 
@@ -40,13 +41,19 @@ def login():
     if not data.get('email') or not data.get('password'):
         return jsonify({"error": "Email and password are required"}), 400
 
-    user = User.query.filter_by(email=data['email']).first()
+    attempted_email = data['email']
+    user = User.query.filter_by(email=attempted_email).first()
 
     if user and check_password_hash(user.password, data['password']):
         access_token = create_access_token(identity=user.id)
         refresh_token = create_refresh_token(identity=user.id)
 
         user.last_login = datetime.utcnow()
+        log_action(
+            'auth.login',
+            user_id=user.id,
+            user_email=user.email,
+        )
         db.session.commit()
 
         response_body = {
@@ -68,6 +75,16 @@ def login():
             response_body["backup_key"] = sqlcipher.current_key()
         return jsonify(response_body), 200
 
+    log_action(
+        'auth.login_failed',
+        user_id=user.id if user else None,
+        user_email=attempted_email,
+        status='failure',
+        extra={
+            'reason': 'invalid_password' if user else 'unknown_email',
+        },
+    )
+    db.session.commit()
     return jsonify({"error": "Invalid username or password"}), 401
 
 
@@ -76,4 +93,6 @@ def login():
 def refresh():
     current_user = get_jwt_identity()
     new_access_token = create_access_token(identity=current_user)
+    log_action('auth.token_refresh', user_id=current_user)
+    db.session.commit()
     return jsonify(access_token=new_access_token)

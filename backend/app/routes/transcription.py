@@ -9,6 +9,7 @@ from app.extensions import db
 from app.models import AudioFile, Template
 from app.security.auth import require_admin
 from app.services import audio_storage, ollama_client
+from app.services.audit import log_action
 from app.services.diarization import (
     DiarizationUnavailable,
     diarize_path,
@@ -84,8 +85,21 @@ def transcribe():
                 size_bytes=size_bytes,
             )
             db.session.add(audio_row)
-            db.session.commit()
+            db.session.flush()
             audio_file_id = audio_row.id
+            log_action(
+                'audio.transcribe',
+                user_id=current_user,
+                resource_type='audio_file',
+                resource_id=audio_file_id,
+                extra={
+                    'size_bytes': size_bytes,
+                    'mime_type': audio_row.mime_type,
+                    'diarize': diarize,
+                    'max_speakers': max_speakers,
+                },
+            )
+            db.session.commit()
 
             audio_path = prepare_wav(file)
             raw_text, whisper_segments = transcribe_path(audio_path)
@@ -236,6 +250,15 @@ def get_markdown():
 
     print("Formatted markdown: " + formatted_markdown)
 
+    log_action(
+        'markdown.generate',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template_id,
+        extra={'model': model_name},
+    )
+    db.session.commit()
+
     return jsonify({"formatted_markdown": formatted_markdown})
 
 
@@ -258,6 +281,14 @@ def pull_ollama_model():
     # Reasonable upper bound. Ollama tags themselves can be ~80 chars.
     if len(model_name) > 200:
         return jsonify({"error": "model name too long"}), 400
+
+    log_action(
+        'admin.ollama_pull',
+        user_id=get_jwt_identity(),
+        resource_type='ollama_model',
+        resource_id=model_name,
+    )
+    db.session.commit()
 
     @stream_with_context
     def generate():

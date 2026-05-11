@@ -8,6 +8,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
 from app.models import AudioFile, Note, Participant, Template
 from app.services import audio_storage
+from app.services.audit import diff_fields, log_action
 
 bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 
@@ -137,6 +138,20 @@ def create_note():
 
     db.session.add(new_note)
     db.session.flush()
+
+    log_action(
+        'note.create',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=new_note.id,
+        extra={
+            'template_id': template_id,
+            'transcript_group_id': transcript_group_id,
+            'has_audio': bool(audio_file_id),
+            'participant_count': len(participants),
+            'note_type': new_note.note_type,
+        },
+    )
     db.session.commit()
 
     participants_response = []
@@ -177,6 +192,13 @@ def get_note(id):
         return jsonify({"error": "Note not found"}), 404
 
     print('getting note', note)
+    log_action(
+        'note.view',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+    )
+    db.session.commit()
 
     participants = []
     try:
@@ -283,6 +305,15 @@ def get_note_audio(id):
     if not audio_row or not audio_storage.file_exists(audio_row.stored_filename):
         return jsonify({"error": "Audio file not found"}), 404
 
+    log_action(
+        'note.audio_view',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+        extra={'audio_file_id': audio_row.id},
+    )
+    db.session.commit()
+
     mime = audio_row.mime_type or 'application/octet-stream'
     # Quote the filename so commas/semicolons in user-supplied names don't
     # break the Content-Disposition header parser.
@@ -319,6 +350,13 @@ def update_note(id):
 
     data = request.get_json()
 
+    # Snapshot pre-edit values so we can record a diff in the audit log.
+    # note_content_markdown can be many KB; record just "changed?" instead
+    # of the full before/after to keep the log compact.
+    before_markdown = note.note_content_markdown
+    before_note_type = note.note_type
+    before_participant_ids = sorted(p.id for p in note.participants)
+
     # template_id is intentionally not updatable — a note is locked to its
     # original template. Re-recording with a different template should create
     # a new note instead.
@@ -353,6 +391,26 @@ def update_note(id):
             note.participants.append(participant)
 
     try:
+        after_participant_ids = sorted(p.id for p in note.participants)
+        diff = diff_fields(
+            {
+                'note_type': before_note_type,
+                'participant_ids': before_participant_ids,
+            },
+            {
+                'note_type': note.note_type,
+                'participant_ids': after_participant_ids,
+            },
+        )
+        if before_markdown != note.note_content_markdown:
+            diff['note_content_markdown'] = {'changed': True}
+        log_action(
+            'note.update',
+            user_id=current_user,
+            resource_type='note',
+            resource_id=note.id,
+            extra={'changes': diff, 'new_version': note.version},
+        )
         db.session.commit()
         db.session.refresh(note)
 
@@ -406,6 +464,12 @@ def mark_note_as_deleted(id):
     note.is_deleted_timestamp = datetime.utcnow()
     note.updated_at = datetime.utcnow()
 
+    log_action(
+        'note.delete_soft',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+    )
     db.session.commit()
 
     return jsonify({
@@ -427,6 +491,13 @@ def delete_note(id):
     print('permanently deleting note:', note)
     #TODO add ability for admin to delete any note
 
+    log_action(
+        'note.delete_permanent',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+        extra={'transcript_group_id': note.transcript_group_id},
+    )
     db.session.delete(note)
     db.session.commit()
 
@@ -450,6 +521,12 @@ def mark_note_as_restored(id):
     note.is_deleted_timestamp = None
     note.updated_at = datetime.utcnow()
 
+    log_action(
+        'note.restore',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+    )
     db.session.commit()
 
     return jsonify({

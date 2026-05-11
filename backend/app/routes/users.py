@@ -1,10 +1,12 @@
 from flask import Blueprint, jsonify, request
 from flask_cors import cross_origin
+from flask_jwt_extended import get_jwt_identity
 from werkzeug.security import generate_password_hash
 
 from app.extensions import db
 from app.models import User
 from app.security.auth import require_admin
+from app.services.audit import log_action
 
 bp = Blueprint("users", __name__)
 
@@ -56,6 +58,17 @@ def admin_create_user():
         last_login=None,
     )
     db.session.add(new_user)
+    db.session.flush()
+    log_action(
+        'admin.user_create',
+        user_id=get_jwt_identity(),
+        resource_type='user',
+        resource_id=new_user.id,
+        extra={
+            'target_email': new_user.email,
+            'target_role': new_user.role,
+        },
+    )
     db.session.commit()
 
     return jsonify({

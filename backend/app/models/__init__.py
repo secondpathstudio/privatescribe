@@ -10,6 +10,7 @@ from app.models.note import Note
 from app.models.audio_file import AudioFile
 from app.models.key_export import KeyExportLog, KeyExportDismissal
 from app.models.system_setting import SystemSetting
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "User",
@@ -22,4 +23,5 @@ __all__ = [
     "KeyExportLog",
     "KeyExportDismissal",
     "SystemSetting",
+    "AuditLog",
 ]
