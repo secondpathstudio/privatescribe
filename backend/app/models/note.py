@@ -24,7 +24,7 @@ class Note(db.Model):
     # Singletons get their own UUID; re-transcribes inherit from the source.
     transcript_group_id = db.Column(db.String(36), nullable=True, index=True)
 
-    template_id = db.Column(db.Integer, db.ForeignKey('template.id'), nullable=True)
+    template_id = db.Column(db.String(36), db.ForeignKey('template.id'), nullable=True)
     author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
 
     participants = db.relationship('Participant', secondary='note_participants', back_populates='notes')

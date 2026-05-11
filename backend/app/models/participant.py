@@ -5,11 +5,9 @@ from app.extensions import db
 
 
 # Many-to-many: notes <-> participants.
-# Note: note_id is Integer here while Note.id is String(36) — pre-existing
-# inconsistency from before notes used UUIDs. Don't "fix" without a migration.
 note_participants = db.Table(
     'note_participants',
-    db.Column('note_id', db.Integer, db.ForeignKey('note.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('note_id', db.String(36), db.ForeignKey('note.id', ondelete='CASCADE'), primary_key=True),
     db.Column('participant_id', db.String, db.ForeignKey('participant.id', ondelete='CASCADE'), primary_key=True),
 )
 
