@@ -24,9 +24,18 @@ def get_model() -> WhisperModel:
     return _model
 
 
+# Demuxer hints we trust pydub/ffmpeg to receive. The filename is attacker-
+# controlled, so we never pass through arbitrary extensions — values outside
+# this set fall through to ffmpeg autodetection from the content itself.
+_FORMAT_HINT_ALLOWLIST = {
+    'wav', 'mp3', 'm4a', 'mp4', 'ogg', 'opus', 'webm', 'flac', 'aac',
+}
+
+
 def prepare_wav(file_storage) -> str:
     """Decode an upload to a temp WAV file and return the path. Caller owns deletion."""
-    src_format = file_storage.filename.split('.')[-1].lower()
+    raw_ext = (file_storage.filename or '').rsplit('.', 1)[-1].lower() if file_storage.filename else ''
+    src_format = raw_ext if raw_ext in _FORMAT_HINT_ALLOWLIST else None
     file_storage.seek(0)
     audio_bytes = file_storage.read()
     audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format=src_format)

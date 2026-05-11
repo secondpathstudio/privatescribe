@@ -20,9 +20,28 @@ from app.services.whisper import prepare_wav, transcribe_path
 
 bp = Blueprint("transcription", __name__)
 
+# Cheap pre-filter so junk uploads don't reach pydub/ffmpeg. Matches the format
+# hints whisper.prepare_wav trusts (see _FORMAT_HINT_ALLOWLIST there).
+_AUDIO_UPLOAD_EXTS = {
+    'wav', 'mp3', 'm4a', 'mp4', 'ogg', 'opus', 'webm', 'flac', 'aac',
+}
+_AUDIO_UPLOAD_MIMES = {
+    'video/webm',  # MediaRecorder default
+    'video/mp4',   # m4a-in-mp4 containers
+}
+
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _is_allowed_audio_upload(file) -> bool:
+    name = (file.filename or '').lower()
+    ext = name.rsplit('.', 1)[-1] if '.' in name else ''
+    if ext in _AUDIO_UPLOAD_EXTS:
+        return True
+    mime = (file.mimetype or '').lower()
+    return mime.startswith('audio/') or mime in _AUDIO_UPLOAD_MIMES
 
 
 @bp.route('/api/transcribe', methods=['POST'])
@@ -44,6 +63,8 @@ def transcribe():
 
     diarize = _truthy(request.form.get('diarize', 'true'))
     file = request.files['file']
+    if not _is_allowed_audio_upload(file):
+        return jsonify({"error": "Unsupported file type. Upload an audio file."}), 415
     current_user = get_jwt_identity()
 
     # Optional speaker-count hint. Frontend sends the participant-list size,
