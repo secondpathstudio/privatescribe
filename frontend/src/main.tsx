@@ -17,7 +17,14 @@ import NewTemplate from './pages/Templates/New/NewTemplate.tsx'
 import NeobrutalHome from './components/neo/neobrutal-home.tsx'
 import SingleTemplate from './pages/Templates/id/SingleTemplate.tsx'
 import Roadmap from './pages/Roadmap/Roadmap.tsx'
-import Admin from './pages/Admin/Admin.tsx'
+import AdminLayout from './pages/Admin/AdminLayout.tsx'
+import OverviewSection from './pages/Admin/sections/Overview.tsx'
+import UsersSection from './pages/Admin/sections/Users.tsx'
+import EncryptionSection from './pages/Admin/sections/Encryption.tsx'
+import TemplatesSection from './pages/Admin/sections/Templates.tsx'
+import ModelsSection from './pages/Admin/sections/Models.tsx'
+import UploadLimitSection from './pages/Admin/sections/UploadLimit.tsx'
+import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 
 createRoot(document.getElementById('root')!).render(
@@ -39,8 +46,17 @@ createRoot(document.getElementById('root')!).render(
             <Route path="new" element={<RequireAuth><NewTemplate /></RequireAuth>} />
             <Route path=":id" element={<RequireAuth><SingleTemplate /></RequireAuth>} />
           </Route>
-          <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
-          <Route path="/admin/audit-log" element={<RequireAdmin><AuditLogPage /></RequireAdmin>} />
+          <Route path="/admin" element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
+            <Route index element={<Navigate to="/admin/overview" replace />} />
+            <Route path="overview" element={<OverviewSection />} />
+            <Route path="users" element={<UsersSection />} />
+            <Route path="audit-log" element={<AuditLogPage />} />
+            <Route path="encryption" element={<EncryptionSection />} />
+            <Route path="templates" element={<TemplatesSection />} />
+            <Route path="models" element={<ModelsSection />} />
+            <Route path="upload-limit" element={<UploadLimitSection />} />
+            <Route path="diarization" element={<DiarizationSection />} />
+          </Route>
           <Route path="/roadmap" element={<Roadmap />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Navigate to="/login" replace />} />

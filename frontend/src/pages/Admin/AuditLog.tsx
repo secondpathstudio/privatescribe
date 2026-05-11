@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useAuth } from '@/context/auth-context';
 import { DataTable } from '@/components/data-table';
-import { Breadcrumbs } from '@/components/ui/breadcrumb';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import NeoButton from '@/components/neo/neo-button';
+import SectionHeader from './sections/SectionHeader';
 
 type AuditEntry = {
     id: string;
@@ -179,12 +179,11 @@ const AuditLogPage = () => {
     ], []);
 
     return (
-        <div className='max-w-screen-xl mx-auto px-4 py-10 space-y-6'>
-            <Breadcrumbs notes={[{ label: 'Admin', href: '/admin' }, { label: 'Audit Log' }]} />
-
-            <div className='flex justify-between items-center'>
-                <h1 className='text-4xl font-black'>Audit Log</h1>
-            </div>
+        <div className='space-y-6'>
+            <SectionHeader
+                title='Audit Log'
+                description='Every login, note, template, participant, and admin action is recorded.'
+            />
 
             <div className='border-2 border-black bg-white p-4 grid grid-cols-1 md:grid-cols-3 gap-3'>
                 <div>
