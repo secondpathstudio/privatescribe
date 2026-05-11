@@ -64,15 +64,29 @@ def list_installed_models() -> list[dict]:
     return out
 
 
+def _normalize_tag(name: str) -> str:
+    """Append :latest when no tag is specified, matching Ollama CLI convention.
+
+    Ollama treats `llama3.2` and `llama3.2:latest` as the same model, but its
+    HTTP `list` API returns the tagged form. Comparing user-supplied names to
+    installed names without normalization causes false-negative misses.
+    """
+    if not name or ':' in name:
+        return name
+    return f"{name}:latest"
+
+
 def is_model_installed(model_name: str) -> bool:
     """Cheap membership check against the installed model list.
 
     Re-fetches the list on every call (Ollama is local, so this is fast and
     we don't have to invalidate a cache when the admin pulls/deletes a model).
+    Tag-normalizes both sides so `llama3.2` matches `llama3.2:latest`.
     Raises whatever ollama raises if the daemon is unreachable; callers should
     distinguish 'unreachable' from 'reachable but missing'.
     """
-    return any(m["name"] == model_name for m in list_installed_models())
+    needle = _normalize_tag(model_name)
+    return any(_normalize_tag(m["name"]) == needle for m in list_installed_models())
 
 
 def pull_model_stream(model_name: str):

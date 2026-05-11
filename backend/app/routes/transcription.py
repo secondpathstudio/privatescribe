@@ -9,7 +9,9 @@ from app.extensions import db
 from app.models import AudioFile, Template
 from app.security.auth import require_admin
 from app.services import audio_storage, ollama_client
+from app.services import structured_runtime
 from app.services.audit import log_action
+from app.services.strictness import effective_strictness, level_for
 from app.services.diarization import (
     DiarizationUnavailable,
     diarize_path,
@@ -281,6 +283,157 @@ def get_markdown():
     db.session.commit()
 
     return jsonify({"formatted_markdown": formatted_markdown})
+
+
+def _structured_mode_for_template(template: Template) -> str:
+    """Decide single-call vs per-field for the whole template run.
+
+    If any field's effective strictness lands in a per-field mode (Careful or
+    Strict), the whole template runs per-field so that mixed-strictness
+    templates respect the most-strict field's requirement. Otherwise
+    single-call. This matches the principle in Studio's UX: strictness is
+    a per-field knob that promotes the run shape if any field demands it.
+    """
+    structured = template.structured or {}
+    template_strictness = structured.get('strictness', 50)
+    for section in structured.get('sections') or []:
+        for field in section.get('fields') or []:
+            eff = effective_strictness(field, template_strictness)
+            if level_for(eff).runtime.mode == 'per-field':
+                return 'per-field'
+    return 'single-call'
+
+
+@bp.route('/api/notes/run-structured', methods=['POST'])
+@jwt_required()
+def run_structured():
+    """Execute a structured (Studio) template against a transcript.
+
+    Streams NDJSON events so the client can render per-field progress for the
+    per-field mode. Single-call mode still emits one final `complete` event
+    after the underlying Ollama call returns, so the frontend doesn't need to
+    branch on mode — it just consumes the stream.
+
+    Request: {"raw_note": str, "template_id": str, "note_details": dict}
+    Stream events:
+      {"stage": "started", "mode": "single-call" | "per-field", "fieldCount": int}
+      (per-field mode only:)
+        {"stage": "field_start",    "fieldId", "label", "variableKey"}
+        {"stage": "field_complete", "fieldId", "value", "confidence", "flagged", "latencyMs"}
+        {"stage": "field_skipped",  "fieldId", "reason"}
+        {"stage": "field_error",    "fieldId", "message"}
+      {"stage": "complete", "markdown": str}
+      {"stage": "error", "message": str}  (terminal)
+    """
+    body = request.get_json(silent=True) or {}
+    raw_note = body.get('raw_note')
+    template_id = body.get('template_id')
+    note_details = body.get('note_details') or {}
+
+    if not raw_note or not template_id:
+        return jsonify({"error": "raw_note and template_id are required"}), 400
+
+    current_user = get_jwt_identity()
+    template = Template.query.filter_by(
+        id=template_id,
+        author_id=current_user,
+        is_deleted=False,
+    ).first()
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
+    if template.template_type != 'structured':
+        return jsonify({"error": "Template is not structured; use /api/getMarkdown instead"}), 400
+    if not template.structured:
+        return jsonify({"error": "Template has no structured payload"}), 400
+
+    model_name = template.llm_model or ollama_client.DEFAULT_OLLAMA_MODEL
+
+    # Preflight model availability so the operator sees the same clear error
+    # the single-call /api/getMarkdown surfaces, rather than failing mid-stream.
+    try:
+        if not ollama_client.is_model_installed(model_name):
+            return jsonify({
+                "error": "model_not_installed",
+                "model": model_name,
+                "message": (
+                    f"The model '{model_name}' assigned to template '{template.name}' is "
+                    f"not installed. Run `ollama pull {model_name}` (or use the admin "
+                    f"Models page) before this template can be used."
+                ),
+            }), 422
+    except Exception as e:
+        print(f"Ollama unreachable during preflight: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "AI formatting unavailable. Make sure Ollama is running.",
+        }), 503
+
+    mode = _structured_mode_for_template(template)
+    structured = template.structured
+    template_strictness = structured.get('strictness', 50)
+    field_count = sum(
+        len(s.get('fields') or []) for s in (structured.get('sections') or [])
+    )
+
+    log_action(
+        'markdown.generate',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template_id,
+        extra={
+            'model': model_name,
+            'mode': mode,
+            'template_type': 'structured',
+            'field_count': field_count,
+        },
+    )
+    db.session.commit()
+
+    @stream_with_context
+    def generate():
+        try:
+            yield json.dumps({
+                "stage": "started",
+                "mode": mode,
+                "fieldCount": field_count,
+            }) + "\n"
+
+            if mode == 'single-call':
+                # Reuse the existing single-pass pipeline. Compile the field
+                # tree to a markdown skeleton with {{instructions}} and route
+                # it through generate_markdown unchanged.
+                from types import SimpleNamespace
+                skeleton = structured_runtime.compile_to_skeleton(structured)
+                fake_template = SimpleNamespace(name=template.name, content=skeleton)
+                details = dict(note_details)
+                details['author_id'] = current_user
+                raw_markdown = ollama_client.generate_markdown(
+                    fake_template, raw_note, details, model_name
+                )
+                # llama 3.2 sometimes echoes the ###TEMPLATE### framing tokens
+                # from the system prompt. Strip them so the user never sees
+                # the prompt scaffolding.
+                markdown = structured_runtime.sanitize_single_call_output(raw_markdown)
+                yield json.dumps({"stage": "complete", "markdown": markdown}) + "\n"
+                return
+
+            # per-field mode
+            for event in structured_runtime.run_per_field(
+                structured=structured,
+                transcript=raw_note,
+                model_name=model_name,
+                template_strictness=template_strictness,
+            ):
+                # Rewrite the internal `kind` -> wire `stage` for consistency
+                # with /api/transcribe's NDJSON convention.
+                kind = event.pop('kind')
+                wire_event = {"stage": kind, **event}
+                yield json.dumps(wire_event) + "\n"
+
+        except Exception as e:
+            print(f"Structured run failure: {type(e).__name__}: {e}")
+            yield json.dumps({"stage": "error", "message": str(e)}) + "\n"
+
+    return Response(generate(), mimetype="application/x-ndjson")
 
 
 @bp.route('/api/ollama/pull', methods=['POST'])
