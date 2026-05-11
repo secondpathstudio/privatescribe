@@ -154,19 +154,15 @@ def create_note():
     )
     db.session.commit()
 
-    participants_response = []
-    try:
-        for participant in new_note.participants:
-            participant_info = {
-                "id": participant.id,
-                "first_name": participant.firstName,
-                "last_name": participant.lastName if hasattr(participant, 'lastName') else None,
-                "email": participant.email if hasattr(participant, 'email') else None,
-            }
-            participants_response.append(participant_info)
-    except Exception as e:
-        print(f"Error accessing participants: {str(e)}")
-        participants_response = []
+    participants_response = [
+        {
+            "id": participant.id,
+            "firstName": participant.first_name,
+            "lastName": participant.last_name,
+            "email": participant.email,
+        }
+        for participant in new_note.participants
+    ]
 
     return jsonify({
         "id": new_note.id,
@@ -175,7 +171,7 @@ def create_note():
         "noteContentRaw": new_note.note_content_raw,
         "noteContentMarkdown": new_note.note_content_markdown,
         "noteContentSegments": new_note.note_content_segments,
-        "participants": data['participants'],
+        "participants": participants_response,
         "noteType": new_note.note_type,
         "authorId": new_note.author_id,
         "version": new_note.version,
