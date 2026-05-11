@@ -20,9 +20,19 @@ TEMPLATE_LLM_MODEL_MAX = 100
 TEMPLATE_STRUCTURED_MAX_BYTES = 256 * 1024
 VALID_TEMPLATE_TYPES = ('simple', 'structured')
 
+# Field types the Studio builder produces. Keep in sync with the builder's
+# types/template.ts. Unknown types reject — better to fail-loud on a Studio
+# version drift than silently accept a field the runtime can't render.
+ALLOWED_FIELD_TYPES = {
+    'text', 'paragraph', 'dropdown', 'checklist', 'bullets', 'date', 'number',
+}
+REQUIRED_FIELD_KEYS = (
+    'id', 'type', 'label', 'variableKey', 'required', 'autoFill', 'showInSummary',
+)
+
 
 def _validate_structured(value):
-    """Returns (ok, error_message). Accepts dict/list; rejects oversized or non-JSON-serializable payloads."""
+    """JSON-serializability + size cap. Called for any non-null structured payload."""
     if value is None:
         return True, None
     if not isinstance(value, (dict, list)):
@@ -34,6 +44,56 @@ def _validate_structured(value):
     if len(encoded.encode('utf-8')) > TEMPLATE_STRUCTURED_MAX_BYTES:
         return False, f"structured payload exceeds {TEMPLATE_STRUCTURED_MAX_BYTES} bytes"
     return True, None
+
+
+def _validate_structured_shape(value):
+    """Shape-check a Studio template tree. Returns an error string or None.
+
+    Liberal in what it accepts — unknown extra keys at any level pass through
+    so the builder can ship new optional fields without breaking imports.
+    Strict on the bits the runtime depends on (sections list, field type,
+    boolean flags, etc.) so a wrong-file paste fails loudly at write time
+    instead of crashing during note generation.
+    """
+    if not isinstance(value, dict):
+        return "structured must be an object"
+    sections = value.get('sections')
+    if not isinstance(sections, list):
+        return "structured.sections must be a list"
+    if not sections:
+        return "structured.sections must contain at least one section"
+    for si, section in enumerate(sections):
+        if not isinstance(section, dict):
+            return f"sections[{si}] must be an object"
+        if not isinstance(section.get('id'), str) or not section['id']:
+            return f"sections[{si}].id must be a non-empty string"
+        if not isinstance(section.get('title'), str):
+            return f"sections[{si}].title must be a string"
+        fields = section.get('fields')
+        if not isinstance(fields, list):
+            return f"sections[{si}].fields must be a list"
+        for fi, field in enumerate(fields):
+            prefix = f"sections[{si}].fields[{fi}]"
+            if not isinstance(field, dict):
+                return f"{prefix} must be an object"
+            for key in REQUIRED_FIELD_KEYS:
+                if key not in field:
+                    return f"{prefix} missing required key '{key}'"
+            if field['type'] not in ALLOWED_FIELD_TYPES:
+                return f"{prefix}.type must be one of {sorted(ALLOWED_FIELD_TYPES)}"
+            for str_key in ('id', 'label', 'variableKey'):
+                if not isinstance(field[str_key], str) or not field[str_key]:
+                    return f"{prefix}.{str_key} must be a non-empty string"
+            for bool_key in ('required', 'autoFill', 'showInSummary'):
+                if not isinstance(field[bool_key], bool):
+                    return f"{prefix}.{bool_key} must be a boolean"
+            so = field.get('strictnessOverride')
+            if so is not None and (not isinstance(so, int) or isinstance(so, bool) or not 0 <= so <= 100):
+                return f"{prefix}.strictnessOverride must be an integer 0-100"
+    s = value.get('strictness')
+    if s is not None and (not isinstance(s, int) or isinstance(s, bool) or not 0 <= s <= 100):
+        return "structured.strictness must be an integer 0-100"
+    return None
 
 
 def _serialize_template(t: Template) -> dict:
@@ -89,6 +149,10 @@ def create_template():
     ok, err = _validate_structured(structured)
     if not ok:
         return jsonify({"error": err}), 400
+    if template_type == 'structured':
+        shape_err = _validate_structured_shape(structured)
+        if shape_err:
+            return jsonify({"error": shape_err}), 400
 
     llm_model = data.get('llmModel') or None
     if llm_model is not None and len(llm_model) > TEMPLATE_LLM_MODEL_MAX:
@@ -207,6 +271,10 @@ def update_template(id):
         ok, err = _validate_structured(data['structured'])
         if not ok:
             return jsonify({"error": err}), 400
+        if template.template_type == 'structured' and data['structured'] is not None:
+            shape_err = _validate_structured_shape(data['structured'])
+            if shape_err:
+                return jsonify({"error": shape_err}), 400
     if 'llmModel' in data and data['llmModel'] is not None:
         if len(data['llmModel']) > TEMPLATE_LLM_MODEL_MAX:
             return jsonify({"error": f"LLM model must be {TEMPLATE_LLM_MODEL_MAX} characters or fewer"}), 400

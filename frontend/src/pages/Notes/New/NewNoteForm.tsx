@@ -469,15 +469,30 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                                         </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent className='z-10 bg-white'>
-                                        {templates.map((template: any) => (
-                                            <SelectItem  
-                                                key={template.id} 
-                                                value={template.id}
-                                                className='hover:bg-[#fd3777]'
+                                        {templates.map((template: any) => {
+                                            const isStudio = template.templateType === 'structured';
+                                            return (
+                                                <SelectItem
+                                                    key={template.id}
+                                                    value={template.id}
+                                                    className='hover:bg-[#fd3777]'
                                                 >
-                                                {template.name}
-                                            </SelectItem>
-                                        ))}
+                                                    <span className='flex items-center gap-2'>
+                                                        <span
+                                                            className={
+                                                                'inline-flex border px-1 py-px text-[9px] font-extrabold uppercase tracking-wider ' +
+                                                                (isStudio
+                                                                    ? 'border-[#5d1d91] bg-[#5d1d91] text-white'
+                                                                    : 'border-black bg-white text-black')
+                                                            }
+                                                        >
+                                                            {isStudio ? 'Studio' : 'Simple'}
+                                                        </span>
+                                                        {template.name}
+                                                    </span>
+                                                </SelectItem>
+                                            );
+                                        })}
                                     </SelectContent>
                                 </Select>
                             </FormControl>

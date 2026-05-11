@@ -147,7 +147,7 @@ const Notes = () => {
     ], [templateOptions]);
 
     return (
-        <div className='max-w-screen-lg mx-auto px-4 py-10'>
+        <div className='px-6 py-8'>
             <Breadcrumbs notes={[{ label: 'All Notes' }]} />
 
             <div className='flex justify-between items-center mb-6'>

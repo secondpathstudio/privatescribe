@@ -1,4 +1,5 @@
 import NeoLinkButton from '@/components/neo/neo-link-button'
+import NeoButton from '@/components/neo/neo-button'
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { useAuth } from '@/context/auth-context';
 import { useEffect, useMemo, useState } from 'react';
@@ -6,10 +7,12 @@ import { ColumnDef } from '@tanstack/react-table';
 import { Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { DataTable } from '@/components/data-table';
+import ImportStructuredTemplateModal from '@/components/templates/ImportStructuredTemplateModal';
 
 type TemplateRow = {
     id: number;
     name: string;
+    templateType?: 'simple' | 'structured';
     content: string;
     llmModel: string | null;
     version: number;
@@ -17,6 +20,23 @@ type TemplateRow = {
     updatedAt: string;
     isDeleted: boolean;
     isDeletedTimestamp: string | null;
+};
+
+const TypeBadge = ({ type }: { type?: 'simple' | 'structured' }) => {
+    const isStudio = type === 'structured';
+    return (
+        <span
+            className={
+                'inline-flex shrink-0 border-2 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wider ' +
+                (isStudio
+                    ? 'border-[#5d1d91] bg-[#5d1d91] text-white'
+                    : 'border-black bg-white text-black')
+            }
+            title={isStudio ? 'Built in PrivateScribe Studio (structured fields)' : 'Markdown template'}
+        >
+            {isStudio ? 'Studio' : 'Simple'}
+        </span>
+    );
 };
 
 const formatDateTime = (value: string | null | undefined) => {
@@ -30,6 +50,7 @@ const formatDateTime = (value: string | null | undefined) => {
 const Templates = () => {
     const [templates, setTemplates] = useState<TemplateRow[]>([]);
     const [loading, setLoading] = useState(true);
+    const [importOpen, setImportOpen] = useState(false);
     const auth = useAuth();
     const navigate = useNavigate();
 
@@ -75,6 +96,7 @@ const Templates = () => {
             header: 'Name',
             cell: ({ row }) => (
                 <span className='flex items-center gap-2 truncate'>
+                    <TypeBadge type={row.original.templateType} />
                     <span className='font-semibold truncate'>{row.original.name}</span>
                     {row.original.isDeleted && (
                         <span className='text-[#fd3777]' title='Deleted'>
@@ -134,17 +156,26 @@ const Templates = () => {
     ], [llmOptions]);
 
     return (
-        <div className='max-w-screen-lg mx-auto px-4 py-10'>
+        <div className='px-6 py-8'>
             <Breadcrumbs notes={[{ label: 'All Templates' }]} />
 
             <div className='flex justify-between items-center mb-6'>
                 <h1 className='text-4xl font-black mt-6'>All Templates</h1>
-                <NeoLinkButton
-                    route='/templates/new'
-                    label='📝 Create Template'
-                    backgroundColor='#fd3777'
-                    textColor='#ffffff'
-                />
+                <div className='flex gap-2'>
+                    <NeoButton
+                        onClick={() => setImportOpen(true)}
+                        backgroundColor='#ffffff'
+                        textColor='#000000'
+                    >
+                        ↥ Import Studio JSON
+                    </NeoButton>
+                    <NeoLinkButton
+                        route='/templates/new'
+                        label='📝 Create Template'
+                        backgroundColor='#fd3777'
+                        textColor='#ffffff'
+                    />
+                </div>
             </div>
 
             {loading ? (
@@ -157,6 +188,13 @@ const Templates = () => {
                     searchPlaceholder='Search by name, content, or model...'
                     emptyState='No templates yet — create one to get started.'
                     onRowClick={(row) => navigate(`/templates/${row.id}`)}
+                />
+            )}
+
+            {importOpen && (
+                <ImportStructuredTemplateModal
+                    onClose={() => setImportOpen(false)}
+                    onImported={(t) => setTemplates((prev) => [t as TemplateRow, ...prev])}
                 />
             )}
         </div>
