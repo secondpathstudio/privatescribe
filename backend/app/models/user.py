@@ -11,6 +11,11 @@ class User(db.Model):
     first_name = db.Column(db.String(100), nullable=False)
     last_name = db.Column(db.String(100), nullable=False)
     password = db.Column(db.String(255), nullable=False)
+    # True when an admin has reset this user's password. The frontend routes
+    # the user to the change-password screen on next login and the user can't
+    # navigate elsewhere until they pick their own password. Cleared by the
+    # self-service /api/me/change-password endpoint.
+    force_password_change = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, default=datetime.utcnow)
 

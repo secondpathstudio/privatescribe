@@ -7,6 +7,7 @@ interface AuthContextType {
   user: User | null;
   login: (token: string, refreshToken: string, user: User, backupKey?: string) => void;
   logout: () => void;
+  updateUser: (patch: Partial<User>) => void;
 }
 
 interface User {
@@ -16,6 +17,7 @@ interface User {
   lastName: string;
   role: string;
   lastLogin: string;
+  forcePasswordChange?: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -33,6 +35,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     localStorage.setItem("access_token", newToken);
     localStorage.setItem("refresh_token", refreshToken);
     if (backupKey) setPendingBackupKey(backupKey);
+  };
+
+  const updateUser = (patch: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      localStorage.setItem("user", JSON.stringify(next));
+      return next;
+    });
   };
 
   const logout = () => {
@@ -59,7 +70,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout }}>
+    <AuthContext.Provider value={{ token, user, login, logout, updateUser }}>
       <KeyExportBanner />
       {children}
       {pendingBackupKey && (

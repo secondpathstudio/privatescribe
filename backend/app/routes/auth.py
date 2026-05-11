@@ -29,6 +29,7 @@ def validate_token():
             "lastName": user.last_name,
             "role": user.role,
             "lastLogin": user.last_login,
+            "forcePasswordChange": user.force_password_change,
         },
     })
 
@@ -66,6 +67,7 @@ def login():
                 "lastName": user.last_name,
                 "role": user.role,
                 "lastLogin": user.last_login,
+                "forcePasswordChange": user.force_password_change,
             },
         }
         # First-admin-login one-shot: surface the SQLCipher key so the operator
