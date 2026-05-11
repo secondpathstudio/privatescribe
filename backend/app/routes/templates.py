@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
@@ -13,6 +14,43 @@ bp = Blueprint("templates", __name__, url_prefix="/api/templates")
 TEMPLATE_NAME_MAX = 50
 TEMPLATE_CONTENT_MAX = 32_000  # ~8K tokens, fits llama3.2 default context with prompt overhead
 TEMPLATE_LLM_MODEL_MAX = 100
+# Structured templates ship a field tree as JSON. Cap the serialized size so a
+# malicious client can't store a multi-MB blob; a normal template with ~50
+# fields fits well under this.
+TEMPLATE_STRUCTURED_MAX_BYTES = 256 * 1024
+VALID_TEMPLATE_TYPES = ('simple', 'structured')
+
+
+def _validate_structured(value):
+    """Returns (ok, error_message). Accepts dict/list; rejects oversized or non-JSON-serializable payloads."""
+    if value is None:
+        return True, None
+    if not isinstance(value, (dict, list)):
+        return False, "structured must be a JSON object or array"
+    try:
+        encoded = json.dumps(value)
+    except (TypeError, ValueError):
+        return False, "structured must be JSON-serializable"
+    if len(encoded.encode('utf-8')) > TEMPLATE_STRUCTURED_MAX_BYTES:
+        return False, f"structured payload exceeds {TEMPLATE_STRUCTURED_MAX_BYTES} bytes"
+    return True, None
+
+
+def _serialize_template(t: Template) -> dict:
+    return {
+        "id": t.id,
+        "name": t.name,
+        "templateType": t.template_type,
+        "content": t.content,
+        "structured": t.structured,
+        "llmModel": t.llm_model,
+        "version": t.version,
+        "createdAt": t.created_at,
+        "updatedAt": t.updated_at,
+        "authorId": t.author_id,
+        "isDeleted": t.is_deleted,
+        "isDeletedTimestamp": t.is_deleted_timestamp,
+    }
 
 
 @bp.route('', methods=['POST'])
@@ -21,13 +59,36 @@ TEMPLATE_LLM_MODEL_MAX = 100
 def create_template():
     data = request.get_json(silent=True) or {}
 
-    if not all(data.get(k) for k in ('name', 'content')):
-        return jsonify({"error": "name and content are required"}), 400
-
+    if not data.get('name'):
+        return jsonify({"error": "name is required"}), 400
     if len(data['name']) > TEMPLATE_NAME_MAX:
         return jsonify({"error": f"Name must be {TEMPLATE_NAME_MAX} characters or fewer"}), 400
-    if len(data['content']) > TEMPLATE_CONTENT_MAX:
-        return jsonify({"error": f"Content must be {TEMPLATE_CONTENT_MAX} characters or fewer"}), 400
+
+    template_type = data.get('templateType', 'simple')
+    if template_type not in VALID_TEMPLATE_TYPES:
+        return jsonify({"error": f"templateType must be one of {VALID_TEMPLATE_TYPES}"}), 400
+
+    content = data.get('content')
+    structured = data.get('structured')
+
+    # Per-type requirements. Simple templates need a content skeleton because
+    # /api/getMarkdown expects one; structured templates need a tree because
+    # the (future) structured runtime expects one. Both can carry the other
+    # field optionally for forward/backward compat.
+    if template_type == 'simple':
+        if not content:
+            return jsonify({"error": "content is required for simple templates"}), 400
+    else:  # structured
+        if not structured:
+            return jsonify({"error": "structured is required for structured templates"}), 400
+
+    if content is not None:
+        if len(content) > TEMPLATE_CONTENT_MAX:
+            return jsonify({"error": f"Content must be {TEMPLATE_CONTENT_MAX} characters or fewer"}), 400
+
+    ok, err = _validate_structured(structured)
+    if not ok:
+        return jsonify({"error": err}), 400
 
     llm_model = data.get('llmModel') or None
     if llm_model is not None and len(llm_model) > TEMPLATE_LLM_MODEL_MAX:
@@ -36,8 +97,10 @@ def create_template():
     current_user = get_jwt_identity()
 
     new_template = Template(
-        content=data['content'],
         name=data['name'],
+        template_type=template_type,
+        content=content,
+        structured=structured,
         llm_model=llm_model,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
@@ -56,21 +119,13 @@ def create_template():
         resource_id=new_template.id,
         extra={
             'name': new_template.name,
+            'template_type': new_template.template_type,
             'llm_model': new_template.llm_model,
         },
     )
     db.session.commit()
 
-    return jsonify({
-        "id": new_template.id,
-        "createdAt": new_template.created_at,
-        "updatedAt": new_template.updated_at,
-        "content": new_template.content,
-        "name": new_template.name,
-        "llmModel": new_template.llm_model,
-        "authorId": new_template.author_id,
-        "version": new_template.version,
-    }), 201
+    return jsonify(_serialize_template(new_template)), 201
 
 
 @bp.route('/user/<string:user_id>', methods=['GET'])
@@ -93,28 +148,7 @@ def get_templates_for_user(user_id):
         print('no templates found for user', current_user)
         return jsonify([]), 200
 
-    template_list = []
-
-    try:
-        for template in templates:
-            template_data = {
-                "id": template.id,
-                "content": template.content,
-                "name": template.name,
-                "llmModel": template.llm_model,
-                "version": template.version,
-                "createdAt": template.created_at,
-                "updatedAt": template.updated_at,
-                "authorId": template.author_id,
-                "isDeleted": template.is_deleted,
-                "isDeletedTimestamp": template.is_deleted_timestamp,
-            }
-            template_list.append(template_data)
-    except Exception as e:
-        print(f"Error getting templates: {str(e)}")
-        template_list = []
-
-    return jsonify(template_list)
+    return jsonify([_serialize_template(t) for t in templates])
 
 
 @bp.route('/<string:id>', methods=['GET'])
@@ -134,18 +168,7 @@ def get_template(id):
     )
     db.session.commit()
 
-    return jsonify({
-        "id": template.id,
-        "name": template.name,
-        "content": template.content,
-        "llmModel": template.llm_model,
-        "isDeleted": template.is_deleted,
-        "isDeletedTimestamp": template.is_deleted_timestamp,
-        "createdAt": template.created_at,
-        "updatedAt": template.updated_at,
-        "authorId": template.author_id,
-        "version": template.version,
-    })
+    return jsonify(_serialize_template(template))
 
 
 @bp.route('/<string:id>', methods=['PUT'])
@@ -159,16 +182,31 @@ def update_template(id):
 
     data = request.get_json(silent=True) or {}
 
+    # Type conversions are intentionally not supported. A template's wire
+    # format (markdown skeleton vs structured tree) is fundamental to how
+    # it's rendered and run — silently flipping it on update would surprise
+    # callers more than help them.
+    if 'templateType' in data and data['templateType'] != template.template_type:
+        return jsonify({"error": "templateType cannot be changed after creation"}), 400
+
     if 'name' in data:
         if not data['name']:
             return jsonify({"error": "Name cannot be empty"}), 400
         if len(data['name']) > TEMPLATE_NAME_MAX:
             return jsonify({"error": f"Name must be {TEMPLATE_NAME_MAX} characters or fewer"}), 400
-    if 'content' in data:
-        if not data['content']:
-            return jsonify({"error": "Content cannot be empty"}), 400
+    if 'content' in data and data['content'] is not None:
+        if not data['content'] and template.template_type == 'simple':
+            return jsonify({"error": "Content cannot be empty for simple templates"}), 400
         if len(data['content']) > TEMPLATE_CONTENT_MAX:
             return jsonify({"error": f"Content must be {TEMPLATE_CONTENT_MAX} characters or fewer"}), 400
+    if 'structured' in data:
+        if template.template_type != 'structured' and data['structured'] is not None:
+            return jsonify({"error": "structured field is only valid on structured templates"}), 400
+        if template.template_type == 'structured' and not data['structured']:
+            return jsonify({"error": "structured cannot be empty for structured templates"}), 400
+        ok, err = _validate_structured(data['structured'])
+        if not ok:
+            return jsonify({"error": err}), 400
     if 'llmModel' in data and data['llmModel'] is not None:
         if len(data['llmModel']) > TEMPLATE_LLM_MODEL_MAX:
             return jsonify({"error": f"LLM model must be {TEMPLATE_LLM_MODEL_MAX} characters or fewer"}), 400
@@ -178,9 +216,13 @@ def update_template(id):
         'llm_model': template.llm_model,
     }
     before_content = template.content
+    before_structured = template.structured
 
     template.name = data.get('name', template.name)
-    template.content = data.get('content', template.content)
+    if 'content' in data:
+        template.content = data['content']
+    if 'structured' in data:
+        template.structured = data['structured']
     if 'llmModel' in data:
         template.llm_model = data['llmModel'] or None
     template.updated_at = datetime.utcnow()
@@ -192,6 +234,8 @@ def update_template(id):
     )
     if before_content != template.content:
         diff['content'] = {'changed': True}
+    if before_structured != template.structured:
+        diff['structured'] = {'changed': True}
     log_action(
         'template.update',
         user_id=current_user,
@@ -201,18 +245,7 @@ def update_template(id):
     )
     db.session.commit()
 
-    return jsonify({
-        "id": template.id,
-        "createdAt": template.created_at,
-        "updatedAt": template.updated_at,
-        "content": template.content,
-        "name": template.name,
-        "llmModel": template.llm_model,
-        "authorId": template.author_id,
-        "version": template.version,
-        "isDeleted": template.is_deleted,
-        "isDeletedTimestamp": template.is_deleted_timestamp,
-    })
+    return jsonify(_serialize_template(template))
 
 
 @bp.route('/<string:id>/delete', methods=['PUT'])
