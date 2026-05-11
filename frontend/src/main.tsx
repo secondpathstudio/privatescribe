@@ -18,6 +18,7 @@ import NeobrutalHome from './components/neo/neobrutal-home.tsx'
 import SingleTemplate from './pages/Templates/id/SingleTemplate.tsx'
 import Roadmap from './pages/Roadmap/Roadmap.tsx'
 import Account from './pages/Account/Account.tsx'
+import UserLayout from './pages/User/UserLayout.tsx'
 import AdminLayout from './pages/Admin/AdminLayout.tsx'
 import OverviewSection from './pages/Admin/sections/Overview.tsx'
 import UsersSection from './pages/Admin/sections/Users.tsx'
@@ -36,18 +37,21 @@ createRoot(document.getElementById('root')!).render(
         <Route element={<RootLayout />}>
           <Route path="/" element={<App />} />
           
-          <Route path="notes">
-            <Route index  element={<RequireAuth><Notes /></RequireAuth>} />
-            <Route path=":id" element={<RequireAuth><SingleNote /></RequireAuth>} />
-            <Route path="new" element={<RequireAuth><NewNote /></RequireAuth>} />
+          <Route element={<RequireAuth><UserLayout /></RequireAuth>}>
+            <Route path="notes">
+              <Route index element={<Notes />} />
+              <Route path=":id" element={<SingleNote />} />
+              <Route path="new" element={<NewNote />} />
+            </Route>
+
+            <Route path="templates">
+              <Route index element={<Templates />} />
+              <Route path="new" element={<NewTemplate />} />
+              <Route path=":id" element={<SingleTemplate />} />
+            </Route>
+
+            <Route path="account" element={<Account />} />
           </Route>
-          
-          <Route path="/templates">
-            <Route index element={<RequireAuth><Templates /></RequireAuth>} />
-            <Route path="new" element={<RequireAuth><NewTemplate /></RequireAuth>} />
-            <Route path=":id" element={<RequireAuth><SingleTemplate /></RequireAuth>} />
-          </Route>
-          <Route path="/account" element={<RequireAuth><Account /></RequireAuth>} />
           <Route path="/admin" element={<RequireAdmin><AdminLayout /></RequireAdmin>}>
             <Route index element={<Navigate to="/admin/overview" replace />} />
             <Route path="overview" element={<OverviewSection />} />

@@ -1,51 +1,33 @@
-import { Link, NavLink, Outlet } from "react-router";
+import { NavLink, Outlet } from "react-router";
 
 type NavItem = { to: string; label: string };
 type NavGroup = { heading: string | null; items: NavItem[] };
 
 const NAV: NavGroup[] = [
   {
-    heading: null,
-    items: [{ to: "/admin/overview", label: "Overview" }],
-  },
-  {
-    heading: "Users & Access",
+    heading: "Workspace",
     items: [
-      { to: "/admin/users", label: "Users" },
-      { to: "/admin/audit-log", label: "Audit Log" },
+      { to: "/notes", label: "Notes" },
+      { to: "/templates", label: "Templates" },
     ],
   },
   {
-    heading: "Data & Security",
-    items: [
-      { to: "/admin/encryption", label: "Encryption" },
-      { to: "/admin/templates", label: "Templates" },
-    ],
-  },
-  {
-    heading: "System",
-    items: [
-      { to: "/admin/models", label: "Models" },
-      { to: "/admin/upload-limit", label: "Upload Limit" },
-      { to: "/admin/diarization", label: "Diarization" },
-    ],
+    heading: "Settings",
+    items: [{ to: "/account", label: "Account" }],
   },
 ];
 
-export default function AdminLayout() {
+/**
+ * Sidebar layout for signed-in user work areas (notes, templates). Matches
+ * AdminLayout's shape so the two surfaces feel like siblings. Outlet area
+ * intentionally omits padding so existing pages can keep their own
+ * max-w-* / mx-auto wrappers.
+ */
+export default function UserLayout() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)] flex-col md:flex-row">
       <aside className="md:w-60 md:shrink-0 border-b-2 md:border-b-0 md:border-r-2 border-black bg-white">
-        <div className="px-4 pt-4 pb-3">
-          <Link
-            to="/notes"
-            className="inline-flex items-center text-xs font-bold uppercase tracking-wider text-muted-foreground hover:text-black"
-          >
-            ← Workspace
-          </Link>
-          <h1 className="mt-2 text-2xl font-black">Admin</h1>
-        </div>
-        <nav className="px-2 pb-6 space-y-5">
+        <nav className="px-2 py-5 space-y-5">
           {NAV.map((group) => (
             <div key={group.heading ?? "_top"}>
               {group.heading && (
@@ -58,7 +40,6 @@ export default function AdminLayout() {
                   <li key={item.to}>
                     <NavLink
                       to={item.to}
-                      end
                       className={({ isActive }) =>
                         [
                           "block px-3 py-1.5 text-sm font-medium border-2",
@@ -77,7 +58,7 @@ export default function AdminLayout() {
           ))}
         </nav>
       </aside>
-      <main className="flex-1 min-w-0 px-6 py-8">
+      <main className="flex-1 min-w-0">
         <Outlet />
       </main>
     </div>

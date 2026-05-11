@@ -20,21 +20,15 @@ export default function AuthButtons() {
         <NeoDropdown
             username={auth.user.firstName}
         >
-            <NeoDropdownItem id="menu-1" route="/notes">
-                Notes
-            </NeoDropdownItem>
-            <NeoDropdownItem id="menu-2" route='/templates'>
-                Templates
+            <NeoDropdownItem id="menu-account" route='/account'>
+                Account
             </NeoDropdownItem>
             {auth.user.role === 'admin' && (
                 <NeoDropdownItem id="menu-admin" route='/admin'>
                     Admin
                 </NeoDropdownItem>
             )}
-            <NeoDropdownItem id="menu-account" route='/account'>
-                Account
-            </NeoDropdownItem>
-            <NeoDropdownItem id="menu-3" className="border-t-4 hover:border-t-4 border-black bg-[#5d1d91] text-white">
+            <NeoDropdownItem id="menu-logout" className="border-t-4 hover:border-t-4 border-black bg-[#5d1d91] text-white">
                 <button className="flex items-center cursor-pointer w-full h-full p-3" onClick={() => auth.logout()}>
                     <span>LOGOUT</span>
                 </button>
