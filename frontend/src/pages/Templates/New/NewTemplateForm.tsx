@@ -197,7 +197,8 @@ const NewTemplateForm = () => {
                                     editorRef={mdxEditorRef}
                                     markdown={field.value}
                                     onChange={(value) => {
-                                        form.setValue('content', value, { shouldDirty: true });
+                                        field.onChange(value);
+                                        form.setValue('content', value, { shouldDirty: true, shouldValidate: true });
                                     }}
                                 />
                             </FormControl>
