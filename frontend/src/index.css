@@ -4,3 +4,16 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+body {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* MDXEditor body text — system fonts (esp. SF Pro) render 400 looking semi-bold;
+   drop to 350 (variable-weight axis) so non-bold paragraphs read as regular.
+   Attribute-contains selector survives MDXEditor's hashed CSS module names. */
+[class*="_contentEditable_"],
+[class*="_contentEditable_"] [class*="_nestedEditor_"] {
+  font-weight: 350;
+}
