@@ -19,10 +19,14 @@ class AuditLog(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
     # user_id is nullable so failed logins (where the email may not match any
-    # user) and pre-auth events can still be recorded. user_email is stored
-    # denormalized so the log stays readable even if the user is later deleted.
+    # user) and pre-auth events can still be recorded. user_email and user_role
+    # are stored denormalized: email so the log stays readable even if the
+    # user is later deleted; role so the log reflects the user's privilege
+    # *at the time of the action*, not whatever their role is when an admin
+    # later reviews the log.
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
     user_email = db.Column(db.String(255), nullable=True)
+    user_role = db.Column(db.String(32), nullable=True)
 
     # Dot-namespaced action key, e.g. "note.create", "auth.login_failed".
     action = db.Column(db.String(64), nullable=False, index=True)

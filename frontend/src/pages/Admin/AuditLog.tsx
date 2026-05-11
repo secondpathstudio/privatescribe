@@ -11,6 +11,7 @@ type AuditEntry = {
     id: string;
     userId: string | null;
     userEmail: string | null;
+    userRole: string | null;
     action: string;
     resourceType: string | null;
     resourceId: string | null;
@@ -135,6 +136,19 @@ const AuditLogPage = () => {
                     {row.original.userEmail ?? <em className='text-muted-foreground'>—</em>}
                 </span>
             ),
+        },
+        {
+            accessorKey: 'userRole',
+            header: 'Role',
+            size: 90,
+            cell: ({ row }) =>
+                row.original.userRole ? (
+                    <span className='text-xs uppercase font-semibold tracking-wide'>
+                        {row.original.userRole}
+                    </span>
+                ) : (
+                    <span className='text-muted-foreground'>—</span>
+                ),
         },
         {
             accessorKey: 'action',

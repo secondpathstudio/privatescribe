@@ -101,6 +101,7 @@ def list_audit_log():
                 "id": r.id,
                 "userId": r.user_id,
                 "userEmail": r.user_email,
+                "userRole": r.user_role,
                 "action": r.action,
                 "resourceType": r.resource_type,
                 "resourceId": r.resource_id,

@@ -26,18 +26,24 @@ from app.models import AuditLog, User
 _USER_AGENT_MAX = 512
 
 
-def _resolve_actor(user_id: str | None, user_email: str | None) -> tuple[str | None, str | None]:
-    """Fill in whichever of (user_id, user_email) the caller didn't pass.
+def _resolve_actor(
+    user_id: str | None, user_email: str | None
+) -> tuple[str | None, str | None, str | None]:
+    """Fill in whichever of (user_id, user_email, user_role) the caller didn't pass.
 
-    For most routes the caller has a JWT identity but not the email — we
-    look it up so the log row is human-readable without a join. For failed
-    logins the caller has the attempted email but no user_id.
+    For most routes the caller has a JWT identity but not the email/role — we
+    look them up so the log row is human-readable without a join. For failed
+    logins the caller has the attempted email but no user_id; we still try
+    to resolve the matching User so the role is recorded if it exists.
     """
-    if user_id and not user_email:
-        u = User.query.get(user_id)
-        if u:
-            user_email = u.email
-    if not user_id and not user_email:
+    user_role: str | None = None
+    user: User | None = None
+
+    if user_id:
+        user = User.query.get(user_id)
+    elif user_email:
+        user = User.query.filter_by(email=user_email).first()
+    else:
         # Try to recover from the current JWT if one is present. This makes
         # log_action ergonomic in routes that didn't explicitly capture the
         # identity at the top of the function.
@@ -47,10 +53,14 @@ def _resolve_actor(user_id: str | None, user_email: str | None) -> tuple[str | N
             jwt_id = None
         if jwt_id:
             user_id = jwt_id
-            u = User.query.get(jwt_id)
-            if u:
-                user_email = u.email
-    return user_id, user_email
+            user = User.query.get(jwt_id)
+
+    if user is not None:
+        if not user_email:
+            user_email = user.email
+        user_role = user.role
+
+    return user_id, user_email, user_role
 
 
 def log_action(
@@ -79,7 +89,7 @@ def log_action(
             if ua_header:
                 ua = ua_header[:_USER_AGENT_MAX]
 
-        user_id, user_email = _resolve_actor(user_id, user_email)
+        user_id, user_email, user_role = _resolve_actor(user_id, user_email)
 
         # Cast resource_id to str so callers don't have to remember — most of
         # the app uses string UUIDs but some legacy integer IDs sneak in.
@@ -88,6 +98,7 @@ def log_action(
         entry = AuditLog(
             user_id=user_id,
             user_email=user_email,
+            user_role=user_role,
             action=action,
             resource_type=resource_type,
             resource_id=rid,
