@@ -115,7 +115,11 @@ export function DataTable<TData>({
     // — visible-leaf-columns is already cached by TanStack Table.
     const gridTemplate = table.getVisibleLeafColumns().map((col) => {
         const size = col.columnDef.size;
-        return size ? `${size}px` : 'minmax(0, 1fr)';
+        // TanStack injects a default size of 150 on columns where the caller
+        // didn't set one. Treat that sentinel as "no explicit size" so the
+        // column flexes to fill remaining space alongside any other unsized
+        // columns instead of getting a static 150px width.
+        return size && size !== 150 ? `${size}px` : 'minmax(0, 1fr)';
     }).join(' ');
 
     return (
@@ -133,10 +137,10 @@ export function DataTable<TData>({
                 <div className='flex items-center gap-2 ml-auto'>{toolbar}</div>
             </div>
 
-            <div className='border-2 border-black bg-white text-sm'>
+            <div className='border-2 border-black bg-white text-sm w-full'>
                 {/* Header */}
                 <div
-                    className='grid border-b-2 border-black bg-muted/30 font-semibold'
+                    className='grid w-full border-b-2 border-black bg-muted/30 font-semibold'
                     style={{ gridTemplateColumns: gridTemplate }}
                 >
                     {table.getFlatHeaders().map((header) => {
