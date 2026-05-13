@@ -16,7 +16,8 @@ import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
-import NoteAudioPlayer from '@/components/recording/note-audio-player'
+import NoteAudioPlayer, { type NoteAudioPlayerHandle } from '@/components/recording/note-audio-player'
+import DiarizedTranscript from '@/components/recording/diarized-transcript'
 
 type Props = {
     note: any;
@@ -28,6 +29,7 @@ type Props = {
 const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null);
+    const audioPlayerRef = React.useRef<NoteAudioPlayerHandle>(null);
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
     const [showRetranscribe, setShowRetranscribe] = React.useState(false);
@@ -438,6 +440,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         {note?.hasAudio && (
             <div className="mt-4">
                 <NoteAudioPlayer
+                    ref={audioPlayerRef}
                     noteId={note.id}
                     filename={note.audioOriginalFilename}
                     sizeBytes={note.audioSizeBytes}
@@ -496,14 +499,10 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 {note?.noteContentSegments ? (
                     <div className="flex flex-col mt-4 gap-1">
                         <FormLabel>Raw Transcription</FormLabel>
-                        <div className="border-2 border-black bg-white p-3 max-h-96 overflow-y-auto">
-                            {note.noteContentSegments.map((s: any, i: number) => (
-                                <div key={i} className="mb-2 last:mb-0">
-                                    <span className="font-semibold text-[#fd3777]">{s.speaker}:</span>{' '}
-                                    <span>{s.text}</span>
-                                </div>
-                            ))}
-                        </div>
+                        <DiarizedTranscript
+                            segments={note.noteContentSegments}
+                            onSeek={note?.hasAudio ? (s) => audioPlayerRef.current?.seek(s) : undefined}
+                        />
                     </div>
                 ) : (
                     <FormField

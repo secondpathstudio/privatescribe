@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useAuth } from '@/context/auth-context';
 
 type Props = {
@@ -6,6 +6,11 @@ type Props = {
     /** Optional metadata for the download filename + size hint. */
     filename?: string | null;
     sizeBytes?: number | null;
+};
+
+export type NoteAudioPlayerHandle = {
+    /** Seek playback to `seconds` and start playing. No-op if audio hasn't loaded yet. */
+    seek: (seconds: number) => void;
 };
 
 const formatSize = (bytes: number) => {
@@ -20,7 +25,7 @@ const formatSize = (bytes: number) => {
  * the full file once, build a blob URL, and hand that to <audio>. Memory
  * cost is roughly file size; up to the admin-configured upload cap.
  */
-const NoteAudioPlayer = ({ noteId, filename, sizeBytes }: Props) => {
+const NoteAudioPlayer = forwardRef<NoteAudioPlayerHandle, Props>(({ noteId, filename, sizeBytes }, ref) => {
     const auth = useAuth();
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -28,6 +33,23 @@ const NoteAudioPlayer = ({ noteId, filename, sizeBytes }: Props) => {
     // Track the URL we created so the cleanup effect revokes the right one
     // even if a re-render races with a new fetch.
     const createdUrlRef = useRef<string | null>(null);
+    const audioRef = useRef<HTMLAudioElement>(null);
+
+    useImperativeHandle(ref, () => ({
+        seek: (seconds: number) => {
+            const el = audioRef.current;
+            if (!el) return;
+            el.currentTime = Math.max(0, seconds);
+            // Autoplay restrictions: a click that fired in the parent component
+            // counts as a user gesture for the same task, so this should resolve
+            // in the common case. If the browser still refuses, we just leave
+            // the playhead at the new position and the user can hit play.
+            const playPromise = el.play();
+            if (playPromise && typeof playPromise.catch === 'function') {
+                playPromise.catch(() => { /* swallow autoplay rejection */ });
+            }
+        },
+    }), []);
 
     useEffect(() => {
         let cancelled = false;
@@ -103,9 +125,11 @@ const NoteAudioPlayer = ({ noteId, filename, sizeBytes }: Props) => {
                     Download
                 </a>
             </div>
-            <audio controls src={blobUrl} className="w-full" />
+            <audio ref={audioRef} controls src={blobUrl} className="w-full" />
         </div>
     );
-};
+});
+
+NoteAudioPlayer.displayName = 'NoteAudioPlayer';
 
 export default NoteAudioPlayer;
