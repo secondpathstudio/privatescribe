@@ -28,12 +28,12 @@ const templates: Record<TemplateKey, Template> = {
     emoji: "🏥",
     color: "linear-gradient(to bottom right, #00ffff, white)",
     fields: ["Chief Complaint", "History of Present Illness", "Assessment", "Plan"],
-    sampleTranscript: "Patient presents with chest pain that started 2 hours ago. Pain is described as sharp, 7/10 severity, radiating to left arm. No shortness of breath or nausea.",
+    sampleTranscript: "okay so this is a 58 year old male presents to the ER complaining of chest pain pain started about two hours ago he was sitting watching TV describes it as sharp kind of stabbing seven out of ten radiates down the left arm no shortness of breath no nausea didn't sweat or anything he has a history of high blood pressure takes lisinopril otherwise no cardiac history that he knows of dad had a heart attack at 62 vitals look okay BP one forty over ninety heart rate ninety-two going to get an ECG troponins chest x-ray and keep him on the monitor while we work this up",
     processedNote: {
       "Chief Complaint": "Chest pain, 2 hours duration",
-      "History of Present Illness": "Sharp pain, 7/10 severity, radiating to left arm. No associated SOB or nausea.",
-      "Assessment": "Possible cardiac event - requires immediate evaluation",
-      "Plan": "ECG, cardiac enzymes, chest X-ray. Monitor vitals."
+      "History of Present Illness": "58yo M with sharp, stabbing chest pain at rest, 7/10 severity, radiating to left arm. No SOB, nausea, or diaphoresis. PMH: HTN on lisinopril. FH: father MI at 62. Vitals on presentation: BP 140/90, HR 92.",
+      "Assessment": "Possible acute coronary syndrome — requires immediate cardiac workup",
+      "Plan": "ECG, troponins, chest X-ray, continuous cardiac monitoring. Reassess after initial workup."
     }
   },
   legal: {
@@ -41,12 +41,12 @@ const templates: Record<TemplateKey, Template> = {
     emoji: "🧑‍⚖️",
     color: "linear-gradient(to bottom right, #ff00ff, white)",
     fields: ["Client Information", "Legal Issue", "Facts", "Action Items"],
-    sampleTranscript: "Client John Smith seeking advice on contract dispute with former employer. Believes non-compete clause is unenforceable. Contract signed in California, work performed remotely.",
+    sampleTranscript: "initial consult with John Smith came in this morning about a non-compete situation with his former employer DataCorp he left them about three months ago to join a competitor called Inflexion and now DataCorp's general counsel sent him a cease and desist saying he's violating his non-compete he wants to know if it's enforceable here's the wrinkle he signed the original agreement when he was based in Texas but he relocated to California two years ago and was working remotely from there for the last eighteen months agreement has a Delaware choice of law clause he's been at Inflexion for two months similar role but different vertical B2C versus B2B he hasn't taken any client lists or trade secrets just general industry knowledge action items pull the actual agreement research Delaware versus California non-compete enforceability particularly the recent California ban and get back to him by end of week",
     processedNote: {
-      "Client Information": "John Smith - employment contract dispute",
-      "Legal Issue": "Non-compete clause enforceability",
-      "Facts": "Contract signed in CA, remote work performed, dispute with former employer",
-      "Action Items": "Review contract terms, research CA non-compete laws, schedule follow-up"
+      "Client Information": "John Smith — former DataCorp employee (departed 3 months ago), now at Inflexion (2 months)",
+      "Legal Issue": "Cease-and-desist alleging non-compete violation. Cross-jurisdictional enforceability question (TX signing, CA resident, DE choice-of-law).",
+      "Facts": "Signed agreement while based in TX; relocated to CA 2 years ago, remote for last 18 months. Similar role at competitor in a different vertical (B2C vs B2B). No client lists or trade secrets taken — general industry knowledge only.",
+      "Action Items": "Pull executed agreement. Research DE vs. CA non-compete enforceability, particularly CA's recent statutory ban. Respond to client by end of week."
     }
   },
   therapy: {
@@ -74,12 +74,12 @@ const templates: Record<TemplateKey, Template> = {
     emoji: "📔",
     color: "linear-gradient(to bottom right, #ff9900, white)",
     fields: ["Date", "Mood", "Key Events", "Reflections"],
-    sampleTranscript: "Had a really productive day at work today. Finished the quarterly report ahead of schedule. Feeling accomplished but also a bit stressed about the presentation tomorrow.",
+    sampleTranscript: "okay journal entry for today work was actually really good today like surprisingly good I finished the quarterly report which I'd been dreading for like two weeks got it done by lunch which never happens Sarah looked at it and said it was solid she only had a couple small edits I think the framework I tried pulling the key metrics into one summary slide up front actually worked but yeah presentation to leadership is tomorrow and I keep going back and forth between feeling like I've got this and feeling like I'm going to forget half of what I want to say probably going to run through it one more time tonight after dinner trying not to spiral about it also need to remember to email mom back she sent that thing on Sunday and I keep forgetting",
     processedNote: {
       "Date": "Today",
-      "Mood": "Accomplished but stressed",
-      "Key Events": "Completed quarterly report ahead of schedule",
-      "Reflections": "Productive work day, concern about upcoming presentation"
+      "Mood": "Accomplished and relieved about work output; anxious about tomorrow's leadership presentation",
+      "Key Events": "Finished quarterly report by lunch — well ahead of schedule. Sarah reviewed positively with only minor edits. New summary-slide framework validated.",
+      "Reflections": "Pre-presentation anxiety oscillating between confidence and self-doubt. Plan to rehearse once tonight after dinner. Personal todo: respond to mom's Sunday message."
     }
   }
 };
