@@ -1,4 +1,4 @@
-import { Zap, Shield, Cpu, Settings, Rocket } from 'lucide-react';
+import { Zap, Shield, Settings, Rocket } from 'lucide-react';
 import RoadmapPhase from '@/components/neo/neo-roadmap-phase';
 import NeoButton from '@/components/neo/neo-button';
 import NeoFooter from '@/components/neo/neo-footer';
@@ -10,61 +10,52 @@ const Roadmap = () => {
       title: "CORE FOUNDATION",
       status: "completed",
       items: [
-        { text: "Local AI Model Integration", completed: true },
-        { text: "Basic Speech-to-Text Engine", completed: true },
-        { text: "Privacy-First Architecture", completed: true },
-        { text: "Local database structure", completed: true },
-        { text: "Encryption at Rest", completed: true },
+        { text: "Local AI model integration", completed: true },
+        { text: "Speech-to-text engine", completed: true },
+        { text: "Privacy-first architecture", completed: true },
+        { text: "Local encrypted database", completed: true },
       ],
       gradient: "linear-gradient(135deg, #fd3777, #ff6b9d)",
       icon: <Shield className="w-8 h-8" />
     },
     {
       phase: "PHASE 2",
-      title: "ENHANCED ACCURACY",
+      title: "PROFESSIONAL FEATURES",
       status: "completed",
       items: [
         { text: "Custom template creation", completed: true },
-        { text: "Save and record participants (regular patients, clients, etc.)", completed: true },
-        { text: "Custom Model Training", completed: true },
+        { text: "Participant management", completed: true },
+        { text: "Per-template AI model selection", completed: true },
+        { text: "Encrypted audio storage with in-note playback", completed: true },
+        { text: "Speaker identification (diarization)", completed: true },
       ],
       gradient: "linear-gradient(135deg, #5d1d91, #9d4edd)",
       icon: <Settings className="w-8 h-8" />
     },
     {
       phase: "PHASE 3",
-      title: "ADVANCED FEATURES",
-      status: "upcoming",
+      title: "TEAM & GOVERNANCE",
+      status: "completed",
       items: [
-        { text: "Audio file storage + encryption", completed: true },
-        { text: "Feedback and Sentiment Extraction", completed: true },
-        { text: "Per-template model selection", completed: true },
-        { text: "Speaker Identification", completed: true },
-        { text: "Transcription time-stamps", completed: false },
+        { text: "Multi-user admin console", completed: true },
+        { text: "Full audit log with key-access security alerts", completed: true },
+        { text: "Runtime key rotation with coordinated re-encryption", completed: true },
+        { text: "Configurable trash retention", completed: true },
+        { text: "Login rate-limiting", completed: true },
       ],
       gradient: "linear-gradient(135deg, #2b0f54, #5d1d91)",
       icon: <Zap className="w-8 h-8" />
     },
     {
       phase: "PHASE 4",
-      title: "PROFESSIONAL SUITE",
-      status: "planned",
+      title: "ACCESSIBILITY",
+      status: "in-progress",
       items: [
-        { text: "Enterprise Dashboard", completed: false },
-        { text: "Team Collaboration Tools", completed: false },
-        { text: "Advanced Analytics", completed: false }
+        { text: "PrivateScribe Studio — template designer for teams", completed: false },
+        { text: "Standalone desktop app (in development)", completed: false },
+        { text: "Named participant assignment to diarized speakers", completed: false },
       ],
       gradient: "linear-gradient(135deg, #ff9900, #ffff00)",
-      icon: <Cpu className="w-8 h-8" />
-    },
-    {
-      phase: "PHASE 5",
-      title: "ECOSYSTEM EXPANSION",
-      status: "future",
-      items: [
-        { text: "Native mobile app", completed: false },
-      ],
-      gradient: "linear-gradient(135deg, #fd3777, #ff9900)",
       icon: <Rocket className="w-8 h-8" />
     }
   ];
