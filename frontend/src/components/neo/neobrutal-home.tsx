@@ -6,6 +6,7 @@ import NeoFooter from './neo-footer';
 import NeoHero from './neo-hero';
 import NeoFeatureCard from './neo-feature-card';
 import NeoDemo from './neo-demo';
+import NeoScreenshots from './neo-screenshots';
 import ContactModal from './neo-contact-modal';
 
 const TranscriptionApplications = [
@@ -76,6 +77,9 @@ const NeobrutalHome = () => {
       {/* Demo Section */}
       <NeoDemo />
 
+      {/* Real product screenshots + dual-path "Get it on your machine" */}
+      <NeoScreenshots onNotifyClick={() => setContactModalOpen(true)} />
+
       {/* Pricing Section */}
       <section id="pricing" className="py-20 border-b-4 border-black relative" style={{
         background: "linear-gradient(to top, #2b0f54, #5d1d91)",
@@ -92,7 +96,7 @@ const NeobrutalHome = () => {
               "Open source transcription engine (MIT license)",
               "Basic UI and controls",
               "Community support",
-              "Self-hosted deployment",
+              "Self-hosted via terminal (best for technically comfortable users — standalone installer in development)",
               "Works with publicly available models"
             ]}
             buttonText='100% Free!'
