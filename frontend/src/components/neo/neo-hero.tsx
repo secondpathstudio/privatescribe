@@ -13,10 +13,13 @@ const NeoHero = (props: Props) => {
           <div className="grid xl:grid-cols-2 grid-cols-1 gap-12 items-center text-center xl:text-left">
             <div>
               <h1 className="text-4xl md:text-7xl font-black text-white mb-6 leading-tight">
-                100% PRIVATE AI TRANSCRIPTION
+                AI NOTES THAT NEVER LEAVE YOUR DEVICE
               </h1>
-              <p className="text-xl text-white mb-8">
-                Leverage artificial intelligence for rapid, fully customizable offline transcription without worrying about data leaks or privacy concerns. Your data never leaves your device.
+              <p className="text-xl text-white mb-4">
+                Built for clinicians, therapists, attorneys, and anyone whose conversations are too sensitive for the cloud. Record, transcribe, and format your notes — entirely on your own machine.
+              </p>
+              <p className="text-base text-white/80 mb-8 italic">
+                No accounts. No telemetry. No vendor reading your sessions.
               </p>
               <div className="flex flex-wrap gap-4 xl:justify-start justify-center items-center">
                 {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&

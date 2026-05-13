@@ -34,7 +34,7 @@ One recording can produce many documents. Apply several templates to the same tr
 
 - **Whisper-based transcription** running locally — no audio leaves your machine
 - **Local LLM formatting** via Ollama (defaults to Llama 3.2, swap in any model you prefer)
-- **Encrypted database at rest** via SQLCipher — transcripts, generated documents, templates, and participant records are all stored encrypted on disk
+- **Encrypted at rest** — transcripts, generated documents, templates, participant records, and the original audio recordings are all stored encrypted on disk
 - **Customizable templates** — define the document structure once, apply it to any transcript
 - **One transcript, many documents** — apply multiple templates to the same recording and keep them linked as siblings of a single source. Refine a template, re-run it, get a new sibling without losing the old one.
 - **Participant and role management** — track who was in the conversation and have templates use that context
@@ -80,9 +80,9 @@ Honest disclosure of what PrivateScribe protects against and what it doesn't:
 
 **What this is *not*:** A HIPAA compliance certification. HIPAA compliance is an organizational and procedural matter, not a software feature. PrivateScribe gives you the *technical* foundation a covered entity would need (data never leaves the device, no third-party processors involved), but the policies, BAAs, audit procedures, and risk assessments remain your responsibility.
 
-**Encryption status:** The database is encrypted at rest using SQLCipher. On first admin login, an encryption key is auto-generated and displayed to the admin — record it somewhere safe. The key is subsequently viewable by any admin after password authentication, and can be reset by an admin if needed. Note that resetting the key is a destructive operation with respect to existing encrypted data, so the reset flow is intentionally admin-gated to avoid accidental database loss.
+**Encryption at rest.** The database is encrypted with SQLCipher (256-bit key), and the original audio recordings are encrypted with AES-256-GCM using a key derived from the SQLCipher master via HKDF. The SQLCipher key is auto-generated on first run and stored in `backend/.env` (chmod 600). Admins can view the key after re-authenticating and rotate it at runtime from the admin panel — rotation re-encrypts the database and audio files together as one coordinated sweep, and every key access writes an audit-log entry.
 
-Audio files on disk are not yet encrypted at the application layer and currently rely on your operating system's file permissions and full-disk encryption (FileVault, BitLocker, LUKS). Application-layer audio file encryption is on the roadmap. If you're handling regulated data, full-disk encryption is non-negotiable.
+**What this protects against — and what it doesn't.** App-layer encryption matters when the data files and the key get separated: backups that travel without `.env`, recovered disk sectors after deletion, accidental cloud syncs, or another OS user on a multi-user machine. It does **not** protect against an attacker who has full local access to your running machine — `.env` is right there. For that threat, **full-disk encryption is non-negotiable**: FileVault on macOS, BitLocker on Windows, LUKS on Linux, with the device locked or powered off when not in use. Treat PrivateScribe's app-layer encryption as defense in depth on top of FDE, not a replacement for it.
 
 ---
 
@@ -181,8 +181,7 @@ PrivateScribe is general enough to handle any domain where structured documentat
 
 ## Long-term Roadmap
 
-- Speaker diarization with named participant assignment
-- Application-layer encryption for audio files (passphrase-derived keys)
+- Named participant assignment to diarized speakers (auto-labeling "Dr. Smith" / "Client" from known participants)
 - Signed desktop installers (`.dmg`, `.exe`, `.AppImage`) for non-developer users
 - Optional Postgres backend for office-server deployments with multiple devices on a closed LAN
 - Template gallery with community-contributed structures

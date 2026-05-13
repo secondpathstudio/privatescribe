@@ -96,8 +96,11 @@ const NewTemplateForm = () => {
         resolver: zodResolver(templateSchema),
         mode: 'onChange',
         defaultValues: {
+            // Start empty rather than seeding "New template" the user has to
+            // clear. The zod content.min(1) rule keeps Save disabled until they
+            // type something; the editor shows a how-it-works placeholder.
             name: '',
-            content: 'New template',
+            content: '',
             llmModel: '',
             version: 1,
             authorId: auth.user?.id
@@ -196,6 +199,7 @@ const NewTemplateForm = () => {
                                     ]}
                                     editorRef={mdxEditorRef}
                                     markdown={field.value}
+                                    placeholder="Write your template here. Plain text is kept exactly as written; wrap an instruction in {{double curly braces}} and the AI fills it in from the transcript — e.g. {{Summarize the conversation in 2-3 sentences}}"
                                     onChange={(value) => {
                                         field.onChange(value);
                                         form.setValue('content', value, { shouldDirty: true, shouldValidate: true });

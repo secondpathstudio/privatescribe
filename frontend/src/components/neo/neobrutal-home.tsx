@@ -99,10 +99,11 @@ const NeobrutalHome = () => {
           />
       
           <NeoPricingCard
-            title='CUSTOM MODELS'
+            title='PROFESSIONAL'
             price='soon'
             pricePeriod='yr'
             features={[
+              "Full featured template studio for easy task switching and specialization",
               "Access to premium, fine-tuned transcription models",
               "Regular model updates",
               "Email support",
