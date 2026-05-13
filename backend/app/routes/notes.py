@@ -34,14 +34,22 @@ def create_note():
         print('missing required fields', data)
         return jsonify({"error": "Missing required fields"}), 400
 
+    current_user = get_jwt_identity()
+
     # Empty/missing noteTemplate is allowed — the note just stores the raw
     # transcript with no template association. Coerce '' to None so the FK
     # column doesn't receive a stringy empty value.
     template_id = data.get('noteTemplate') or None
     if template_id:
-        template = Template.query.get(template_id)
+        # Must be the caller's own, non-trashed template. Without the
+        # is_deleted / author_id filter a direct API call could attach a note
+        # to a soft-deleted template (the dropdown already hides those) or to
+        # someone else's template.
+        template = Template.query.filter_by(
+            id=template_id, author_id=current_user, is_deleted=False
+        ).first()
         if not template:
-            print('template not found', template_id)
+            print('template not found / not available', template_id)
             return jsonify({"error": f"Template with ID {template_id} not found"}), 400
 
     if not isinstance(data['participants'], list):
@@ -56,8 +64,6 @@ def create_note():
     except Exception as e:
         participants = []
         print(f"Error accessing participants: {str(e)}")
-
-    current_user = get_jwt_identity()
 
     # Resolve transcript_group_id: re-transcribes inherit the source's group,
     # everything else gets a fresh UUID.
