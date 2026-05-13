@@ -1,11 +1,10 @@
 import { createContext, useContext, useState } from "react";
-import BackupKeyModal from "@/components/admin/BackupKeyModal";
 import KeyExportBanner from "@/components/admin/KeyExportBanner";
 
 interface AuthContextType {
   token: string | null;
   user: User | null;
-  login: (token: string, refreshToken: string, user: User, backupKey?: string) => void;
+  login: (token: string, refreshToken: string, user: User) => void;
   logout: () => void;
   updateUser: (patch: Partial<User>) => void;
 }
@@ -18,6 +17,11 @@ interface User {
   role: string;
   lastLogin: string;
   forcePasswordChange?: boolean;
+  // True when this admin needs to view + back up the encryption key.
+  // Set on login/validateToken; cleared via /api/acknowledge-backup-key
+  // (called from the admin Encryption section after password re-auth).
+  // The key itself is NEVER carried by this flag — only the obligation.
+  pendingBackupKeyAcknowledgment?: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -25,16 +29,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(localStorage.getItem("access_token"));
   const [user, setUser] = useState<User | null>(localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user") as string) : null);
-  // In-memory only — never persisted. Cleared on acknowledge or full reload.
-  const [pendingBackupKey, setPendingBackupKey] = useState<string | null>(null);
 
-  const login = (newToken: string, refreshToken: string, user: User, backupKey?: string) => {
+  const login = (newToken: string, refreshToken: string, user: User) => {
     setToken(newToken);
     setUser(user);
     localStorage.setItem("user", JSON.stringify(user));
     localStorage.setItem("access_token", newToken);
     localStorage.setItem("refresh_token", refreshToken);
-    if (backupKey) setPendingBackupKey(backupKey);
   };
 
   const updateUser = (patch: Partial<User>) => {
@@ -49,37 +50,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = () => {
     setToken(null);
     setUser(null);
-    setPendingBackupKey(null);
     localStorage.removeItem("user");
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
-  };
-
-  const acknowledgeBackupKey = async () => {
-    try {
-      await fetch("http://127.0.0.1:5000/api/acknowledge-backup-key", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } finally {
-      // Clear locally even if the server call fails — server-side flag will
-      // catch up on next acknowledge attempt; we don't want to trap the user
-      // behind a modal because of a transient network error.
-      setPendingBackupKey(null);
-    }
   };
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout, updateUser }}>
       <KeyExportBanner />
       {children}
-      {pendingBackupKey && (
-        <BackupKeyModal
-          backupKey={pendingBackupKey}
-          onAcknowledge={acknowledgeBackupKey}
-          blocking
-        />
-      )}
     </AuthContext.Provider>
   );
 };

@@ -62,10 +62,31 @@ export default function EncryptionSection() {
       setRotatedKey(data.backup_key);
       setRotatePassword("");
       setShowRotateForm(false);
+      // Server resets the acknowledgment flag as part of rotation
+      // (admin_keys.py reset_backup_key_acknowledgement) so the new key needs
+      // a fresh ack. Reflect that locally so the modal we're about to show
+      // renders in blocking mode and the banner reappears if the admin
+      // dismisses without acknowledging.
+      auth.updateUser({ pendingBackupKeyAcknowledgment: true });
     } catch (e: any) {
       setRotateError(e.message ?? "Failed to rotate key");
     } finally {
       setRotating(false);
+    }
+  };
+
+  const acknowledgeBackupKey = async (onDone: () => void) => {
+    try {
+      await fetch("http://127.0.0.1:5000/api/acknowledge-backup-key", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+    } finally {
+      // Clear locally even on fetch failure — server flag is source of truth
+      // and validateToken will resync on next page nav if the request didn't
+      // land. Don't trap the user behind a blocking modal.
+      auth.updateUser({ pendingBackupKeyAcknowledgment: false });
+      onDone();
     }
   };
 
@@ -180,8 +201,8 @@ export default function EncryptionSection() {
       {exportedKey && (
         <BackupKeyModal
           backupKey={exportedKey}
-          onAcknowledge={async () => {}}
-          blocking={false}
+          onAcknowledge={() => acknowledgeBackupKey(() => setExportedKey(null))}
+          blocking={!!auth.user?.pendingBackupKeyAcknowledgment}
           onClose={() => setExportedKey(null)}
         />
       )}
@@ -189,8 +210,8 @@ export default function EncryptionSection() {
       {rotatedKey && (
         <BackupKeyModal
           backupKey={rotatedKey}
-          onAcknowledge={async () => {}}
-          blocking={false}
+          onAcknowledge={() => acknowledgeBackupKey(() => setRotatedKey(null))}
+          blocking={!!auth.user?.pendingBackupKeyAcknowledgment}
           onClose={() => setRotatedKey(null)}
           title="New encryption key"
           description={

@@ -7,11 +7,17 @@ from werkzeug.security import check_password_hash
 
 from app.extensions import db, limiter
 from app.models import User
-from app.security import sqlcipher
 from app.security.secrets import is_backup_key_acknowledged
 from app.services.audit import log_action
 
 bp = Blueprint("auth", __name__)
+
+
+def _pending_backup_key_ack(user) -> bool:
+    """True when this user needs to nudge through the backup-key flow.
+    Currently any admin who hasn't acknowledged the key (or hasn't since the
+    last rotation) — non-admins never see the banner."""
+    return user.role == 'admin' and not is_backup_key_acknowledged()
 
 
 @bp.route('/api/validateToken', methods=['GET'])
@@ -30,6 +36,7 @@ def validate_token():
             "role": user.role,
             "lastLogin": user.last_login,
             "forcePasswordChange": user.force_password_change,
+            "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
         },
     })
 
@@ -68,13 +75,12 @@ def login():
                 "role": user.role,
                 "lastLogin": user.last_login,
                 "forcePasswordChange": user.force_password_change,
+                # Drives the warning banner. The key itself is never returned
+                # by login — admins must password-re-auth on /admin/encryption
+                # to actually see it.
+                "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
             },
         }
-        # First-admin-login one-shot: surface the SQLCipher key so the operator
-        # can back it up. Cleared the moment any admin acknowledges via
-        # /api/acknowledge-backup-key — never returned by login again after that.
-        if user.role == 'admin' and not is_backup_key_acknowledged():
-            response_body["backup_key"] = sqlcipher.current_key()
         return jsonify(response_body), 200
 
     log_action(
