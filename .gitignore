@@ -23,6 +23,9 @@ Thumbs.db
 # Claude
 CLAUDE.md
 
+# Planning / drafts (not part of the app)
+SOCIAL_LAUNCH_PLAN.md
+
 # ===== Backend (Flask) =====
 # Byte-compiled / optimized / DLL files
 backend/__pycache__/

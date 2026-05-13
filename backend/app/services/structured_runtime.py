@@ -85,8 +85,10 @@ def _field_instruction(field: dict) -> str:
 # Tokens the simple-template system prompt uses to delimit the skeleton.
 # llama 3.2 occasionally echoes them in its output despite the "don't add
 # extras" rule. We strip them on the way out so the user never sees them.
+# The optional hex chunk matches the per-request nonce generate_markdown()
+# now appends to the delimiters (e.g. `###START TEMPLATE a1b2c3d4e5f6###`).
 _FRAMING_LINE = re.compile(
-    r"^\s*#{2,4}\s*(START|END)\s+TEMPLATE\s*#{2,4}\s*$",
+    r"^\s*#{2,4}\s*(START|END)\s+TEMPLATE(\s+[0-9a-f]+)?\s*#{2,4}\s*$",
     re.IGNORECASE,
 )
 
