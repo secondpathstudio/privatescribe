@@ -266,19 +266,23 @@ const NeoDemo = () => {
           {activeStep === 2 && !showTranscript && (
             <div className="border-4 border-black p-8 bg-white text-center">
               <h3 className="text-xl md:text-2xl font-bold mb-6 text-center md:text-left">Step 3: AI Processing</h3>
-              <div className="mb-6">
-                <div className="w-32 h-32 mx-auto rounded-full border-4 border-black bg-blue-400 flex items-center justify-center text-6xl animate-spin">
-                  🧠
+              <div className="mb-6 flex justify-center">
+                <div
+                  className="w-48 h-48 border-4 border-black overflow-clip flex items-center justify-center"
+                  style={{
+                    background: 'linear-gradient(to right, #fd3777, #ff9900, #ffff00)',
+                    boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)',
+                  }}
+                >
+                  <img
+                    src="/robot-shh.png"
+                    alt="AI thinking"
+                    className="h-full animate-pulse"
+                    style={{ animationDuration: '3s' }}
+                  />
                 </div>
               </div>
               <p className="text-lg mb-4">AI will analyze your recording and structure it according to your template...</p>
-              <div className="bg-gray-100 border-4 border-black p-4">
-                <div className="flex items-center justify-center space-x-2">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
-                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                </div>
-              </div>
             </div>
           )}
 
