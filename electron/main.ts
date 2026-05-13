@@ -7,6 +7,21 @@ import { startBackend, stopBackend, type BackendInfo } from './backend-process';
 // productName in package.json) and the setName() call is a no-op.
 app.setName('PrivateScribe');
 
+// What shows in the "About PrivateScribe" panel from the app menu. In dev
+// this would otherwise fall back to the Electron binary's Info.plist
+// ("Electron 33.x.x"). Packaged builds also pick these up but can be
+// overridden via the bundled Info.plist.
+app.setAboutPanelOptions({
+  applicationName: 'PrivateScribe',
+  applicationVersion: app.getVersion(),
+  version: app.getVersion(),
+  copyright: `Copyright © ${new Date().getFullYear()} Second Path Studio`,
+  credits:
+    'A private, local AI scribe.\n' +
+    'Fully open source — MIT licensed.\n' +
+    'https://www.secondpath.dev',
+});
+
 // app.isPackaged is false when running via `electron .` from source, true once
 // electron-builder has bundled the app. That's the right signal for whether to
 // spawn the bundled Python backend vs assume a developer has `flask run` going.
