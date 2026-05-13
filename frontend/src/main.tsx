@@ -29,12 +29,14 @@ import UploadLimitSection from './pages/Admin/sections/UploadLimit.tsx'
 import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
 import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
+import Og from './pages/Og/Og.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
     <BrowserRouter>
       <Routes>
+        <Route path="/og" element={<Og />} />
         <Route element={<RootLayout />}>
           <Route path="/" element={<App />} />
           
