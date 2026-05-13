@@ -50,4 +50,5 @@ tokenizers==0.21.0
 tqdm==4.67.1
 typing_extensions==4.12.2
 urllib3==2.3.0
+waitress==3.0.2
 Werkzeug==3.1.3

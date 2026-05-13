@@ -22,13 +22,17 @@ from app.cli import register_cli
 from app.errors import register_error_handlers
 from app.extensions import db, jwt, limiter, migrate
 from app.json_provider import ISODateJSONProvider
+from app.paths import data_dir
 from app.routes import register_blueprints
 from app.security import sqlcipher
 from app.security.secrets import ensure_jwt_secret, ensure_sqlcipher_key
 
 
 def create_app() -> Flask:
-    app = Flask(__name__)
+    # instance_path holds the encrypted DB and audio files. data_dir() honors
+    # PRIVATESCRIBE_DATA_DIR so embedded runs can point this at user-writable
+    # storage outside the read-only app bundle.
+    app = Flask(__name__, instance_path=str(data_dir()))
     app.json = ISODateJSONProvider(app)
 
     CORS(app, supports_credentials=True, origins=["http://localhost:3000"])

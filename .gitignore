@@ -76,3 +76,10 @@ frontend/pnpm-debug.log*
 frontend/lerna-debug.log*
 
 .env.todo*
+
+# ===== Electron =====
+node_modules/
+electron/dist/
+release/
+*.dmg
+*.app

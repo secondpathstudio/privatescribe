@@ -1,0 +1,19 @@
+{
+  "name": "privatescribe",
+  "version": "0.1.0",
+  "description": "Private local AI scribe — Electron shell",
+  "main": "electron/dist/main.js",
+  "private": true,
+  "scripts": {
+    "electron:tsc": "tsc -p electron",
+    "electron:dev": "npm run electron:tsc && electron .",
+    "dev": "concurrently -k -n vite,electron -c blue,magenta \"cd frontend && npm run dev\" \"wait-on tcp:3000 && npm run electron:dev\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "typescript": "^5.5.0",
+    "wait-on": "^8.0.0"
+  }
+}
