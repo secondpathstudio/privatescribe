@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import NeoButton from './neo-button';
 import CassetteSVG from './cassette';
 
-type TemplateKey = 'medical' | 'legal' | 'personal';
+type TemplateKey = 'medical' | 'legal' | 'therapy' | 'personal';
+
+type DiarizedSegment = { speaker: string; text: string };
 
 type Template = {
   name: string;
@@ -11,6 +13,13 @@ type Template = {
   fields: string[];
   sampleTranscript: string;
   processedNote: Record<string, string>;
+  speakerCount?: number;
+  diarizedTranscript?: DiarizedSegment[];
+};
+
+const SPEAKER_COLORS: Record<string, string> = {
+  Clinician: '#fce7f3',
+  Client: '#f3e8ff',
 };
 
 const templates: Record<TemplateKey, Template> = {
@@ -38,6 +47,26 @@ const templates: Record<TemplateKey, Template> = {
       "Legal Issue": "Non-compete clause enforceability",
       "Facts": "Contract signed in CA, remote work performed, dispute with former employer",
       "Action Items": "Review contract terms, research CA non-compete laws, schedule follow-up"
+    }
+  },
+  therapy: {
+    name: "Therapy Session",
+    emoji: "💬",
+    color: "linear-gradient(to bottom right, #9d4edd, white)",
+    fields: ["Presenting Concerns", "Session Content", "Functional Impact", "Plan"],
+    speakerCount: 2,
+    sampleTranscript: "thanks for coming in today how have you been since our last session pretty rough honestly the panic attacks came back twice this week the second one was at work and I had to leave early that sounds really difficult can you walk me through what was happening just before the first one I had a meeting on the calendar that I'd been dreading all week",
+    diarizedTranscript: [
+      { speaker: "Clinician", text: "Thanks for coming in today — how have you been since our last session?" },
+      { speaker: "Client", text: "Pretty rough, honestly. The panic attacks came back twice this week. The second one was at work and I had to leave early." },
+      { speaker: "Clinician", text: "That sounds really difficult. Can you walk me through what was happening just before the first one?" },
+      { speaker: "Client", text: "I had a meeting on the calendar that I'd been dreading all week." },
+    ],
+    processedNote: {
+      "Presenting Concerns": "Recurrence of panic attacks — two episodes in the past week",
+      "Session Content": "Client reports anticipatory anxiety preceding a scheduled work meeting as the trigger for the first episode; second episode occurred at the workplace",
+      "Functional Impact": "Required early departure from work; ongoing avoidance of work-related stressors",
+      "Plan": "Review CBT coping strategies for anticipatory anxiety; consider exposure hierarchy for work meetings; follow-up in one week"
     }
   },
   personal: {
@@ -108,7 +137,7 @@ const NeoDemo = () => {
       <div className="container mx-auto px-4">
         <h2 className="text-4xl font-black mb-4 text-center">SEE IT IN ACTION</h2>
         <p className="text-xl text-center mb-12 max-w-3xl mx-auto">
-          PrivateScribe can transform your voice recordings into perfectly structured notes using customizable templates.
+          PrivateScribe transforms your voice recordings into perfectly structured notes using customizable templates — and for group conversations, it can tell the speakers apart.
         </p>
 
         {/* Demo Steps */}
@@ -148,19 +177,26 @@ const NeoDemo = () => {
           {activeStep === 0 && (
             <div className="border-4 border-black p-8 bg-white">
               <h3 className="text-xl md:text-2xl font-bold mb-6 text-center md:text-left">Step 1: Choose Your Template</h3>
-              <div className="grid md:grid-cols-3 gap-4 mb-6">
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 {Object.entries(templates).map(([key, template]) => (
                   <NeoButton
                     key={key}
                     onClick={() => setSelectedTemplate(key as TemplateKey)}
                     selected={selectedTemplate === key}
                   >
-                    <div className="text-3xl mb-2">{template.emoji}</div>
-                    <div className="text-lg md:text-xl">{template.name}</div>
+                    <div className="flex flex-col items-center justify-center text-center">
+                      <div className="text-3xl mb-2">{template.emoji}</div>
+                      <div className="text-base lg:text-lg leading-tight">{template.name}</div>
+                      {template.speakerCount && (
+                        <div className="mt-2 text-xs font-bold bg-black text-white px-2 py-1">
+                          👥 {template.speakerCount} speakers
+                        </div>
+                      )}
+                    </div>
                   </NeoButton>
                 ))}
               </div>
-              
+
               <div className="bg-gray-50 border-4 border-black p-4 mb-6">
                 <h4 className="font-bold mb-2">Template Fields:</h4>
                 <div className="space-y-2">
@@ -170,6 +206,11 @@ const NeoDemo = () => {
                     </div>
                   ))}
                 </div>
+                {templates[selectedTemplate].speakerCount && (
+                  <p className="text-xs mt-3 italic">
+                    Multi-speaker conversation — PrivateScribe separates each speaker automatically.
+                  </p>
+                )}
               </div>
             
             <div className='flex justify-center items-center mt-6'>
@@ -245,15 +286,34 @@ const NeoDemo = () => {
           {activeStep === 3 && showTranscript && (
             <div className="border-4 border-black p-8 bg-white">
               <h3 className="text-xl md:text-2xl font-bold mb-6 text-center md:text-left">Step 4: Structured Transcript Generated!</h3>
-              
+
               <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <h4 className="font-bold mb-3 bg-[#2b0f54] text-white p-2 border-2 border-black">Raw Transcript:</h4>
-                  <div className="bg-gray-50 border-2 border-black p-4 text-sm">
-                    {templates[selectedTemplate].sampleTranscript}
+                <div className="space-y-6">
+                  <div>
+                    <h4 className="font-bold mb-3 bg-[#2b0f54] text-white p-2 border-2 border-black">Raw Transcript:</h4>
+                    <div className="bg-gray-50 border-2 border-black p-4 text-sm">
+                      {templates[selectedTemplate].sampleTranscript}
+                    </div>
                   </div>
+
+                  {templates[selectedTemplate].diarizedTranscript && (
+                    <div>
+                      <h4 className="font-bold mb-3 bg-[#9d4edd] text-white p-2 border-2 border-black">With Speaker Identification:</h4>
+                      <div className="space-y-2">
+                        {templates[selectedTemplate].diarizedTranscript!.map((segment, index) => (
+                          <div
+                            key={index}
+                            className="border-2 border-black p-3 text-sm"
+                            style={{ background: SPEAKER_COLORS[segment.speaker] ?? '#f5f5f5' }}
+                          >
+                            <span className="font-bold">{segment.speaker}:</span> {segment.text}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                
+
                 <div>
                   <h4 className="font-bold mb-3 bg-[#fd3777] text-white p-2 border-2 border-black">Structured Output:</h4>
                   <div className="space-y-3">
@@ -268,7 +328,7 @@ const NeoDemo = () => {
               </div>
 
               <div className="flex gap-4 justify-center items-center mt-8">
-                <NeoButton 
+                <NeoButton
                   onClick={handleStartDemo}
                 >
                   TRY AGAIN
