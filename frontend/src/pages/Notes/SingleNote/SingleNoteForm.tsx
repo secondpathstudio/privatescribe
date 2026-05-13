@@ -307,14 +307,15 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                         'Authorization': `Bearer ${auth.token}`,
                     },
                 });
+                const data = await response.json().catch(() => ({}));
                 if (!response.ok) {
-                    throw new Error('Network request failed with status ' + response.status);
-                } else {
-                    //note deleted permanently
-                    //redirect to notes page
-                    alert('Note deleted permanently');
-                    navigation('/notes');
+                    // 409 = note not in trash yet, or still inside the org's
+                    // retention window. The server message explains which.
+                    alert(data.error || `Could not delete note (status ${response.status}).`);
+                    return;
                 }
+                alert(data.message || 'Note permanently deleted.');
+                navigation('/notes');
             } catch (error) {
                 alert('Error deleting note permanently. Please try again.');
                 console.log('Error deleting note permanently: ', error)

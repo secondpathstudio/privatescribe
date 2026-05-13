@@ -20,6 +20,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/admin/encryption", label: "Encryption" },
       { to: "/admin/templates", label: "Templates" },
+      { to: "/admin/trash-retention", label: "Trash & Retention" },
     ],
   },
   {

@@ -176,7 +176,8 @@ const Notes = () => {
             <div className='mt-6 w-full flex flex-col justify-center items-center gap-2'>
                 {showDeleted && (
                     <p className='text-sm italic text-[#fd3777]'>
-                        Deleted notes are permanently removed after 30 days.
+                        Deleted notes stay in the trash until they're permanently deleted.
+                        How long they must be kept first is set by your admin's retention policy.
                     </p>
                 )}
                 <NeoButton

@@ -8,6 +8,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
 from app.models import AudioFile, Note, Participant, Template
 from app.services import audio_storage
+from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
 
 bp = Blueprint("notes", __name__, url_prefix="/api/notes")
@@ -470,8 +471,10 @@ def mark_note_as_deleted(id):
 
     return jsonify({
         "id": note.id,
-        "message": "Note added to trash, will be permanently deleted in 30 days",
+        "message": "Note moved to trash.",
         "deletedAt": note.is_deleted_timestamp,
+        "retentionDays": settings_service.get_trash_retention_days(),
+        "autoPurge": settings_service.get_trash_auto_purge(),
     })
 
 
@@ -483,9 +486,17 @@ def delete_note(id):
     note = Note.query.filter_by(id=id, author_id=current_user).first()
     if not note:
         return jsonify({"error": "Note not found"}), 404
+    #TODO add ability for admin to delete any note
+    # Two guards: the note must already be in the trash, and the org's
+    # trash-retention window must have elapsed (so a record-keeping policy
+    # can't be sidestepped by an immediate hard delete).
+    if not note.is_deleted:
+        return jsonify({"error": "Note must be in the trash before it can be permanently deleted"}), 409
+    blocked = settings_service.trash_purge_block_reason(note.is_deleted_timestamp, noun="note")
+    if blocked:
+        return jsonify({"error": blocked}), 409
 
     print('permanently deleting note:', note)
-    #TODO add ability for admin to delete any note
 
     log_action(
         'note.delete_permanent',

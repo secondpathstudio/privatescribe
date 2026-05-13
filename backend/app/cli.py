@@ -1,11 +1,15 @@
 """Flask CLI commands. Registered on the app via register_cli() in the factory."""
+from datetime import datetime, timedelta
 from getpass import getpass
 
 import click
+from flask.cli import with_appcontext
 from werkzeug.security import generate_password_hash
 
 from app.extensions import db
-from app.models import User
+from app.models import Note, Template, User
+from app.services import settings as settings_service
+from app.services.audit import log_action
 
 
 @click.command("create-admin")
@@ -39,5 +43,84 @@ def create_admin(email, first_name, last_name):
     click.echo(f"Admin user created with ID: {admin_user.id}")
 
 
+@click.command("purge-trash")
+@click.option("--dry-run", is_flag=True, help="Report what would be deleted without deleting anything.")
+@click.option("--force", is_flag=True, help="Run even if the 'auto purge' setting is off.")
+@with_appcontext
+def purge_trash(dry_run, force):
+    """Permanently delete trashed notes & templates past the retention window.
+
+    Honors the admin-configured settings: nothing is deleted unless
+    `trash_auto_purge` is enabled (override with --force), and an item is only
+    eligible once it has been in the trash for `trash_retention_days` days.
+    Intended to be run on a schedule (cron / systemd timer). Items with no
+    deletion timestamp are skipped.
+    """
+    auto_purge = settings_service.get_trash_auto_purge()
+    retention_days = settings_service.get_trash_retention_days()
+
+    if not auto_purge and not force:
+        click.echo(
+            "Auto-purge is disabled (trash_auto_purge = false); nothing to do. "
+            "Re-run with --force to purge anyway."
+        )
+        return
+
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    suffix = " [dry run]" if dry_run else ""
+    click.echo(
+        f"Purging items moved to trash on or before {cutoff.isoformat()} "
+        f"(retention: {retention_days} day(s)){suffix}."
+    )
+
+    notes = (
+        Note.query
+        .filter(Note.is_deleted.is_(True), Note.is_deleted_timestamp.isnot(None),
+                Note.is_deleted_timestamp <= cutoff)
+        .all()
+    )
+    templates = (
+        Template.query
+        .filter(Template.is_deleted.is_(True), Template.is_deleted_timestamp.isnot(None),
+                Template.is_deleted_timestamp <= cutoff)
+        .all()
+    )
+
+    click.echo(f"  eligible notes:     {len(notes)}")
+    click.echo(f"  eligible templates: {len(templates)}")
+
+    if dry_run:
+        for n in notes:
+            click.echo(f"  would delete note {n.id} (trashed {n.is_deleted_timestamp})")
+        for t in templates:
+            click.echo(f"  would delete template {t.id} (trashed {t.is_deleted_timestamp})")
+        click.echo("Dry run — no changes made.")
+        return
+
+    if not notes and not templates:
+        click.echo("Nothing eligible. Done.")
+        return
+
+    for n in notes:
+        log_action(
+            'note.delete_permanent',
+            resource_type='note',
+            resource_id=n.id,
+            extra={'transcript_group_id': n.transcript_group_id, 'via': 'purge-trash'},
+        )
+        db.session.delete(n)
+    for t in templates:
+        log_action(
+            'template.delete_permanent',
+            resource_type='template',
+            resource_id=t.id,
+            extra={'via': 'purge-trash'},
+        )
+        db.session.delete(t)
+    db.session.commit()
+    click.echo(f"Purged {len(notes)} note(s) and {len(templates)} template(s).")
+
+
 def register_cli(app):
     app.cli.add_command(create_admin)
+    app.cli.add_command(purge_trash)

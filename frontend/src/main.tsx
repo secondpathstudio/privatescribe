@@ -27,6 +27,7 @@ import TemplatesSection from './pages/Admin/sections/Templates.tsx'
 import ModelsSection from './pages/Admin/sections/Models.tsx'
 import UploadLimitSection from './pages/Admin/sections/UploadLimit.tsx'
 import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
+import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 
 createRoot(document.getElementById('root')!).render(
@@ -62,6 +63,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="models" element={<ModelsSection />} />
             <Route path="upload-limit" element={<UploadLimitSection />} />
             <Route path="diarization" element={<DiarizationSection />} />
+            <Route path="trash-retention" element={<TrashRetentionSection />} />
           </Route>
           <Route path="/roadmap" element={<Roadmap />} />
           <Route path="/login" element={<Login />} />

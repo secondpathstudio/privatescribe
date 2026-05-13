@@ -32,6 +32,13 @@ def get_settings():
         "diarization_device_effective": diarization.effective_device(),
         "diarization_devices_available": diarization.available_devices(),
         "diarization_device_options": list(diarization.VALID_DEVICES),
+        # Trash retention: minimum days an item stays in the trash before it can
+        # be permanently deleted, plus whether the purge job auto-deletes past
+        # the window.
+        "trash_retention_days": settings_service.get_trash_retention_days(),
+        "trash_retention_days_min": settings_service.MIN_TRASH_RETENTION_DAYS,
+        "trash_retention_days_max": settings_service.MAX_TRASH_RETENTION_DAYS,
+        "trash_auto_purge": settings_service.get_trash_auto_purge(),
     })
 
 
@@ -73,6 +80,70 @@ def update_upload_limit():
     db.session.commit()
 
     return jsonify({"upload_limit_mb": value})
+
+
+@bp.route('/trash-retention', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_trash_retention():
+    """Set the trash-retention window and the auto-purge toggle.
+
+    Body: {"retentionDays": int, "autoPurge": bool}. Both fields optional —
+    only the ones present are updated. retentionDays is the minimum number of
+    days a soft-deleted note/template must stay in the trash before it can be
+    permanently deleted (manually or by `flask purge-trash`). 0 disables the
+    waiting period. autoPurge controls whether the purge job actually deletes;
+    when false nothing is auto-deleted.
+
+    Takes effect immediately — the next permanent-delete request reads the
+    fresh value (settings are read per-request, not cached in app config).
+    """
+    data = request.get_json(silent=True) or {}
+    current_user = get_jwt_identity()
+
+    updates = []  # (key, old, new) tuples for the audit log
+
+    if 'retentionDays' in data:
+        try:
+            days = int(data['retentionDays'])
+        except (ValueError, TypeError):
+            return jsonify({"error": "retentionDays must be an integer (days)"}), 400
+        if days < settings_service.MIN_TRASH_RETENTION_DAYS or days > settings_service.MAX_TRASH_RETENTION_DAYS:
+            return jsonify({
+                "error": (
+                    f"retentionDays must be between {settings_service.MIN_TRASH_RETENTION_DAYS} "
+                    f"and {settings_service.MAX_TRASH_RETENTION_DAYS}"
+                ),
+            }), 400
+        previous = settings_service.get_trash_retention_days()
+        settings_service.set_value(settings_service.TRASH_RETENTION_DAYS, days, updated_by=current_user)
+        updates.append((settings_service.TRASH_RETENTION_DAYS, previous, days))
+
+    if 'autoPurge' in data:
+        auto = data['autoPurge']
+        if not isinstance(auto, bool):
+            return jsonify({"error": "autoPurge must be a boolean"}), 400
+        previous = settings_service.get_trash_auto_purge()
+        settings_service.set_value(settings_service.TRASH_AUTO_PURGE, auto, updated_by=current_user)
+        updates.append((settings_service.TRASH_AUTO_PURGE, previous, auto))
+
+    if not updates:
+        return jsonify({"error": "nothing to update — supply retentionDays and/or autoPurge"}), 400
+
+    for key, old, new in updates:
+        log_action(
+            'admin.settings_update',
+            user_id=current_user,
+            resource_type='setting',
+            resource_id=key,
+            extra={'old': old, 'new': new},
+        )
+    db.session.commit()
+
+    return jsonify({
+        "trash_retention_days": settings_service.get_trash_retention_days(),
+        "trash_auto_purge": settings_service.get_trash_auto_purge(),
+    })
 
 
 @bp.route('/diarization-device', methods=['PUT'])

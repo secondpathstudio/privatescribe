@@ -7,6 +7,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models import Template
+from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
 
 bp = Blueprint("templates", __name__, url_prefix="/api/templates")
@@ -346,8 +347,47 @@ def mark_template_as_deleted(id):
 
     return jsonify({
         "id": template.id,
-        "message": "Note added to trash, will be permanently deleted in 30 days",
+        "message": "Template moved to trash.",
         "deletedAt": template.is_deleted_timestamp,
+        "retentionDays": settings_service.get_trash_retention_days(),
+        "autoPurge": settings_service.get_trash_auto_purge(),
+    })
+
+
+@bp.route('/<string:id>/delete-permanently', methods=['DELETE'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def delete_template(id):
+    """Hard-delete a template. Notes that referenced it keep their already-
+    generated content; SQLAlchemy nulls out their template_id on delete.
+
+    Two guards: the template must already be in the trash (purging is a
+    two-step confirm so a misclick can't vaporize a template that's still in
+    use), and the org's trash-retention window must have elapsed.
+    """
+    current_user = get_jwt_identity()
+    template = Template.query.filter_by(id=id, author_id=current_user).first()
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
+    #TODO add ability for admin to delete any template
+    if not template.is_deleted:
+        return jsonify({"error": "Template must be in the trash before it can be permanently deleted"}), 409
+    blocked = settings_service.trash_purge_block_reason(template.is_deleted_timestamp, noun="template")
+    if blocked:
+        return jsonify({"error": blocked}), 409
+
+    log_action(
+        'template.delete_permanent',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template.id,
+    )
+    db.session.delete(template)
+    db.session.commit()
+
+    return jsonify({
+        "id": id,
+        "message": "Template permanently deleted.",
     })
 
 

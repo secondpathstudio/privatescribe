@@ -5,7 +5,7 @@ or small structures. Callers should use the typed accessors (get_int, etc.)
 which apply defaults if the row is missing or malformed.
 """
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from app.extensions import db
@@ -14,12 +14,28 @@ from app.models import SystemSetting
 # Known setting keys. Centralized so frontend and routes stay in sync.
 UPLOAD_LIMIT_MB = "upload_limit_mb"
 DIARIZATION_DEVICE = "diarization_device"
+TRASH_RETENTION_DAYS = "trash_retention_days"
+TRASH_AUTO_PURGE = "trash_auto_purge"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
 MAX_UPLOAD_LIMIT_MB = 5120  # 5 GB — generous, but blocks "infinite upload" footguns
 
 DEFAULT_DIARIZATION_DEVICE = "auto"
+
+# Trash retention. A soft-deleted note/template must sit in the trash at least
+# this many days before it can be permanently deleted — manually or by the
+# `flask purge-trash` job. 0 = no waiting period (delete anytime). The max is
+# ~10 years, comfortably covering the longest clinical/legal record-retention
+# windows we expect anyone to need.
+DEFAULT_TRASH_RETENTION_DAYS = 30
+MIN_TRASH_RETENTION_DAYS = 0
+MAX_TRASH_RETENTION_DAYS = 3650
+
+# When True, `flask purge-trash` hard-deletes trashed items older than the
+# retention window. When False (default), nothing is auto-deleted — items stay
+# in the trash until someone permanently deletes them by hand.
+DEFAULT_TRASH_AUTO_PURGE = False
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -51,6 +67,19 @@ def get_str(key: str, default: str) -> str:
         return default
 
 
+def get_bool(key: str, default: bool) -> bool:
+    raw = _get_raw(key)
+    if raw is None:
+        return default
+    try:
+        value = json.loads(raw)
+        if isinstance(value, bool):
+            return value
+        return default
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return default
+
+
 def set_value(key: str, value, updated_by: Optional[str] = None) -> None:
     """Upsert a setting. `value` is JSON-serialized."""
     serialized = json.dumps(value)
@@ -71,3 +100,39 @@ def get_upload_limit_mb() -> int:
 
 def get_diarization_device() -> str:
     return get_str(DIARIZATION_DEVICE, DEFAULT_DIARIZATION_DEVICE)
+
+
+def get_trash_retention_days() -> int:
+    value = get_int(TRASH_RETENTION_DAYS, DEFAULT_TRASH_RETENTION_DAYS)
+    # Clamp defensively — a bad row shouldn't make the floor negative or absurd.
+    return max(MIN_TRASH_RETENTION_DAYS, min(MAX_TRASH_RETENTION_DAYS, value))
+
+
+def get_trash_auto_purge() -> bool:
+    return get_bool(TRASH_AUTO_PURGE, DEFAULT_TRASH_AUTO_PURGE)
+
+
+def trash_purge_eligible_on(is_deleted_timestamp: Optional[datetime]) -> Optional[datetime]:
+    """UTC datetime at which a soft-deleted item becomes eligible for permanent
+    deletion, or None if there's no waiting period (retention == 0) or the
+    deletion timestamp is missing (treated as 'eligible now').
+    """
+    days = get_trash_retention_days()
+    if days <= 0 or is_deleted_timestamp is None:
+        return None
+    return is_deleted_timestamp + timedelta(days=days)
+
+
+def trash_purge_block_reason(is_deleted_timestamp: Optional[datetime], *, noun: str = "item") -> Optional[str]:
+    """Human-readable reason this item can't be permanently deleted yet, or
+    None if it's eligible now. Used by the permanent-delete routes and the
+    purge job to speak with one voice.
+    """
+    eligible_on = trash_purge_eligible_on(is_deleted_timestamp)
+    if eligible_on is None or datetime.utcnow() >= eligible_on:
+        return None
+    return (
+        f"This {noun} can't be permanently deleted yet — the trash retention "
+        f"policy keeps it until {eligible_on.strftime('%m/%d/%Y')} "
+        f"({get_trash_retention_days()} days after it entered the trash)."
+    )

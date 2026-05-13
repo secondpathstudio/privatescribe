@@ -137,9 +137,9 @@ const SingleTemplateForm = ({ template }: Props) => {
                 
                 if (data.message) {
                     setUpdating(false);
-                    alert(data.message + ' - Redirecting to notes page');
-                    
-                    //redirect to notes page
+                    alert(data.message + ' - Redirecting to templates page');
+
+                    //redirect to templates page
                     navigate('/templates');
                 }
                 
@@ -149,6 +149,36 @@ const SingleTemplateForm = ({ template }: Props) => {
         } catch (error) {
             alert('Error deleting template. Please try again.');
             console.log('Error deleting template: ', error)
+            setUpdating(false);
+        }
+    }
+
+    const handleDeleteTemplatePermanently = async () => {
+        if (!confirm('Permanently delete this template? This cannot be undone. Notes created from it keep their content but lose the template link.')) {
+            return;
+        }
+        setUpdating(true);
+        try {
+            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}/delete-permanently`, {
+                method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${auth.token}`,
+                },
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                // 409 = template not in trash yet, or still inside the org's
+                // retention window. The server message explains which.
+                setUpdating(false);
+                alert(data.error || `Could not delete template (status ${response.status}).`);
+                return;
+            }
+            setUpdating(false);
+            alert((data.message || 'Template permanently deleted.') + ' - Redirecting to templates page');
+            navigate('/templates');
+        } catch (error) {
+            alert('Error permanently deleting template. Please try again.');
+            console.log('Error permanently deleting template: ', error);
             setUpdating(false);
         }
     }
@@ -340,13 +370,22 @@ const SingleTemplateForm = ({ template }: Props) => {
                     Reset
                 </NeoButton>
                 {template.isDeleted ? (
-                    <NeoButton
-                        type="button"
-                        label="Restore"
-                        onClick={handleUndeleteTemplate}
-                    />
+                    <>
+                        <NeoButton
+                            type="button"
+                            label="Restore"
+                            onClick={handleUndeleteTemplate}
+                        />
+                        <NeoButton
+                            type="button"
+                            label="Delete permanently"
+                            backgroundColor="#dc2626"
+                            textColor="#ffffff"
+                            onClick={handleDeleteTemplatePermanently}
+                        />
+                    </>
                 ): (
-                <NeoButton 
+                <NeoButton
                     type="button"
                     onClick={handleDeleteTemplate}
                 >
