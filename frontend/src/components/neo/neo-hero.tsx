@@ -15,12 +15,17 @@ const NeoHero = (props: Props) => {
               <h1 className="text-4xl md:text-7xl font-black text-white mb-6 leading-tight">
                 AI NOTES THAT NEVER LEAVE YOUR DEVICE
               </h1>
-              <p className="text-xl text-white mb-4">
+              <p className="text-xl text-white mb-8">
                 Built for clinicians, therapists, attorneys, and anyone whose conversations are too sensitive for the cloud. Record, transcribe, and format your notes — entirely on your own machine.
               </p>
-              <p className="text-base text-white/80 mb-8 italic">
-                No accounts. No telemetry. No vendor reading your sessions.
-              </p>
+              <div className="flex flex-wrap gap-2 mb-8 xl:justify-start justify-center">
+                <div className="border-2 border-white text-white font-bold text-sm px-3 py-1 uppercase tracking-wider bg-black/30">
+                  100% Offline
+                </div>
+                <div className="border-2 border-white text-white font-bold text-sm px-3 py-1 uppercase tracking-wider bg-black/30">
+                  256-Bit Encrypted
+                </div>
+              </div>
               <div className="flex flex-wrap gap-4 xl:justify-start justify-center items-center">
                 {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
                 <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
