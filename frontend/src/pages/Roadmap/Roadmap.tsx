@@ -51,7 +51,7 @@ const Roadmap = () => {
       title: "ACCESSIBILITY",
       status: "in-progress",
       items: [
-        { text: "PrivateScribe Studio — template designer for teams", completed: false },
+        { text: "PrivateScribe Studio — design richer templates for more detailed, customizable notes", completed: false },
         { text: "Standalone desktop app (in development)", completed: false },
         { text: "Named participant assignment to diarized speakers", completed: false },
       ],

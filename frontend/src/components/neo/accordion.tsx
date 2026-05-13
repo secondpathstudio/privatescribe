@@ -27,7 +27,7 @@ const NeoAccordion = () => {
     },
     {
       question: "What does it cost?",
-      answer: "PrivateScribe is open source under MIT — free for personal use and for commercial use inside a practice. Paid tiers (coming soon) layer on top: PrivateScribe Studio for designing and centrally managing templates across a team — one edit propagates to everyone, no version drift between users — plus access to fine-tuned and custom-trained premium models for specialized workflows, deployment assistance, and priority support. The privacy guarantees don't change between tiers: paid or free, your data still never leaves your machine."
+      answer: "PrivateScribe is open source under MIT — free for personal use and for commercial use inside a practice. Paid tiers (coming soon) layer on top: PrivateScribe Studio for designing richer, more customizable templates than the built-in editor allows (with central management across a team if you have one — one edit propagates to everyone, no version drift), access to fine-tuned and custom-trained premium models for specialized workflows, deployment assistance, and priority support. The privacy guarantees don't change between tiers: paid or free, your data still never leaves your machine."
     }
   ];
 
