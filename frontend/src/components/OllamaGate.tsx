@@ -2,7 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import NeoButton from "@/components/neo/neo-button";
 
-const POLL_MS = 3000;
+// Fast cadence while we're waiting for recovery — gives the modal/banner
+// snappy feedback once the user starts Ollama. Slow cadence when known
+// healthy — most sessions stay healthy and there's no reason to hammer.
+const POLL_FAST_MS = 3000;
+const POLL_SLOW_MS = 60_000;
 
 type Status = "checking" | "available" | "unavailable";
 
@@ -39,22 +43,46 @@ export default function OllamaGate() {
     setStatus(ok ? "available" : "unavailable");
   }, []);
 
+  // One-shot probe on mount so we don't wait a full slow interval for the
+  // first answer.
   useEffect(() => {
     if (!inElectron) return;
     let cancelled = false;
+    probe().then((ok) => {
+      if (!cancelled) setStatus(ok ? "available" : "unavailable");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [inElectron]);
 
-    const run = async () => {
+  // Periodic re-check; cadence depends on current health. Re-fires the
+  // effect when status flips so the interval adapts.
+  useEffect(() => {
+    if (!inElectron) return;
+    let cancelled = false;
+    const intervalMs = status === "available" ? POLL_SLOW_MS : POLL_FAST_MS;
+    const handle = setInterval(async () => {
       const ok = await probe();
       if (!cancelled) setStatus(ok ? "available" : "unavailable");
-    };
-
-    run();
-    const handle = setInterval(run, POLL_MS);
+    }, intervalMs);
     return () => {
       cancelled = true;
       clearInterval(handle);
     };
-  }, [inElectron]);
+  }, [inElectron, status]);
+
+  // Re-check when the user returns to the app window. Free signal that
+  // covers the "I just installed Ollama, switched back" case without
+  // waiting for the next slow tick.
+  useEffect(() => {
+    if (!inElectron) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [inElectron, tick]);
 
   // Pad the body when the banner is showing so it doesn't occlude the app's
   // fixed top nav. Cleaned up automatically when status flips or unmounts.

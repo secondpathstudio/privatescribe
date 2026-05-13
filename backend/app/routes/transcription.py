@@ -203,14 +203,17 @@ def list_ollama_models():
 def ollama_health():
     """Unauthenticated probe used by the Electron shell at app boot.
 
-    Returns {"ok": true} when the local Ollama daemon is reachable and
-    {"ok": false, "error": "..."} otherwise. Kept auth-free because the
-    check fires before the user has logged in.
+    Does a sub-second TCP connect to the Ollama port instead of calling
+    `list_installed_models()`. We only need to know "is the daemon up?",
+    so we skip parsing the model list every poll. Kept auth-free because
+    the check fires before the user has logged in.
     """
+    import socket
+    host, port = ollama_client.get_host_port()
     try:
-        ollama_client.list_installed_models()
-        return jsonify({"ok": True})
-    except Exception as e:
+        with socket.create_connection((host, port), timeout=0.5):
+            return jsonify({"ok": True})
+    except OSError as e:
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 503
 
 

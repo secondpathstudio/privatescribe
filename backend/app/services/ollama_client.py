@@ -46,6 +46,29 @@ _chat_client = None
 _control_client = None
 
 
+def get_host_port() -> tuple[str, int]:
+    """Resolve the host/port the ollama client targets.
+
+    Mirrors the ollama package's own OLLAMA_HOST parsing so a TCP-level
+    health probe hits the same daemon the rest of the app is talking to.
+    Accepts bare `host:port`, `host`, or full URL forms.
+    """
+    raw = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434").strip()
+    if "://" in raw:
+        from urllib.parse import urlparse
+        u = urlparse(raw)
+        host = u.hostname or "127.0.0.1"
+        port = u.port or (443 if u.scheme == "https" else 11434)
+        return host, port
+    if ":" in raw:
+        host, _, port_str = raw.rpartition(":")
+        try:
+            return (host or "127.0.0.1"), int(port_str)
+        except ValueError:
+            return "127.0.0.1", 11434
+    return raw or "127.0.0.1", 11434
+
+
 def _get_chat_client():
     global _chat_client
     if _chat_client is None:

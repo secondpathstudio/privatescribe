@@ -1,18 +1,106 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import { startBackend, stopBackend, type BackendInfo } from './backend-process';
+
+// Set early so app.getName() and macOS menus pick this up instead of "Electron".
+// In a packaged build this comes from CFBundleName in Info.plist (driven by
+// productName in package.json) and the setName() call is a no-op.
+app.setName('PrivateScribe');
 
 // app.isPackaged is false when running via `electron .` from source, true once
 // electron-builder has bundled the app. That's the right signal for whether to
 // spawn the bundled Python backend vs assume a developer has `flask run` going.
 const isDev = !app.isPackaged;
 
+const ASSETS_DIR = path.join(__dirname, '..', 'assets');
+const ICON_ICNS = path.join(ASSETS_DIR, 'icon.icns'); // used by electron-builder
+const ICON_PNG = path.join(ASSETS_DIR, 'icon.png'); // used at dev runtime for Dock
+
 let backend: BackendInfo | null = null;
+
+function buildMenu(): void {
+  // Custom application menu. Without an Edit menu the standard Cmd+C/V/X/A
+  // shortcuts don't work in inputs on macOS, so we include it explicitly.
+  // View menu only exposes dev tools in dev builds.
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: isDev
+        ? [
+            { role: 'reload' },
+            { role: 'forceReload' },
+            { role: 'toggleDevTools' },
+            { type: 'separator' },
+            { role: 'resetZoom' },
+            { role: 'zoomIn' },
+            { role: 'zoomOut' },
+            { type: 'separator' },
+            { role: 'togglefullscreen' },
+          ]
+        : [
+            { role: 'resetZoom' },
+            { role: 'zoomIn' },
+            { role: 'zoomOut' },
+            { type: 'separator' },
+            { role: 'togglefullscreen' },
+          ],
+    },
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        { role: 'front' },
+        { role: 'close' },
+      ],
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'PrivateScribe on GitHub',
+          click: () =>
+            shell.openExternal('https://github.com/secondpathstudio/privatescribe'),
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 async function createWindow(apiBase: string): Promise<void> {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    title: 'PrivateScribe',
+    icon: ICON_PNG,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -34,6 +122,20 @@ async function createWindow(apiBase: string): Promise<void> {
 }
 
 app.whenReady().then(async () => {
+  // In dev the Dock icon comes from the Electron binary, so override at
+  // runtime. PNG is more reliable than icns for nativeImage.createFromPath.
+  // In packaged builds the icon is baked in by electron-builder.
+  if (process.platform === 'darwin' && app.dock) {
+    const img = nativeImage.createFromPath(ICON_PNG);
+    if (!img.isEmpty()) {
+      app.dock.setIcon(img);
+    } else {
+      console.warn(`[icon] failed to load dock icon from ${ICON_PNG}`);
+    }
+  }
+
+  buildMenu();
+
   let apiBase: string;
 
   if (isDev) {
