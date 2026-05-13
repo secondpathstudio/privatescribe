@@ -30,11 +30,13 @@ import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
 import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 import Og from './pages/Og/Og.tsx'
+import OllamaGate from './components/OllamaGate.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
     <BrowserRouter>
+      <OllamaGate />
       <Routes>
         <Route path="/og" element={<Og />} />
         <Route element={<RootLayout />}>

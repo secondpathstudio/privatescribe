@@ -198,6 +198,22 @@ def list_ollama_models():
     })
 
 
+@bp.route('/api/ollama/health', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+def ollama_health():
+    """Unauthenticated probe used by the Electron shell at app boot.
+
+    Returns {"ok": true} when the local Ollama daemon is reachable and
+    {"ok": false, "error": "..."} otherwise. Kept auth-free because the
+    check fires before the user has logged in.
+    """
+    try:
+        ollama_client.list_installed_models()
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 503
+
+
 @bp.route('/api/getMarkdown', methods=['POST'])
 @jwt_required()
 def get_markdown():
