@@ -244,6 +244,12 @@ def update_template(id):
     if not template:
         return jsonify({"error": "Template not found"}), 404
 
+    # Soft-deleted templates are in the trash — editing one would bump
+    # updated_at/version while leaving is_deleted=True, an incoherent state.
+    # The caller must restore it (PUT /<id>/restore) before editing.
+    if template.is_deleted:
+        return jsonify({"error": "Template is deleted; restore it before editing"}), 409
+
     data = request.get_json(silent=True) or {}
 
     # Type conversions are intentionally not supported. A template's wire
