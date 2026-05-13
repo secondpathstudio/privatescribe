@@ -457,17 +457,21 @@ def mark_note_as_deleted(id):
     print('marking note as deleted', note)
     #TODO add ability for admin to delete any note
 
-    note.is_deleted = True
-    note.is_deleted_timestamp = datetime.utcnow()
-    note.updated_at = datetime.utcnow()
+    # Idempotent: only stamp the trash timer on the active -> deleted
+    # transition, so replaying the call on an already-trashed note doesn't
+    # reset the retention clock.
+    if not note.is_deleted:
+        note.is_deleted = True
+        note.is_deleted_timestamp = datetime.utcnow()
+        note.updated_at = datetime.utcnow()
 
-    log_action(
-        'note.delete_soft',
-        user_id=current_user,
-        resource_type='note',
-        resource_id=note.id,
-    )
-    db.session.commit()
+        log_action(
+            'note.delete_soft',
+            user_id=current_user,
+            resource_type='note',
+            resource_id=note.id,
+        )
+        db.session.commit()
 
     return jsonify({
         "id": note.id,

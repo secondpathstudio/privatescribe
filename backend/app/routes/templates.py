@@ -333,17 +333,21 @@ def mark_template_as_deleted(id):
         return jsonify({"error": "Template not found"}), 404
     #TODO add ability for admin to delete any template
 
-    template.is_deleted = True
-    template.is_deleted_timestamp = datetime.utcnow()
-    template.updated_at = datetime.utcnow()
+    # Idempotent: only stamp the trash timer on the active -> deleted
+    # transition. Replaying the call on an already-trashed template must not
+    # reset the retention clock (otherwise the purge date keeps sliding).
+    if not template.is_deleted:
+        template.is_deleted = True
+        template.is_deleted_timestamp = datetime.utcnow()
+        template.updated_at = datetime.utcnow()
 
-    log_action(
-        'template.delete_soft',
-        user_id=current_user,
-        resource_type='template',
-        resource_id=template.id,
-    )
-    db.session.commit()
+        log_action(
+            'template.delete_soft',
+            user_id=current_user,
+            resource_type='template',
+            resource_id=template.id,
+        )
+        db.session.commit()
 
     return jsonify({
         "id": template.id,
