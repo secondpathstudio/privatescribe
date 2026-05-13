@@ -25,6 +25,11 @@ type Props = {
 const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
+    // Lets the user bail out of a hung LLM formatting call (slow hardware /
+    // big transcript) instead of staring at "Formatting note..." forever.
+    // Set while the formatting stage is in flight, cleared in getMarkdown's
+    // finally. Aborting falls back to the raw transcript, same as a 503.
+    const formattingAbortRef = React.useRef<AbortController | null>(null)
     // Single pipeline state: null = idle, otherwise the currently-running stage.
     // The backend streams transcribing → diarizing; the frontend sets
     // 'formatting' itself before calling /api/getMarkdown.
@@ -393,7 +398,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         }
     }
 
-    const getMarkdownStructured = async (rawNote: string) => {
+    const getMarkdownStructured = async (rawNote: string, signal?: AbortSignal) => {
         // Streaming path for structured (Studio) templates. Backend may run
         // single-call (one Ollama round-trip, one `complete` event) or
         // per-field (one event per field, then `complete`) depending on the
@@ -406,6 +411,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${auth.token}`,
                 },
+                signal,
                 body: JSON.stringify({
                     raw_note: rawNote,
                     template_id: form.getValues('noteTemplate'),
@@ -529,9 +535,25 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             setMarkdown(finalMarkdown);
             handleAddNewNote({ preventDefault: () => {} } as React.FormEvent, form);
         } catch (e: any) {
+            if (e?.name === 'AbortError') {
+                // Bubble up so getMarkdown's catch shows the cancel/fallback path.
+                throw e;
+            }
             console.error('Structured formatting failed:', e);
             alert(`Formatting failed: ${e.message}`);
         }
+    };
+
+    // Drop the raw transcript into the editor (without auto-saving) so the user
+    // can edit/save by hand. Shared by the 422/503/cancel fallbacks.
+    const fallBackToRawTranscript = (rawNote: string) => {
+        form.setValue('noteContentMarkdown', rawNote);
+        mdxEditorRef.current?.setMarkdown(rawNote);
+        setMarkdown(rawNote);
+    };
+
+    const cancelFormatting = () => {
+        formattingAbortRef.current?.abort();
     };
 
     const getMarkdown = async (rawNote: string) => {
@@ -542,27 +564,24 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         form.setValue('noteContentMarkdown', '');
         mdxEditorRef.current?.setMarkdown('');
 
-        // Branch on the picked template's type. Structured templates run on
-        // a different endpoint that streams per-field progress.
-        if (selectedTemplateType === 'structured') {
-            try {
-                await getMarkdownStructured(rawNote);
-            } finally {
-                setStage(null);
-                // Keep structuredProgress around so the user can see the final
-                // per-field summary even after the run completes. They can
-                // clear it via the form reset / new-note action.
-            }
-            return;
-        }
+        const controller = new AbortController();
+        formattingAbortRef.current = controller;
 
         try {
+            // Branch on the picked template's type. Structured templates run on
+            // a different endpoint that streams per-field progress.
+            if (selectedTemplateType === 'structured') {
+                await getMarkdownStructured(rawNote, controller.signal);
+                return;
+            }
+
             const response = await fetch('http://127.0.0.1:5000/api/getMarkdown', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${auth.token}`,
                 },
+                signal: controller.signal,
                 body: JSON.stringify({
                     raw_note: rawNote,
                     note_details: {
@@ -580,20 +599,15 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 // raw-transcript fallback as 503, but with a clearer message that
                 // tells the operator which model is missing.
                 if (response.status === 422 && errorData.error === 'model_not_installed') {
-                    const fallback = errorData.raw_note || rawNote;
-                    form.setValue('noteContentMarkdown', fallback);
-                    mdxEditorRef.current?.setMarkdown(fallback);
-                    setMarkdown(fallback);
+                    fallBackToRawTranscript(errorData.raw_note || rawNote);
                     alert(errorData.message || `The model '${errorData.model}' isn't installed. An admin needs to pull it before this template can be used.`);
                     return;
                 }
                 if (response.status === 503) {
-                    // Ollama unavailable — fall back to the raw transcript so the
+                    // Ollama unavailable (down, model missing, or our request
+                    // timeout fired) — fall back to the raw transcript so the
                     // user can edit/save manually instead of losing the recording.
-                    const fallback = errorData.raw_note || rawNote;
-                    form.setValue('noteContentMarkdown', fallback);
-                    mdxEditorRef.current?.setMarkdown(fallback);
-                    setMarkdown(fallback);
+                    fallBackToRawTranscript(errorData.raw_note || rawNote);
                     alert(errorData.error || 'AI formatting unavailable. Showing the raw transcript so you can edit and save manually.');
                     return; // don't auto-save; let the user review
                 }
@@ -608,10 +622,22 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             //save note
             handleAddNewNote({ preventDefault: () => {} } as React.FormEvent, form);
         } catch (error: any) {
-            console.error('Failed to get markdown:', error);
-            alert(`Formatting failed: ${error.message}`);
+            if (error?.name === 'AbortError') {
+                // User hit Cancel. Keep the recording — show the raw transcript
+                // for hand-editing, same as the 503 path. (Note the backend
+                // request keeps running to completion; we just stop waiting.)
+                fallBackToRawTranscript(rawNote);
+                alert('Formatting cancelled. Showing the raw transcript so you can edit and save it manually.');
+            } else {
+                console.error('Failed to get markdown:', error);
+                alert(`Formatting failed: ${error.message}`);
+            }
         } finally {
+            formattingAbortRef.current = null;
             setStage(null);
+            // Keep structuredProgress around so the user can see the final
+            // per-field summary even after the run completes; the form reset /
+            // new-note action clears it.
         }
     }
 
@@ -852,6 +878,15 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 <span className="text-xs text-gray-600 tabular-nums">
                     {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')} elapsed
                 </span>
+                {stage === 'formatting' && (
+                    <button
+                        type="button"
+                        onClick={cancelFormatting}
+                        className="mt-1 text-xs font-bold uppercase tracking-wider underline text-[#fd3777] hover:text-black"
+                    >
+                        Cancel — keep raw transcript
+                    </button>
+                )}
             </div>
         )}
 

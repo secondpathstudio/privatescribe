@@ -6,12 +6,71 @@ generate_markdown() is the contract for how templates are filled in: bracketed
 raw transcript; everything else is preserved literally. Editing the system
 prompt here changes template behavior across the app.
 """
+import os
 import secrets
 from datetime import date, datetime
 
 import ollama
 
 DEFAULT_OLLAMA_MODEL = "llama3.2"
+
+# How long to wait on a single `ollama.chat` round-trip before giving up. On
+# slow hardware a large transcript can otherwise hang the request forever and
+# the user is stuck staring at "Formatting note..." with nothing to do. This
+# is wall-clock for the whole non-streaming response (httpx applies it as the
+# read timeout, and a non-streaming chat sends nothing until it's done). The
+# request handler already treats the resulting timeout exception the same as
+# "Ollama unavailable" — 503 + echo the raw transcript back. Override with the
+# OLLAMA_CHAT_TIMEOUT_SECONDS env var; 0 / unset uses the default below.
+DEFAULT_CHAT_TIMEOUT_SECONDS = 300.0
+# Control-plane calls (listing installed models) should fail fast if the
+# daemon is wedged — they're used as preflight checks before the real work.
+CONTROL_TIMEOUT_SECONDS = 10.0
+
+
+def _env_timeout(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+# Lazily-built httpx-backed clients. ollama.Client(**kwargs) forwards kwargs to
+# httpx.Client, so `timeout=` is honored. One per role so the long chat timeout
+# doesn't make `list()` hang and vice versa.
+_chat_client = None
+_control_client = None
+
+
+def _get_chat_client():
+    global _chat_client
+    if _chat_client is None:
+        _chat_client = ollama.Client(
+            timeout=_env_timeout("OLLAMA_CHAT_TIMEOUT_SECONDS", DEFAULT_CHAT_TIMEOUT_SECONDS)
+        )
+    return _chat_client
+
+
+def _get_control_client():
+    global _control_client
+    if _control_client is None:
+        _control_client = ollama.Client(timeout=CONTROL_TIMEOUT_SECONDS)
+    return _control_client
+
+
+def chat(**kwargs):
+    """`ollama.chat` with a bounded timeout (see DEFAULT_CHAT_TIMEOUT_SECONDS).
+
+    On hang this raises httpx.TimeoutException (a plain Exception subclass), so
+    callers that already catch "Ollama unavailable" pick it up unchanged.
+    Shared by generate_markdown() here and the per-field runner in
+    structured_runtime so both paths get the watchdog.
+    """
+    return _get_chat_client().chat(**kwargs)
 
 
 def _normalize_progress(chunk) -> dict:
@@ -42,7 +101,7 @@ def list_installed_models() -> list[dict]:
     Raises whatever ollama raises if the daemon is unreachable; the route
     handler decides how to surface that to the client.
     """
-    response = ollama.list()
+    response = _get_control_client().list()
     raw_models = response.get('models', []) if isinstance(response, dict) else getattr(response, 'models', [])
     out = []
     for m in raw_models:
@@ -199,7 +258,7 @@ def generate_markdown(template, raw_note: str, note_details: dict, model_name: s
     nonce = secrets.token_hex(8)
     start_tag = f"###START TEMPLATE {nonce}###"
     end_tag = f"###END TEMPLATE {nonce}###"
-    response = ollama.chat(
+    response = chat(
         model=model_name,
         messages=[
             {

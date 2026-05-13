@@ -21,8 +21,7 @@ from __future__ import annotations
 import re
 from typing import Any, Iterator
 
-import ollama
-
+from app.services import ollama_client
 from app.services.strictness import (
     clamp_strictness,
     effective_strictness,
@@ -299,7 +298,7 @@ def run_per_field(
 
             t0 = time.monotonic()
             try:
-                resp = ollama.chat(
+                resp = ollama_client.chat(
                     model=model_name,
                     messages=[
                         {'role': 'system', 'content': system},
