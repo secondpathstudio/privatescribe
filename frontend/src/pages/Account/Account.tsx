@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { FormEvent, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "@/context/auth-context";
@@ -40,7 +41,7 @@ export default function Account() {
 
     setSubmitting(true);
     try {
-      const res = await fetch("http://127.0.0.1:5000/api/me/change-password", {
+      const res = await fetch(`${API_BASE}/api/me/change-password`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { Navigate } from 'react-router'
 import { useAuth } from "@/context/auth-context";
 import { useEffect, useState } from 'react';
@@ -9,7 +10,7 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   useEffect(() => {
     const validateToken = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:5000/api/validateToken', {
+        const response = await fetch(`${API_BASE}/api/validateToken`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

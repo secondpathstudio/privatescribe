@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -45,7 +46,7 @@ export default function AddUserForm({ onSuccess, onCancel }: Props) {
     setIsSubmitting(true);
     setServerError(null);
     try {
-      const response = await fetch("http://127.0.0.1:5000/api/admin/users", {
+      const response = await fetch(`${API_BASE}/api/admin/users`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

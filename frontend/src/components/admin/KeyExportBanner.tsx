@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 
@@ -20,7 +21,7 @@ export default function KeyExportBanner() {
       return;
     }
     let cancelled = false;
-    fetch("http://127.0.0.1:5000/api/admin/key-exports/unseen", {
+    fetch(`${API_BASE}/api/admin/key-exports/unseen`, {
       headers: { Authorization: `Bearer ${auth.token}` },
     })
       .then((r) => (r.ok ? r.json() : { exports: [] }))
@@ -36,7 +37,7 @@ export default function KeyExportBanner() {
 
   const dismiss = async () => {
     try {
-      await fetch("http://127.0.0.1:5000/api/admin/key-exports/dismiss", {
+      await fetch(`${API_BASE}/api/admin/key-exports/dismiss`, {
         method: "POST",
         headers: { Authorization: `Bearer ${auth.token}` },
       });

@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { useEffect, useState, FormEvent, useRef } from "react";
 import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
@@ -28,7 +29,7 @@ export default function ModelsCard() {
 
     const fetchModels = async () => {
         try {
-            const res = await fetch("http://127.0.0.1:5000/api/ollama/models", {
+            const res = await fetch(`${API_BASE}/api/ollama/models`, {
                 headers: { Authorization: `Bearer ${auth.token}` },
             });
             const data = await res.json();
@@ -63,7 +64,7 @@ export default function ModelsCard() {
         abortRef.current = controller;
 
         try {
-            const res = await fetch("http://127.0.0.1:5000/api/ollama/pull", {
+            const res = await fetch(`${API_BASE}/api/ollama/pull`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

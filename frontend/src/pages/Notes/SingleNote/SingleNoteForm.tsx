@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import React, { FormEvent, ReactEventHandler, useEffect } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { format } from 'date-fns'
@@ -74,7 +75,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         console.log('submitting note', formValues);
 
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}`, {
+            const response = await fetch(`${API_BASE}/api/notes/${note.id}`, {
                 method: 'PUT',
                 headers: {
                 'Content-Type': 'application/json',
@@ -121,7 +122,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const handleDeleteNote = async () => {
         if (confirm('Are you sure you want to delete this note?')) {
             try {
-                const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}/delete`, {
+                const response = await fetch(`${API_BASE}/api/notes/${note.id}/delete`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -145,7 +146,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     }
 
     const handleCreateParticipant = async (newParticipant: NewParticipant): Promise<Participant> => {
-        const response = await fetch('http://127.0.0.1:5000/api/participants', {
+        const response = await fetch(`${API_BASE}/api/participants`, {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json',
@@ -185,7 +186,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
 
         if (confirm('Are you sure you want to delete this participant?')) {
             try {
-                const response = await fetch(`http://127.0.0.1:5000/api/participants/${participantId}`, {
+                const response = await fetch(`${API_BASE}/api/participants/${participantId}`, {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',
@@ -214,7 +215,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const handleRestoreNote = async () => {
         if (confirm('Are you sure you want to restore this note?')) {
             try {
-                const response = await fetch(`http://127.0.0.1:5000/api/notes/${note.id}/restore`, {
+                const response = await fetch(`${API_BASE}/api/notes/${note.id}/restore`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -243,7 +244,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         if (!retranscribeTemplateId || !note?.noteContentRaw) return;
         setRetranscribing(true);
         try {
-            const fmtResponse = await fetch('http://127.0.0.1:5000/api/getMarkdown', {
+            const fmtResponse = await fetch(`${API_BASE}/api/getMarkdown`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -265,7 +266,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             }
             const fmtData = await fmtResponse.json();
 
-            const saveResponse = await fetch('http://127.0.0.1:5000/api/notes', {
+            const saveResponse = await fetch(`${API_BASE}/api/notes`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -302,7 +303,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const handleDeleteNotePermanently = async (noteId: string) => {
         if (confirm('Are you sure you want to delete this note permanently? This action cannot be undone.')) {
             try {
-                const response = await fetch(`http://127.0.0.1:5000/api/notes/${noteId}/delete-permanently`, {
+                const response = await fetch(`${API_BASE}/api/notes/${noteId}/delete-permanently`, {
                     method: 'DELETE',
                     headers: {
                         'Content-Type': 'application/json',

@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import UsersTable from "@/components/users-table";
 import { useEffect, useState } from "react";
 
@@ -6,7 +7,7 @@ export default function Users() {
 
   const getAllUsers = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:5000/api/getAllUsers');
+      const response = await fetch(`${API_BASE}/api/getAllUsers`);
       const data = await response.json();
       setUsers(data);
     } catch (error) {

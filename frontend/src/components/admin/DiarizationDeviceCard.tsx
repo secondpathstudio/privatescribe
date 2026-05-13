@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { useEffect, useState, FormEvent } from "react";
 import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
@@ -35,7 +36,7 @@ export default function DiarizationDeviceCard() {
 
     const fetchSettings = async () => {
         try {
-            const res = await fetch("http://127.0.0.1:5000/api/admin/settings", {
+            const res = await fetch(`${API_BASE}/api/admin/settings`, {
                 headers: { Authorization: `Bearer ${auth.token}` },
             });
             const data = await res.json();
@@ -59,7 +60,7 @@ export default function DiarizationDeviceCard() {
         setSaving(true);
         setError(null);
         try {
-            const res = await fetch("http://127.0.0.1:5000/api/admin/settings/diarization-device", {
+            const res = await fetch(`${API_BASE}/api/admin/settings/diarization-device`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",

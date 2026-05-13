@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import NewNoteForm from './NewNoteForm'
@@ -12,7 +13,7 @@ const NewNote = () => {
   useEffect(() => {
     const fetchTemplates = async () => {
       try {
-        const response = await fetch(`http://127.0.0.1:5000/api/templates/user/${auth.user?.id}`, {
+        const response = await fetch(`${API_BASE}/api/templates/user/${auth.user?.id}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -38,7 +39,7 @@ const NewNote = () => {
   useEffect(() => {
     const fetchSavedParticipants = async () => {
       try {
-        const response = await fetch(`http://127.0.0.1:5000/api/participants/${auth.user?.id}`, {
+        const response = await fetch(`${API_BASE}/api/participants/${auth.user?.id}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',

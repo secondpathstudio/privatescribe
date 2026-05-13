@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { useEffect, useMemo, useState } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { useAuth } from '@/context/auth-context';
@@ -72,7 +73,7 @@ const AuditLogPage = () => {
             setLoading(true);
             setError(null);
             try {
-                const res = await fetch(`http://127.0.0.1:5000/api/admin/audit-log?${queryString}`, {
+                const res = await fetch(`${API_BASE}/api/admin/audit-log?${queryString}`, {
                     headers: { Authorization: `Bearer ${auth.token}` },
                 });
                 if (!res.ok) throw new Error(`Server error: ${res.status}`);
@@ -91,7 +92,7 @@ const AuditLogPage = () => {
     useEffect(() => {
         const fetchActions = async () => {
             try {
-                const res = await fetch('http://127.0.0.1:5000/api/admin/audit-log/actions', {
+                const res = await fetch(`${API_BASE}/api/admin/audit-log/actions`, {
                     headers: { Authorization: `Bearer ${auth.token}` },
                 });
                 if (!res.ok) return;

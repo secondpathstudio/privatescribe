@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import NeoLinkButton from '@/components/neo/neo-link-button'
 import NeoButton from '@/components/neo/neo-button'
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
@@ -59,7 +60,7 @@ const Templates = () => {
             setLoading(true);
             try {
                 const response = await fetch(
-                    `http://127.0.0.1:5000/api/templates/user/${auth.user?.id}?include_deleted=true`,
+                    `${API_BASE}/api/templates/user/${auth.user?.id}?include_deleted=true`,
                     {
                         method: 'GET',
                         headers: {

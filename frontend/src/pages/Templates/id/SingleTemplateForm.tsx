@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import React, { FormEvent, useEffect } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -52,7 +53,7 @@ const SingleTemplateForm = ({ template }: Props) => {
     useEffect(() => {
         const fetchModels = async () => {
             try {
-                const response = await fetch('http://127.0.0.1:5000/api/ollama/models', {
+                const response = await fetch(`${API_BASE}/api/ollama/models`, {
                     headers: { 'Authorization': `Bearer ${auth.token}` },
                 });
                 const data = await response.json();
@@ -80,7 +81,7 @@ const SingleTemplateForm = ({ template }: Props) => {
         const formValues = form.getValues();
 
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}`, {
+            const response = await fetch(`${API_BASE}/api/templates/${template.id}`, {
                 method: 'PUT',
                 headers: {
                 'Content-Type': 'application/json',
@@ -119,7 +120,7 @@ const SingleTemplateForm = ({ template }: Props) => {
         
         setUpdating(true);
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}/delete`, {
+            const response = await fetch(`${API_BASE}/api/templates/${template.id}/delete`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
@@ -159,7 +160,7 @@ const SingleTemplateForm = ({ template }: Props) => {
         }
         setUpdating(true);
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}/delete-permanently`, {
+            const response = await fetch(`${API_BASE}/api/templates/${template.id}/delete-permanently`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${auth.token}`,
@@ -188,7 +189,7 @@ const SingleTemplateForm = ({ template }: Props) => {
         
         setUpdating(true);
         try {
-            const response = await fetch(`http://127.0.0.1:5000/api/templates/${template.id}/restore`, {
+            const response = await fetch(`${API_BASE}/api/templates/${template.id}/restore`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',

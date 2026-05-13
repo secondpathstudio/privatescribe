@@ -28,6 +28,7 @@ const Roadmap = () => {
         { text: "Per-template AI model selection", completed: true },
         { text: "Encrypted audio storage with in-note playback", completed: true },
         { text: "Speaker identification (diarization)", completed: true },
+        { text: "Click-to-play timestamps on diarized transcripts", completed: true },
       ],
       gradient: "linear-gradient(135deg, #5d1d91, #9d4edd)",
       icon: <Settings className="w-8 h-8" />

@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { FormEvent, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import { Input } from "@/components/ui/input";
@@ -37,7 +38,7 @@ export default function ResetPasswordModal({ userId, userEmail, onClose, onSucce
 
     setSubmitting(true);
     try {
-      const res = await fetch(`http://127.0.0.1:5000/api/admin/users/${userId}/reset-password`, {
+      const res = await fetch(`${API_BASE}/api/admin/users/${userId}/reset-password`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

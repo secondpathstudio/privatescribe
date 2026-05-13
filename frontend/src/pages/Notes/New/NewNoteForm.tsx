@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import React, { FormEvent, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { format } from 'date-fns'
@@ -69,7 +70,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     useEffect(() => {
         const fetchModels = async () => {
             try {
-                const response = await fetch('http://127.0.0.1:5000/api/ollama/models', {
+                const response = await fetch(`${API_BASE}/api/ollama/models`, {
                     headers: { 'Authorization': `Bearer ${auth.token}` },
                 });
                 const data = await response.json();
@@ -112,7 +113,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
 
 
         try {
-            const response = await fetch('http://127.0.0.1:5000/api/notes', {
+            const response = await fetch(`${API_BASE}/api/notes`, {
                 method: 'POST',
                 headers: {
                 'Content-Type': 'application/json',
@@ -211,7 +212,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     }, [form.watch('noteTemplate'), templates]);
 
     const handleCreateParticipant = async (newParticipant: NewParticipant): Promise<Participant> => {
-        const response = await fetch('http://127.0.0.1:5000/api/participants', {
+        const response = await fetch(`${API_BASE}/api/participants`, {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json',
@@ -278,7 +279,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
 
         console.log('Uploading audio for transcription...', filename, blob, 'diarize:', diarize, 'max_speakers:', participantCount || 'auto');
         try {
-            const response = await fetch('http://127.0.0.1:5000/api/transcribe', {
+            const response = await fetch(`${API_BASE}/api/transcribe`, {
                 method: 'POST',
                 headers: {
                     "Authorization": `Bearer ${auth.token}`,
@@ -405,7 +406,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         // template's effective strictness. Frontend treats both the same way:
         // consume events, render progress, take the final markdown.
         try {
-            const res = await fetch('http://127.0.0.1:5000/api/notes/run-structured', {
+            const res = await fetch(`${API_BASE}/api/notes/run-structured`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -575,7 +576,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 return;
             }
 
-            const response = await fetch('http://127.0.0.1:5000/api/getMarkdown', {
+            const response = await fetch(`${API_BASE}/api/getMarkdown`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import React, { FormEvent, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -35,7 +36,7 @@ const NewTemplateForm = () => {
     useEffect(() => {
         const fetchModels = async () => {
             try {
-                const response = await fetch('http://127.0.0.1:5000/api/ollama/models', {
+                const response = await fetch(`${API_BASE}/api/ollama/models`, {
                     headers: { 'Authorization': `Bearer ${auth.token}` },
                 });
                 const data = await response.json();
@@ -61,7 +62,7 @@ const NewTemplateForm = () => {
         console.log('submitting template', formValues);
         
         try {
-            const response = await fetch('http://127.0.0.1:5000/api/templates', {
+            const response = await fetch(`${API_BASE}/api/templates`, {
                 method: 'POST',
                 headers: {
                 'Content-Type': 'application/json',

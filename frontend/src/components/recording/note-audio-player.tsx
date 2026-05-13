@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useAuth } from '@/context/auth-context';
 
@@ -59,7 +60,7 @@ const NoteAudioPlayer = forwardRef<NoteAudioPlayerHandle, Props>(({ noteId, file
 
         const fetchAudio = async () => {
             try {
-                const response = await fetch(`http://127.0.0.1:5000/api/notes/${noteId}/audio`, {
+                const response = await fetch(`${API_BASE}/api/notes/${noteId}/audio`, {
                     headers: { Authorization: `Bearer ${auth.token}` },
                 });
                 if (!response.ok) {

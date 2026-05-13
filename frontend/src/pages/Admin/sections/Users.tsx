@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import UsersTable from "@/components/users-table";
@@ -15,7 +16,7 @@ export default function UsersSection() {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const response = await fetch("http://127.0.0.1:5000/api/getAllUsers", {
+        const response = await fetch(`${API_BASE}/api/getAllUsers`, {
           headers: { Authorization: `Bearer ${auth.token}` },
         });
         if (!response.ok) throw new Error(`Server error: ${response.status}`);

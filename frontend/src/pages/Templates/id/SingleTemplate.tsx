@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEffect, useState } from 'react'
@@ -16,7 +17,7 @@ const SingleTemplate = () => {
     const fetchTemplate = async () => {
       console.log('fetching template', id)
       try {
-        const response = await fetch(`http://127.0.0.1:5000/api/templates/${id}`, {
+        const response = await fetch(`${API_BASE}/api/templates/${id}`, {
           method: 'GET',
           headers: {
           'Content-Type': 'application/json',

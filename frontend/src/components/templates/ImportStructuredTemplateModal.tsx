@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import { Input } from "@/components/ui/input";
@@ -33,7 +34,7 @@ export default function ImportStructuredTemplateModal({ onClose, onImported }: P
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("http://127.0.0.1:5000/api/ollama/models", {
+        const res = await fetch(`${API_BASE}/api/ollama/models`, {
           headers: { Authorization: `Bearer ${auth.token}` },
         });
         const data = await res.json();
@@ -93,7 +94,7 @@ export default function ImportStructuredTemplateModal({ onClose, onImported }: P
     if (!parsed) return;
     setSubmitting(true);
     try {
-      const res = await fetch("http://127.0.0.1:5000/api/templates", {
+      const res = await fetch(`${API_BASE}/api/templates`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

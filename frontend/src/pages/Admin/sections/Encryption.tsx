@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { FormEvent, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import BackupKeyModal from "@/components/admin/BackupKeyModal";
@@ -24,7 +25,7 @@ export default function EncryptionSection() {
     setExporting(true);
     setExportError(null);
     try {
-      const res = await fetch("http://127.0.0.1:5000/api/admin/backup-key", {
+      const res = await fetch(`${API_BASE}/api/admin/backup-key`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -49,7 +50,7 @@ export default function EncryptionSection() {
     setRotating(true);
     setRotateError(null);
     try {
-      const res = await fetch("http://127.0.0.1:5000/api/admin/rotate-backup-key", {
+      const res = await fetch(`${API_BASE}/api/admin/rotate-backup-key`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -77,7 +78,7 @@ export default function EncryptionSection() {
 
   const acknowledgeBackupKey = async (onDone: () => void) => {
     try {
-      await fetch("http://127.0.0.1:5000/api/acknowledge-backup-key", {
+      await fetch(`${API_BASE}/api/acknowledge-backup-key`, {
         method: "POST",
         headers: { Authorization: `Bearer ${auth.token}` },
       });

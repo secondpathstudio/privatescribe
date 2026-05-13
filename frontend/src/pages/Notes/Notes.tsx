@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/context/auth-context'
@@ -42,7 +43,7 @@ const Notes = () => {
             setLoading(true);
             try {
                 const response = await fetch(
-                    `http://127.0.0.1:5000/api/notes/user/${auth.user?.id}?include_deleted=true`,
+                    `${API_BASE}/api/notes/user/${auth.user?.id}?include_deleted=true`,
                     {
                         method: 'GET',
                         headers: {

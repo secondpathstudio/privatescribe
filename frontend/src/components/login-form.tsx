@@ -1,3 +1,4 @@
+import { API_BASE } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -26,7 +27,7 @@ export default function LoginForm() {
 
   const onSubmit = async (formData: any) => {
     try {
-        const response = await fetch('http://127.0.0.1:5000/api/login', {
+        const response = await fetch(`${API_BASE}/api/login`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
