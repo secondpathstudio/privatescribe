@@ -10,6 +10,7 @@ type Card = {
 const CARDS: Card[] = [
   { to: "/admin/users", title: "Users", description: "Accounts, roles, and access." },
   { to: "/admin/audit-log", title: "Audit Log", description: "Who did what, when, and from where." },
+  { to: "/admin/session", title: "Session", description: "Whether desktop sessions persist across launches." },
   { to: "/admin/encryption", title: "Encryption", description: "Backup and rotate the SQLCipher key." },
   { to: "/admin/templates", title: "Templates", description: "Manage templates across users." },
   { to: "/admin/models", title: "Models", description: "Local Ollama models available for formatting." },

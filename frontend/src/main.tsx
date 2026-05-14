@@ -1,7 +1,12 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router'
+
+// HashRouter for Electron (file:// URLs can't be reasoned about with
+// BrowserRouter); BrowserRouter for the web/Vercel deployment so the
+// marketing URLs stay clean. window.electron is exposed by preload.ts.
+const Router = window.electron ? HashRouter : BrowserRouter
 import App from './pages/Home/Home.tsx'
 import Notes from './pages/Notes/Notes.tsx'
 import RootLayout from './layouts/root-layout.tsx'
@@ -28,6 +33,7 @@ import ModelsSection from './pages/Admin/sections/Models.tsx'
 import UploadLimitSection from './pages/Admin/sections/UploadLimit.tsx'
 import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
 import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
+import SessionSection from './pages/Admin/sections/Session.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 import Og from './pages/Og/Og.tsx'
 import OllamaGate from './components/OllamaGate.tsx'
@@ -35,7 +41,7 @@ import OllamaGate from './components/OllamaGate.tsx'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
-    <BrowserRouter>
+    <Router>
       <OllamaGate />
       <Routes>
         <Route path="/og" element={<Og />} />
@@ -68,6 +74,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="upload-limit" element={<UploadLimitSection />} />
             <Route path="diarization" element={<DiarizationSection />} />
             <Route path="trash-retention" element={<TrashRetentionSection />} />
+            <Route path="session" element={<SessionSection />} />
           </Route>
           <Route path="/roadmap" element={<Roadmap />} />
           <Route path="/login" element={<Login />} />
@@ -75,7 +82,7 @@ createRoot(document.getElementById('root')!).render(
           <Route path="/about" element={<About />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </Router>
     </AuthProvider>
   </StrictMode>
 )

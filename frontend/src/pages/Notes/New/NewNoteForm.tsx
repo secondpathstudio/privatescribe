@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { flagOllamaDown } from "@/lib/ollama";
 import React, { FormEvent, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { format } from 'date-fns'
@@ -428,6 +429,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // Non-stream error responses (preflight rejections).
             if (!res.ok || !res.body) {
                 const errBody = await res.json().catch(() => ({}));
+                if (res.status === 503) flagOllamaDown();
                 if (res.status === 422 && errBody.error === 'model_not_installed') {
                     form.setValue('noteContentMarkdown', rawNote);
                     mdxEditorRef.current?.setMarkdown(rawNote);
@@ -608,6 +610,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     // Ollama unavailable (down, model missing, or our request
                     // timeout fired) — fall back to the raw transcript so the
                     // user can edit/save manually instead of losing the recording.
+                    flagOllamaDown();
                     fallBackToRawTranscript(errorData.raw_note || rawNote);
                     alert(errorData.error || 'AI formatting unavailable. Showing the raw transcript so you can edit and save manually.');
                     return; // don't auto-save; let the user review

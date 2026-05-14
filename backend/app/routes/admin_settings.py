@@ -39,6 +39,8 @@ def get_settings():
         "trash_retention_days_min": settings_service.MIN_TRASH_RETENTION_DAYS,
         "trash_retention_days_max": settings_service.MAX_TRASH_RETENTION_DAYS,
         "trash_auto_purge": settings_service.get_trash_auto_purge(),
+        # When true, the Electron shell forgets credentials on app close.
+        "logout_on_close": settings_service.get_logout_on_close(),
     })
 
 
@@ -144,6 +146,35 @@ def update_trash_retention():
         "trash_retention_days": settings_service.get_trash_retention_days(),
         "trash_auto_purge": settings_service.get_trash_auto_purge(),
     })
+
+
+@bp.route('/logout-on-close', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_logout_on_close():
+    """Toggle whether the Electron shell drops auth on app close.
+
+    Body: {"value": bool}. Web clients ignore this — only the desktop app
+    consumes it (via the cached flag on the user object).
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if not isinstance(value, bool):
+        return jsonify({"error": "value must be a boolean"}), 400
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_logout_on_close()
+    settings_service.set_value(settings_service.LOGOUT_ON_CLOSE, value, updated_by=current_user)
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.LOGOUT_ON_CLOSE,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({"logout_on_close": settings_service.get_logout_on_close()})
 
 
 @bp.route('/diarization-device', methods=['PUT'])

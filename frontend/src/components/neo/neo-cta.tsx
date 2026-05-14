@@ -27,7 +27,7 @@ const NeoCTA = () => {
           </p>
         </div>
         <div className="flex flex-col md:flex-row justify-center items-center gap-6">
-          {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ?
+          {(window.electron || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") ?
           <NeoButton label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
           :
           <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">

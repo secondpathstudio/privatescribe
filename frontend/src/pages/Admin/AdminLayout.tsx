@@ -13,6 +13,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/admin/users", label: "Users" },
       { to: "/admin/audit-log", label: "Audit Log" },
+      { to: "/admin/session", label: "Session" },
     ],
   },
   {

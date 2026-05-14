@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { flagOllamaDown } from "@/lib/ollama";
 import { useEffect, useState, FormEvent, useRef } from "react";
 import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
@@ -34,6 +35,7 @@ export default function ModelsCard() {
             });
             const data = await res.json();
             if (!res.ok) {
+                if (res.status === 503) flagOllamaDown();
                 setListError(data.error || `Server error: ${res.status}`);
                 setModels([]);
                 return;

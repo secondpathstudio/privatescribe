@@ -16,6 +16,7 @@ UPLOAD_LIMIT_MB = "upload_limit_mb"
 DIARIZATION_DEVICE = "diarization_device"
 TRASH_RETENTION_DAYS = "trash_retention_days"
 TRASH_AUTO_PURGE = "trash_auto_purge"
+LOGOUT_ON_CLOSE = "logout_on_close"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -36,6 +37,11 @@ MAX_TRASH_RETENTION_DAYS = 3650
 # retention window. When False (default), nothing is auto-deleted — items stay
 # in the trash until someone permanently deletes them by hand.
 DEFAULT_TRASH_AUTO_PURGE = False
+
+# When True, the Electron shell clears stored auth tokens on app launch so
+# the user has to re-authenticate every time they reopen the app. Web
+# clients ignore this flag — they manage their own sessions.
+DEFAULT_LOGOUT_ON_CLOSE = True
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -110,6 +116,10 @@ def get_trash_retention_days() -> int:
 
 def get_trash_auto_purge() -> bool:
     return get_bool(TRASH_AUTO_PURGE, DEFAULT_TRASH_AUTO_PURGE)
+
+
+def get_logout_on_close() -> bool:
+    return get_bool(LOGOUT_ON_CLOSE, DEFAULT_LOGOUT_ON_CLOSE)
 
 
 def trash_purge_eligible_on(is_deleted_timestamp: Optional[datetime]) -> Optional[datetime]:

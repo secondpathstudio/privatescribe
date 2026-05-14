@@ -25,7 +25,7 @@ const NeoNavbar = (props: Props) => {
               <a href="/roadmap" className="font-black hover:text-[#fd3777]">Roadmap</a>
             </div>
           )}
-          {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
+          {(window.electron || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
           <AuthButtons />
           }
         </div>

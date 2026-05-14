@@ -127,11 +127,14 @@ async function createWindow(apiBase: string): Promise<void> {
   });
 
   if (isDev) {
-    await win.loadURL('http://localhost:3000/login');
+    await win.loadURL('http://localhost:3000/#/login');
     win.webContents.openDevTools({ mode: 'detach' });
   } else {
+    // HashRouter handles `#/login` cleanly from file:// URLs where
+    // BrowserRouter can't reason about the pathname.
     await win.loadFile(
       path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html'),
+      { hash: '/login' },
     );
   }
 }

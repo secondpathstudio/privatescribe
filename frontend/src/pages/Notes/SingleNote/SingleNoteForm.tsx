@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { flagOllamaDown } from "@/lib/ollama";
 import React, { FormEvent, ReactEventHandler, useEffect } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { format } from 'date-fns'
@@ -262,6 +263,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
 
             if (!fmtResponse.ok) {
                 const err = await fmtResponse.json().catch(() => ({}));
+                if (fmtResponse.status === 503) flagOllamaDown();
                 throw new Error(err.error || `Format failed: ${fmtResponse.status}`);
             }
             const fmtData = await fmtResponse.json();

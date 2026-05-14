@@ -76,6 +76,7 @@ frontend/pnpm-debug.log*
 frontend/lerna-debug.log*
 
 .env.todo*
+.env.notarize
 
 # ===== Electron =====
 node_modules/

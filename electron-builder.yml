@@ -1,0 +1,59 @@
+# electron-builder config for PrivateScribe.
+#
+# Assumes these have already been built:
+#   - frontend/dist/        (npm run build:frontend)
+#   - electron/dist/        (npm run build:electron)
+#   - backend/dist/privatescribe-backend/  (npm run build:backend, slow)
+#
+# Run: npm run dist  →  release/PrivateScribe-<ver>.dmg
+
+appId: com.secondpath.privatescribe
+productName: PrivateScribe
+copyright: Copyright © 2026 Second Path Studio
+
+directories:
+  output: release
+
+# Files that go inside the asar (Resources/app/). Renderer + main process.
+files:
+  - electron/dist/**/*
+  - electron/assets/**/*
+  - frontend/dist/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,*.markdown}"
+
+# Lives outside the asar so it can be spawned as a child process. The
+# PyInstaller onedir layout (binary + _internal/) is preserved verbatim
+# under Resources/backend/, matching what backend-process.ts expects.
+extraResources:
+  - from: backend/dist/privatescribe-backend
+    to: backend
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.productivity
+  icon: electron/assets/icon.icns
+  identity: "Grant Nelson (C3G762929W)"
+  hardenedRuntime: true
+  entitlements: build-resources/entitlements.mac.plist
+  entitlementsInherit: build-resources/entitlements.mac.plist
+  gatekeeperAssess: false
+  # Notarization: requires APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+  # in the environment. Loaded from .env.notarize by the dist script via
+  # dotenv-cli. Adds ~3-5 min per build (Apple round-trip).
+  notarize: true
+  target:
+    - target: dmg
+      arch: arm64
+
+dmg:
+  title: PrivateScribe ${version}
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications

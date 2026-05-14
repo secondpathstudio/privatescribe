@@ -8,6 +8,7 @@ from werkzeug.security import check_password_hash
 from app.extensions import db, limiter
 from app.models import User
 from app.security.secrets import is_backup_key_acknowledged
+from app.services import settings as settings_service
 from app.services.audit import log_action
 
 bp = Blueprint("auth", __name__)
@@ -37,6 +38,7 @@ def validate_token():
             "lastLogin": user.last_login,
             "forcePasswordChange": user.force_password_change,
             "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
+            "logoutOnClose": settings_service.get_logout_on_close(),
         },
     })
 
@@ -79,6 +81,7 @@ def login():
                 # by login — admins must password-re-auth on /admin/encryption
                 # to actually see it.
                 "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
+                "logoutOnClose": settings_service.get_logout_on_close(),
             },
         }
         return jsonify(response_body), 200

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { API_BASE } from "@/lib/api";
+import { OLLAMA_DOWN_EVENT } from "@/lib/ollama";
 import NeoButton from "@/components/neo/neo-button";
 
 // Fast cadence while we're waiting for recovery — gives the modal/banner
@@ -82,6 +83,16 @@ export default function OllamaGate() {
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [inElectron, tick]);
+
+  // Reactive trigger: any fetch handler that hits a 503 on an Ollama-bound
+  // endpoint fires this event via flagOllamaDown() — surface the failure
+  // immediately instead of waiting up to POLL_FAST_MS for the next tick.
+  useEffect(() => {
+    if (!inElectron) return;
+    const onDown = () => tick();
+    window.addEventListener(OLLAMA_DOWN_EVENT, onDown);
+    return () => window.removeEventListener(OLLAMA_DOWN_EVENT, onDown);
   }, [inElectron, tick]);
 
   // Pad the body when the banner is showing so it doesn't occlude the app's

@@ -1,5 +1,4 @@
 import { createContext, useContext, useState } from "react";
-import KeyExportBanner from "@/components/admin/KeyExportBanner";
 
 interface AuthContextType {
   token: string | null;
@@ -22,9 +21,34 @@ interface User {
   // (called from the admin Encryption section after password re-auth).
   // The key itself is NEVER carried by this flag — only the obligation.
   pendingBackupKeyAcknowledgment?: boolean;
+  // Cached copy of the admin-toggleable "drop credentials on app close"
+  // setting. Only consulted in the Electron shell — web sessions ignore it.
+  logoutOnClose?: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Synchronous bootstrap: if we're in Electron and the last session had
+// logoutOnClose true, drop the stored tokens before anyone reads them.
+// Runs at module load, before AuthProvider's useState initializers fire.
+(function clearStoredAuthIfEphemeral() {
+  if (typeof window === "undefined" || !window.electron) return;
+  try {
+    const raw = localStorage.getItem("user");
+    if (!raw) return;
+    const u = JSON.parse(raw);
+    if (u && u.logoutOnClose) {
+      localStorage.removeItem("user");
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+    }
+  } catch {
+    // Bad JSON — clear it. We'd rather force a fresh login than read garbage.
+    localStorage.removeItem("user");
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+  }
+})();
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(localStorage.getItem("access_token"));
@@ -57,7 +81,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ token, user, login, logout, updateUser }}>
-      <KeyExportBanner />
       {children}
     </AuthContext.Provider>
   );

@@ -24,6 +24,10 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
           }
           throw new Error('Network request failed with status ' + response.status);
         } else {
+          // Refresh the cached user with whatever the server says now —
+          // notably picks up admin-toggled fields like logoutOnClose.
+          const data = await response.json().catch(() => null);
+          if (data?.user) auth.updateUser(data.user);
           setIsValid(true);
         }
       } catch (error) {

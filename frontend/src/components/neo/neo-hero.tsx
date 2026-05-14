@@ -27,7 +27,7 @@ const NeoHero = (props: Props) => {
                 </div>
               </div>
               <div className="flex flex-wrap gap-4 xl:justify-start justify-center items-center">
-                {(window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
+                {(window.electron || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
                 <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
                 }
                 <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">
