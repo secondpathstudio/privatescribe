@@ -38,20 +38,22 @@ const SingleTemplate = () => {
   }, [id])
 
 
+  const title = template?.name || 'Template';
+
   return (
     <div className="max-w-screen-lg mx-auto px-4 py-10">
-        <Breadcrumbs 
+        <Breadcrumbs
           notes={[
             {
               label: "All Templates",
               href: '/templates',
             },
             {
-              label: `Template ${id}`,
+              label: title,
             },
           ]}
           />
-        <h1 className='text-4xl font-black mt-6'>Template {template?.id}</h1>
+        <h1 className='text-4xl font-black mt-6'>{title}</h1>
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
