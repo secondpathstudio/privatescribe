@@ -112,20 +112,34 @@ useEffect(() => {
   }, [id]);
 
 
+  const formatNoteDate = (value: string | null | undefined) => {
+    if (!value) return '';
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? value : d.toLocaleDateString(undefined, { dateStyle: 'medium' });
+  };
+
+  const templateName = note?.noteTemplate
+    ? templates.find((t: any) => t.id === note.noteTemplate)?.name
+    : undefined;
+  const dateLabel = formatNoteDate(note?.noteDate || note?.createdAt);
+  const title = note
+    ? [templateName || 'Note', dateLabel].filter(Boolean).join(' — ')
+    : 'Note';
+
   return (
     <div className="max-w-screen-lg mx-auto px-4 py-10">
-        <Breadcrumbs 
+        <Breadcrumbs
           notes={[
             {
               label: "All Notes",
               href: '/notes',
             },
             {
-              label: `${note?.createdAt}`,
+              label: title,
             },
           ]}
           />
-        <h1 className='text-4xl font-black mt-6'>{note?.createdAt}</h1>
+        <h1 className='text-4xl font-black mt-6'>{title}</h1>
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
