@@ -359,9 +359,30 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                                     value={field.value}
                                     disabled
                                 >
-                                    <SelectTrigger className='z-10 bg-white'>
+                                    <SelectTrigger className='z-10 bg-white [&>span]:line-clamp-none [&>span]:overflow-visible'>
                                         <SelectValue placeholder="Select a template">
-                                            {currentTemplate?.name || "Select a template"}
+                                            {currentTemplate ? (
+                                                <>
+                                                    <span
+                                                        className={
+                                                            'mr-2 inline-block align-middle border-2 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wider ' +
+                                                            (currentTemplate.templateType === 'structured'
+                                                                ? 'border-[#5d1d91] bg-[#5d1d91] text-white'
+                                                                : 'border-black bg-white text-black')
+                                                        }
+                                                        title={
+                                                            currentTemplate.templateType === 'structured'
+                                                                ? 'Built in PrivateScribe Studio (structured fields)'
+                                                                : 'Markdown template'
+                                                        }
+                                                    >
+                                                        {currentTemplate.templateType === 'structured' ? 'Studio' : 'Simple'}
+                                                    </span>
+                                                    <span className='align-middle'>{currentTemplate.name}</span>
+                                                </>
+                                            ) : (
+                                                'Select a template'
+                                            )}
                                         </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent className='z-10 bg-white'>
