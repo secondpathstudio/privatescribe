@@ -14,6 +14,10 @@ const NeoAccordion = () => {
       answer: "No. The transcription and the AI formatting both run on your computer, using models that are already trained. There's no telemetry, no upload step, and no account with a vendor who 'may use your data to improve our services.' Pull the network cable and PrivateScribe keeps working."
     },
     {
+      question: "Does PrivateScribe ever connect to the internet?",
+      answer: "PrivateScribe itself never needs to connect to the internet if you choose. Currently, we do rely on Ollama for serving local LLMs and therefore an internet connection is needed to download Ollama and AI models during first setup as well as if you ever want to update or add more models. After that, if you choose to use PrivateScribe Studio, an internet connection is only needed to sync the templates you design there. Templates are blueprints (e.g. \"Subjective: extract symptoms\"), not sensitive data. The transcription engine and your recordings, transcripts, and formatted notes run entirely on your local computer and are never transmitted, even when your computer is online. Pull the network cable mid-session and the app keeps recording and transcribing."
+    },
+    {
       question: "Is this HIPAA compliant?",
       answer: "HIPAA compliance is an organizational matter, not a software feature — no piece of software is HIPAA-compliant on its own. What PrivateScribe gives you is the technical foundation a covered entity would need: data that never leaves the device, no third-party processors, encryption at rest, and a full audit log. The policies, BAAs, and risk assessments remain your responsibility."
     },
