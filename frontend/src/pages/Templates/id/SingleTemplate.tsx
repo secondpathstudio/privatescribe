@@ -3,6 +3,7 @@ import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEffect, useState } from 'react'
 import SingleTemplateForm from './SingleTemplateForm'
+import StudioTemplateView from '@/components/templates/StudioTemplateView'
 import { useParams } from 'react-router'
 import { useAuth } from '@/context/auth-context'
 
@@ -54,9 +55,11 @@ const SingleTemplate = () => {
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
-              {template && 
-              <SingleTemplateForm template={template} />
-              }
+              {template && (
+                template.templateType === 'structured'
+                  ? <StudioTemplateView template={template} />
+                  : <SingleTemplateForm template={template} />
+              )}
             </CardTitle>
           </CardHeader>
         </Card>
