@@ -169,6 +169,19 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const [uploadedFile, setUploadedFile] = React.useState<File | null>(null);
     const [uploadedAudioUrl, setUploadedAudioUrl] = React.useState<string | null>(null);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
+    // Controlled tab so a page-level drop can flip to Upload regardless of
+    // which tab the user was looking at when they dropped.
+    const [activeTab, setActiveTab] = React.useState<'record' | 'upload'>('record');
+    const [dropOverlay, setDropOverlay] = React.useState(false);
+    const [dropError, setDropError] = React.useState<string | null>(null);
+    // Counter rather than a boolean: dragenter/dragleave fire as the cursor
+    // crosses descendant elements, so we increment/decrement to know when the
+    // drag has truly left the window.
+    const dragDepthRef = React.useRef(0);
+    // Refs for state we read inside the window-level drag listeners (which are
+    // bound once on mount, so plain state would be stale).
+    const busyRef = React.useRef(busy);
+    busyRef.current = busy;
 
     React.useEffect(() => {
         // Free the object URL when the file changes/unmounts to avoid leaks.
@@ -184,6 +197,82 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         setUploadedFile(file);
         setUploadedAudioUrl(URL.createObjectURL(file));
     };
+
+    // Mirrors the file input's accept list. Browsers don't always set a MIME
+    // type for less common audio (e.g. .m4a often shows up as empty), so we
+    // also match by extension as a fallback.
+    const AUDIO_EXTS = ['.m4a', '.mp3', '.wav', '.webm', '.mp4', '.ogg', '.flac', '.aac', '.mov', '.mkv'];
+    const isAudioOrVideoFile = (file: File) => {
+        if (file.type.startsWith('audio/') || file.type.startsWith('video/')) return true;
+        const name = file.name.toLowerCase();
+        return AUDIO_EXTS.some((ext) => name.endsWith(ext));
+    };
+
+    const ingestDroppedFile = (file: File) => {
+        if (!isAudioOrVideoFile(file)) {
+            setDropError(`"${file.name}" doesn't look like an audio or video file.`);
+            return;
+        }
+        if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
+        setUploadedFile(file);
+        setUploadedAudioUrl(URL.createObjectURL(file));
+        setActiveTab('upload');
+        setDropError(null);
+    };
+
+    // Window-level drag handlers so dropping anywhere on the New Note page
+    // sets the upload file. Bound once on mount; reads `busy` through a ref
+    // so an in-flight transcription run can short-circuit drops without
+    // re-binding listeners. Switches to the Upload tab so the user sees the
+    // staged file regardless of which tab they were on when they dropped.
+    React.useEffect(() => {
+        const isFileDrag = (e: DragEvent) =>
+            Array.from(e.dataTransfer?.types ?? []).includes('Files');
+
+        const onDragEnter = (e: DragEvent) => {
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            if (busyRef.current) return;
+            dragDepthRef.current += 1;
+            if (dragDepthRef.current === 1) setDropOverlay(true);
+        };
+        const onDragOver = (e: DragEvent) => {
+            if (!isFileDrag(e)) return;
+            // preventDefault is what makes the element a valid drop target;
+            // without it the browser falls back to "open the file" behavior.
+            e.preventDefault();
+        };
+        const onDragLeave = (e: DragEvent) => {
+            if (!isFileDrag(e)) return;
+            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+            if (dragDepthRef.current === 0) setDropOverlay(false);
+        };
+        const onDrop = (e: DragEvent) => {
+            if (!isFileDrag(e)) return;
+            e.preventDefault();
+            dragDepthRef.current = 0;
+            setDropOverlay(false);
+            if (busyRef.current) {
+                setDropError('A transcription is already in progress — wait for it to finish before uploading another file.');
+                return;
+            }
+            const file = e.dataTransfer?.files?.[0];
+            if (!file) return;
+            ingestDroppedFile(file);
+        };
+
+        window.addEventListener('dragenter', onDragEnter);
+        window.addEventListener('dragover', onDragOver);
+        window.addEventListener('dragleave', onDragLeave);
+        window.addEventListener('drop', onDrop);
+        return () => {
+            window.removeEventListener('dragenter', onDragEnter);
+            window.removeEventListener('dragover', onDragOver);
+            window.removeEventListener('dragleave', onDragLeave);
+            window.removeEventListener('drop', onDrop);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleTranscribeUpload = () => {
         if (!uploadedFile) return;
@@ -788,7 +877,11 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
 
         {/* Audio source: live recording vs. file upload. The transcribe pipeline
             is identical for both — they both feed into transcribeRecording(). */}
-        <Tabs defaultValue="record" className="w-full mt-4">
+        <Tabs
+            value={activeTab}
+            onValueChange={(v) => setActiveTab(v as 'record' | 'upload')}
+            className="w-full mt-4"
+        >
             <TabsList className="flex w-full">
                 <TabsTrigger className="grow" value="record">Record</TabsTrigger>
                 <TabsTrigger className="grow" value="upload">Upload</TabsTrigger>
@@ -1051,6 +1144,34 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         </div>
         )}
     </form>
+
+    {dropOverlay && (
+        <div className='pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-[#fd3777]/15 border-[6px] border-dashed border-[#fd3777]'>
+            <div className='border-[3px] border-black bg-white px-8 py-4 shadow-[6px_6px_0_0_#000]'>
+                <p className='text-2xl font-black uppercase tracking-wide text-[#5d1d91]'>
+                    Drop audio/video to upload
+                </p>
+                <p className='text-xs text-gray-700 mt-1'>
+                    File will be staged in the Upload tab — pick a template if you haven't, then hit Transcribe.
+                </p>
+            </div>
+        </div>
+    )}
+
+    {dropError && (
+        <div className='fixed bottom-4 right-4 z-40 max-w-sm border-[2px] border-black bg-red-50 p-3 text-sm text-red-700 shadow-[4px_4px_0_0_#000]'>
+            <div className='flex justify-between gap-3'>
+                <span>{dropError}</span>
+                <button
+                    type='button'
+                    onClick={() => setDropError(null)}
+                    className='font-black'
+                >
+                    ✕
+                </button>
+            </div>
+        </div>
+    )}
 </Form>
 
   )
