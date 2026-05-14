@@ -3,7 +3,7 @@ import NeoLinkButton from '@/components/neo/neo-link-button'
 import NeoButton from '@/components/neo/neo-button'
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { useAuth } from '@/context/auth-context';
-import { useEffect, useMemo, useState } from 'react';
+import { DragEvent, useEffect, useMemo, useState } from 'react';
 import { ColumnDef } from '@tanstack/react-table';
 import { Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
@@ -52,6 +52,9 @@ const Templates = () => {
     const [templates, setTemplates] = useState<TemplateRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [importOpen, setImportOpen] = useState(false);
+    const [importInitialJson, setImportInitialJson] = useState<string | undefined>(undefined);
+    const [pageDragOver, setPageDragOver] = useState(false);
+    const [dropError, setDropError] = useState<string | null>(null);
     const auth = useAuth();
     const navigate = useNavigate();
 
@@ -156,15 +159,57 @@ const Templates = () => {
         },
     ], [llmOptions]);
 
+    // Only react to drags that actually carry a file. The browser uses the same
+    // dragover event for in-page text selection, link drags, etc.; we don't
+    // want the page to light up for those.
+    const hasFile = (e: DragEvent<HTMLDivElement>) =>
+        Array.from(e.dataTransfer?.types ?? []).includes('Files');
+
+    const handlePageDragOver = (e: DragEvent<HTMLDivElement>) => {
+        if (!hasFile(e)) return;
+        e.preventDefault();
+        if (!pageDragOver) setPageDragOver(true);
+    };
+
+    const handlePageDragLeave = (e: DragEvent<HTMLDivElement>) => {
+        if (e.currentTarget === e.target) setPageDragOver(false);
+    };
+
+    const handlePageDrop = async (e: DragEvent<HTMLDivElement>) => {
+        if (!hasFile(e)) return;
+        e.preventDefault();
+        setPageDragOver(false);
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        if (file.size > 1024 * 1024) {
+            setDropError(`"${file.name}" is larger than 1MB — that's not a template.`);
+            return;
+        }
+        try {
+            const text = await file.text();
+            setDropError(null);
+            setImportInitialJson(text);
+            setImportOpen(true);
+        } catch (err: any) {
+            setDropError(err?.message || 'Could not read file');
+        }
+    };
+
     return (
-        <div className='px-6 py-8'>
+        <div
+            className='relative px-6 py-8'
+            onDragOver={handlePageDragOver}
+            onDragEnter={handlePageDragOver}
+            onDragLeave={handlePageDragLeave}
+            onDrop={handlePageDrop}
+        >
             <Breadcrumbs notes={[{ label: 'All Templates' }]} />
 
             <div className='flex justify-between items-center mb-6'>
                 <h1 className='text-4xl font-black mt-6'>All Templates</h1>
                 <div className='flex gap-2'>
                     <NeoButton
-                        onClick={() => setImportOpen(true)}
+                        onClick={() => { setImportInitialJson(undefined); setImportOpen(true); }}
                         backgroundColor='#ffffff'
                         textColor='#000000'
                     >
@@ -194,9 +239,35 @@ const Templates = () => {
 
             {importOpen && (
                 <ImportStructuredTemplateModal
-                    onClose={() => setImportOpen(false)}
+                    onClose={() => { setImportOpen(false); setImportInitialJson(undefined); }}
                     onImported={(t) => setTemplates((prev) => [t as TemplateRow, ...prev])}
+                    initialJson={importInitialJson}
                 />
+            )}
+
+            {pageDragOver && (
+                <div className='pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-[#fd3777]/15 border-[6px] border-dashed border-[#fd3777]'>
+                    <div className='border-[3px] border-black bg-white px-8 py-4 shadow-[6px_6px_0_0_#000]'>
+                        <p className='text-2xl font-black uppercase tracking-wide text-[#5d1d91]'>
+                            Drop JSON to import template
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            {dropError && (
+                <div className='fixed bottom-4 right-4 z-40 max-w-sm border-[2px] border-black bg-red-50 p-3 text-sm text-red-700 shadow-[4px_4px_0_0_#000]'>
+                    <div className='flex justify-between gap-3'>
+                        <span>{dropError}</span>
+                        <button
+                            type='button'
+                            onClick={() => setDropError(null)}
+                            className='font-black'
+                        >
+                            ✕
+                        </button>
+                    </div>
+                </div>
             )}
         </div>
     );

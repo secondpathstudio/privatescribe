@@ -1,5 +1,5 @@
 import { API_BASE } from "@/lib/api";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,9 @@ type OllamaModel = { name: string; parameter_size?: string | null };
 type Props = {
   onClose: () => void;
   onImported?: (template: any) => void;
+  // Pre-fills the JSON textarea when the modal is opened by a page-level
+  // file drop. Read once on mount; subsequent changes don't clobber edits.
+  initialJson?: string;
 };
 
 /**
@@ -18,9 +21,9 @@ type Props = {
  * model to run it against. Backend validates the structured shape; this
  * modal handles parse errors locally and surfaces server errors inline.
  */
-export default function ImportStructuredTemplateModal({ onClose, onImported }: Props) {
+export default function ImportStructuredTemplateModal({ onClose, onImported, initialJson }: Props) {
   const auth = useAuth();
-  const [json, setJson] = useState("");
+  const [json, setJson] = useState(initialJson ?? "");
   const [name, setName] = useState("");
   const [llmModel, setLlmModel] = useState("");
   const [models, setModels] = useState<OllamaModel[]>([]);
@@ -28,6 +31,9 @@ export default function ImportStructuredTemplateModal({ onClose, onImported }: P
   const [parseError, setParseError] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Pull installed models so the user picks something that's actually loaded.
   useEffect(() => {
@@ -86,6 +92,45 @@ export default function ImportStructuredTemplateModal({ onClose, onImported }: P
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed]);
 
+  const ingestFile = async (file: File) => {
+    setFileError(null);
+    if (file.size > 1024 * 1024) {
+      setFileError("File is larger than 1MB — that's almost certainly not a template.");
+      return;
+    }
+    const looksJson = file.name.toLowerCase().endsWith(".json") || file.type === "application/json";
+    try {
+      const text = await file.text();
+      setJson(text);
+      if (!looksJson) {
+        setFileError(`"${file.name}" isn't a .json file — pasted as-is; check it parses.`);
+      }
+    } catch (e: any) {
+      setFileError(e?.message || "Could not read file");
+    }
+  };
+
+  const handleDrop = async (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    await ingestFile(file);
+  };
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!dragOver) setDragOver(true);
+  };
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  };
+
   const canSubmit = !!parsed && !!name.trim() && !!llmModel && !submitting;
 
   const handleSubmit = async (e: FormEvent) => {
@@ -138,18 +183,59 @@ export default function ImportStructuredTemplateModal({ onClose, onImported }: P
           </p>
 
           <div>
-            <Label htmlFor="import-json" className="font-black">
-              Template JSON
-            </Label>
-            <textarea
-              id="import-json"
-              value={json}
-              onChange={(e) => setJson(e.target.value)}
-              placeholder='{ "name": "...", "sections": [ ... ] }'
-              className="w-full min-h-[180px] border-[2px] border-black bg-white p-2 font-mono text-xs"
-              autoFocus
-              required
-            />
+            <div className="flex items-center justify-between">
+              <Label htmlFor="import-json" className="font-black">
+                Template JSON
+              </Label>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs font-bold uppercase tracking-wide underline"
+              >
+                Browse file…
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) ingestFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+            <div
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragOver}
+              onDragLeave={handleDragLeave}
+              className={
+                "relative border-[2px] border-black " +
+                (dragOver ? "ring-4 ring-[#fd3777]" : "")
+              }
+            >
+              <textarea
+                id="import-json"
+                value={json}
+                onChange={(e) => setJson(e.target.value)}
+                placeholder='Drop a .json file here, paste JSON, or click "Browse file…"'
+                className="w-full min-h-[180px] bg-white p-2 font-mono text-xs outline-none"
+                autoFocus
+                required
+              />
+              {dragOver && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#fd3777]/10">
+                  <span className="font-black uppercase tracking-wider text-[#5d1d91]">
+                    Drop to import
+                  </span>
+                </div>
+              )}
+            </div>
+            {fileError && (
+              <p className="text-amber-700 text-xs mt-1">{fileError}</p>
+            )}
             {parseError && (
               <p className="text-red-600 text-xs mt-1">
                 JSON parse error: {parseError}
