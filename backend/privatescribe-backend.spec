@@ -9,6 +9,8 @@ Onedir (not onefile) by design: native deps (sqlcipher, ctranslate2,
 torch, etc.) load faster, start up faster, and are far easier to
 debug when something's missing.
 """
+import os
+
 from PyInstaller.utils.hooks import (
     collect_data_files,
     collect_dynamic_libs,
@@ -88,6 +90,10 @@ excludes = [
     'scipy.tests',
     'pandas.tests',
     'PIL.tests',
+    # sklearn is pulled in transitively by pyannote (clustering). Its test
+    # package was missing from this list — added for consistency.
+    'sklearn.tests',
+    'sklearn.datasets.tests',
 ]
 
 
@@ -103,6 +109,18 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# ---------- strip bundled test fixtures ----------
+# Several deps — sklearn (via pyannote) most notably — ship large `tests/`
+# data trees: thousands of tiny fixture files never touched at runtime.
+# `excludes` above drops the test *modules*, but data files collected by
+# the hooks slip through. They bloat the app and, worse, make the macOS
+# signing step fragile: electron-builder runs `codesign --timestamp` once
+# per bundled file, and thousands of them in a burst trip Apple's
+# timestamp-server rate limit ("The timestamp service is not available").
+# Dropping every data file under a `tests/` directory keeps the bundle
+# lean and the signing step reliable.
+a.datas = [d for d in a.datas if '/tests/' not in d[0].replace(os.sep, '/')]
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

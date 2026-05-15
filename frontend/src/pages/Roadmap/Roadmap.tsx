@@ -1,4 +1,4 @@
-import { Zap, Shield, Settings, Rocket } from 'lucide-react';
+import { Zap, Shield, Settings, Rocket, Server } from 'lucide-react';
 import RoadmapPhase from '@/components/neo/neo-roadmap-phase';
 import NeoButton from '@/components/neo/neo-button';
 import NeoFooter from '@/components/neo/neo-footer';
@@ -26,9 +26,13 @@ const Roadmap = () => {
         { text: "Custom template creation", completed: true },
         { text: "Participant management", completed: true },
         { text: "Per-template AI model selection", completed: true },
+        { text: "Selectable speech-to-text model & quality", completed: true },
         { text: "Encrypted audio storage with in-note playback", completed: true },
-        { text: "Speaker identification (diarization)", completed: true },
-        { text: "Click-to-play timestamps on diarized transcripts", completed: true },
+        { text: "Speaker identification with click-to-play timestamps", completed: true },
+        { text: "Real-time transcription preview while recording", completed: true },
+        { text: "Voice dictation commands & custom vocabulary", completed: true },
+        { text: "Draft → finalized → signed note workflow with addenda", completed: true },
+        { text: "Full-text note search with PDF & DOCX export", completed: true },
       ],
       gradient: "linear-gradient(135deg, #5d1d91, #9d4edd)",
       icon: <Settings className="w-8 h-8" />
@@ -39,6 +43,7 @@ const Roadmap = () => {
       status: "completed",
       items: [
         { text: "Multi-user admin console", completed: true },
+        { text: "Two-factor authentication (TOTP)", completed: true },
         { text: "Full audit log with key-access security alerts", completed: true },
         { text: "Runtime key rotation with coordinated re-encryption", completed: true },
         { text: "Configurable trash retention", completed: true },
@@ -52,12 +57,26 @@ const Roadmap = () => {
       title: "ACCESSIBILITY",
       status: "in-progress",
       items: [
+        { text: "Standalone desktop app", completed: true },
         { text: "PrivateScribe Studio — design richer templates for more detailed, customizable notes", completed: false },
-        { text: "Standalone desktop app (in development)", completed: false },
         { text: "Named participant assignment to diarized speakers", completed: false },
       ],
       gradient: "linear-gradient(135deg, #ff9900, #ffff00)",
       icon: <Rocket className="w-8 h-8" />
+    },
+    {
+      phase: "PHASE 5",
+      title: "OFFICE DEPLOYMENT",
+      status: "upcoming",
+      items: [
+        { text: "Multi-user performance & concurrency", completed: false },
+        { text: "Network-accessible server for whole-office use", completed: false },
+        { text: "Mobile-ready recording on phones & tablets", completed: false },
+        { text: "Phone-as-microphone: record anywhere, review on desktop", completed: false },
+        { text: "Guided encrypted backup & restore", completed: false },
+      ],
+      gradient: "linear-gradient(135deg, #06b6d4, #22d3ee)",
+      icon: <Server className="w-8 h-8" />
     }
   ];
 
