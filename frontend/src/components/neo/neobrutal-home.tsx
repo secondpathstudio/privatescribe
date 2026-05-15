@@ -107,9 +107,9 @@ const NeobrutalHome = () => {
             price='soon'
             pricePeriod='yr'
             features={[
-              "PrivateScribe Studio — design richer, more customizable note templates",
-              "Access to premium, fine-tuned transcription models",
-              "Regular model updates",
+              "PrivateScribe Studio — a dedicated builder for richer, more customizable note templates",
+              "Manage and standardize note templates across your whole organization",
+              "Optionally link the PrivateScribe app to the Studio so templates update automatically",
               "Email support",
             ]}
             buttonText='Coming Soon'
