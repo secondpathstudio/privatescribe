@@ -44,6 +44,7 @@ def _build_login_response(user):
             "forcePasswordChange": user.force_password_change,
             "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
             "logoutOnClose": settings_service.get_logout_on_close(),
+            "exportsEnabled": settings_service.get_exports_enabled(),
         },
     }
 
@@ -66,6 +67,7 @@ def validate_token():
             "forcePasswordChange": user.force_password_change,
             "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
             "logoutOnClose": settings_service.get_logout_on_close(),
+            "exportsEnabled": settings_service.get_exports_enabled(),
         },
     })
 

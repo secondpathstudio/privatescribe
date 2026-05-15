@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime
 
@@ -7,7 +8,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models import AudioFile, Note, Participant, Template
-from app.services import audio_storage, note_search
+from app.services import audio_storage, note_export, note_search
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
 
@@ -556,6 +557,71 @@ def mark_note_as_restored(id):
         "id": note.id,
         "message": "Note restored successfully.",
     })
+
+
+def _safe_filename_stem(s: str, fallback: str) -> str:
+    """Strip characters that don't belong in a download filename."""
+    cleaned = re.sub(r'[^A-Za-z0-9._ -]+', '_', s).strip(' _-')
+    return cleaned or fallback
+
+
+@bp.route('/<string:id>/export/<string:fmt>', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def export_note(id, fmt):
+    """Download a note as PDF or DOCX.
+
+    503 if the admin has globally disabled exports. 404 if the note isn't
+    the caller's. Filename is derived from the template name + note date.
+    """
+    fmt = fmt.lower()
+    if fmt not in ('pdf', 'docx'):
+        return jsonify({"error": "format must be pdf or docx"}), 400
+    if not settings_service.get_exports_enabled():
+        return jsonify({"error": "Document exports are disabled by the administrator."}), 503
+
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    template_name = None
+    if note.template_id:
+        tmpl = Template.query.get(note.template_id)
+        if tmpl:
+            template_name = tmpl.name
+
+    if fmt == 'pdf':
+        payload = note_export.render_pdf(note, template_name=template_name)
+        mime = 'application/pdf'
+    else:
+        payload = note_export.render_docx(note, template_name=template_name)
+        mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+    date_stem = note.note_date.strftime('%Y-%m-%d') if note.note_date else ''
+    stem = _safe_filename_stem(
+        ' '.join(filter(None, [template_name or 'note', date_stem])),
+        fallback=f'note_{note.id[:8]}',
+    )
+    filename = f'{stem}.{fmt}'
+
+    log_action(
+        'note.export',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+        extra={'format': fmt},
+    )
+    db.session.commit()
+
+    return Response(
+        payload,
+        mimetype=mime,
+        headers={
+            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Cache-Control': 'private, no-store',
+        },
+    )
 
 
 @bp.route('/search', methods=['GET'])

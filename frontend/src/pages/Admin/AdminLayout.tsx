@@ -23,6 +23,7 @@ const NAV: NavGroup[] = [
       { to: "/admin/encryption", label: "Encryption" },
       { to: "/admin/templates", label: "Templates" },
       { to: "/admin/trash-retention", label: "Trash & Retention" },
+      { to: "/admin/exports", label: "Document Exports" },
     ],
   },
   {

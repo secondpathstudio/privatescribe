@@ -18,6 +18,7 @@ TRASH_RETENTION_DAYS = "trash_retention_days"
 TRASH_AUTO_PURGE = "trash_auto_purge"
 LOGOUT_ON_CLOSE = "logout_on_close"
 TWO_FACTOR_REQUIRED = "two_factor_required"
+EXPORTS_ENABLED = "exports_enabled"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -49,6 +50,11 @@ DEFAULT_LOGOUT_ON_CLOSE = True
 # of their next login. Flipping this off doesn't wipe stored secrets — it
 # just stops the challenge, so flipping it back on doesn't force re-enroll.
 DEFAULT_TWO_FACTOR_REQUIRED = False
+
+# When True, users can download their notes as PDF / DOCX. Admins flip this
+# off to broadly disable document exports — both endpoints return 503 and the
+# UI hides the download buttons.
+DEFAULT_EXPORTS_ENABLED = True
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -131,6 +137,10 @@ def get_logout_on_close() -> bool:
 
 def get_two_factor_required() -> bool:
     return get_bool(TWO_FACTOR_REQUIRED, DEFAULT_TWO_FACTOR_REQUIRED)
+
+
+def get_exports_enabled() -> bool:
+    return get_bool(EXPORTS_ENABLED, DEFAULT_EXPORTS_ENABLED)
 
 
 def trash_purge_eligible_on(is_deleted_timestamp: Optional[datetime]) -> Optional[datetime]:

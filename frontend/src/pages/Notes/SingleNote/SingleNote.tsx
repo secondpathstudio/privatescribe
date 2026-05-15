@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import SingleNoteForm from './SingleNoteForm'
 import { useParams } from 'react-router'
 import { useAuth } from '@/context/auth-context'
+import NeoButton from '@/components/neo/neo-button'
 
 
 const SingleNote = () => {
@@ -126,6 +127,45 @@ useEffect(() => {
     ? [templateName || 'Note', dateLabel].filter(Boolean).join(' — ')
     : 'Note';
 
+  const [exporting, setExporting] = useState<'pdf' | 'docx' | null>(null);
+  const handleExport = async (fmt: 'pdf' | 'docx') => {
+    if (!note?.id || exporting) return;
+    setExporting(fmt);
+    try {
+      const response = await fetch(`${API_BASE}/api/notes/${note.id}/export/${fmt}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!response.ok) {
+        // Try to surface the server-side message (e.g. 503 when admin disabled).
+        let msg = `Export failed (${response.status})`;
+        try {
+          const data = await response.json();
+          if (data?.error) msg = data.error;
+        } catch { /* not JSON */ }
+        alert(msg);
+        return;
+      }
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = /filename="?([^";]+)"?/.exec(disposition);
+      const filename = match?.[1] || `note.${fmt}`;
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('export error', err);
+      alert('Export failed. Check the console for details.');
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <div className="max-w-screen-lg mx-auto px-4 py-10">
         <Breadcrumbs
@@ -139,7 +179,23 @@ useEffect(() => {
             },
           ]}
           />
-        <h1 className='text-4xl font-black mt-6'>{title}</h1>
+        <div className='flex flex-wrap items-center justify-between gap-3 mt-6'>
+          <h1 className='text-4xl font-black'>{title}</h1>
+          {auth.user?.exportsEnabled && note && (
+            <div className='flex items-center gap-2'>
+              <NeoButton
+                onClick={() => handleExport('pdf')}
+                disabled={!!exporting}
+                label={exporting === 'pdf' ? 'Preparing…' : '⬇ PDF'}
+              />
+              <NeoButton
+                onClick={() => handleExport('docx')}
+                disabled={!!exporting}
+                label={exporting === 'docx' ? 'Preparing…' : '⬇ DOCX'}
+              />
+            </div>
+          )}
+        </div>
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>

@@ -44,6 +44,9 @@ def get_settings():
         # When true, every user must pass a TOTP challenge after password auth.
         # Users who haven't enrolled are forced through enrollment mid-login.
         "two_factor_required": settings_service.get_two_factor_required(),
+        # When true, users can download notes as PDF / DOCX. Flipping off makes
+        # the export endpoints return 503 and hides the buttons in the UI.
+        "exports_enabled": settings_service.get_exports_enabled(),
     })
 
 
@@ -209,6 +212,35 @@ def update_two_factor_required():
     db.session.commit()
 
     return jsonify({"two_factor_required": settings_service.get_two_factor_required()})
+
+
+@bp.route('/exports-enabled', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_exports_enabled():
+    """Toggle whether users can download notes as PDF / DOCX.
+
+    Body: {"value": bool}. Takes effect immediately — the next /export
+    request reads the fresh value (no caching).
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if not isinstance(value, bool):
+        return jsonify({"error": "value must be a boolean"}), 400
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_exports_enabled()
+    settings_service.set_value(settings_service.EXPORTS_ENABLED, value, updated_by=current_user)
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.EXPORTS_ENABLED,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({"exports_enabled": settings_service.get_exports_enabled()})
 
 
 @bp.route('/diarization-device', methods=['PUT'])

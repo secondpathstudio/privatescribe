@@ -24,6 +24,10 @@ interface User {
   // Cached copy of the admin-toggleable "drop credentials on app close"
   // setting. Only consulted in the Electron shell — web sessions ignore it.
   logoutOnClose?: boolean;
+  // Cached copy of the admin-toggleable "Document exports" setting. When
+  // false the SingleNote page hides PDF/DOCX download buttons (and the
+  // backend will 503 the export endpoints regardless).
+  exportsEnabled?: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
