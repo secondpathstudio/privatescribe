@@ -34,6 +34,7 @@ import UploadLimitSection from './pages/Admin/sections/UploadLimit.tsx'
 import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
 import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
 import SessionSection from './pages/Admin/sections/Session.tsx'
+import TwoFactorSection from './pages/Admin/sections/TwoFactor.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 import Og from './pages/Og/Og.tsx'
 import OllamaGate from './components/OllamaGate.tsx'
@@ -75,6 +76,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="diarization" element={<DiarizationSection />} />
             <Route path="trash-retention" element={<TrashRetentionSection />} />
             <Route path="session" element={<SessionSection />} />
+            <Route path="two-factor" element={<TwoFactorSection />} />
           </Route>
           <Route path="/roadmap" element={<Roadmap />} />
           <Route path="/login" element={<Login />} />

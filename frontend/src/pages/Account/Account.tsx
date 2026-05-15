@@ -5,6 +5,7 @@ import { useAuth } from "@/context/auth-context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
+import TwoFactorSection from "@/components/account/TwoFactorSection";
 
 const MIN_LEN = 8;
 
@@ -167,6 +168,8 @@ export default function Account() {
           </div>
         </form>
       </section>
+
+      <TwoFactorSection />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ArrowUpDown } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
 import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
+import Reset2FAModal from "@/components/admin/Reset2FAModal";
 
 interface User {
   id: string;
@@ -13,6 +14,7 @@ interface User {
   lastName: string;
   createdAt: string;
   lastLogin: string;
+  twoFactorEnrolled?: boolean;
 }
 
 const formatLocal = (value?: string) => {
@@ -26,6 +28,7 @@ export default function UsersTable({ users }: { users: User[] }) {
     const [data, setData] = useState<User[]>(users);
   const [sortConfig, setSortConfig] = useState<{ key: keyof User; direction: "asc" | "desc" } | null>(null);
   const [resetTarget, setResetTarget] = useState<User | null>(null);
+  const [reset2faTarget, setReset2faTarget] = useState<User | null>(null);
 
   const handleSort = (key: keyof User) => {
     let direction: "asc" | "desc" = "asc";
@@ -80,6 +83,7 @@ export default function UsersTable({ users }: { users: User[] }) {
                 </Button>
               </TableHead>
             ))}
+            <TableHead>2FA</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -95,16 +99,37 @@ export default function UsersTable({ users }: { users: User[] }) {
                 <TableCell>{user.lastName}</TableCell>
                 <TableCell>{user.lastLogin ? formatLocal(user.lastLogin) : 'No logins'}</TableCell>
                 <TableCell>
+                  <span
+                    className={[
+                      "inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border-2 border-black",
+                      user.twoFactorEnrolled ? "bg-[#ffff00]" : "bg-white text-muted-foreground",
+                    ].join(" ")}
+                  >
+                    {user.twoFactorEnrolled ? "Enrolled" : "—"}
+                  </span>
+                </TableCell>
+                <TableCell>
                   {isSelf ? (
                     <span className="text-xs text-muted-foreground">(you)</span>
                   ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setResetTarget(user)}
-                    >
-                      Reset password
-                    </Button>
+                    <div className="flex flex-wrap gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setResetTarget(user)}
+                      >
+                        Reset password
+                      </Button>
+                      {user.twoFactorEnrolled && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setReset2faTarget(user)}
+                        >
+                          Reset 2FA
+                        </Button>
+                      )}
+                    </div>
                   )}
                 </TableCell>
               </TableRow>
@@ -117,6 +142,20 @@ export default function UsersTable({ users }: { users: User[] }) {
           userId={resetTarget.id}
           userEmail={resetTarget.email}
           onClose={() => setResetTarget(null)}
+        />
+      )}
+      {reset2faTarget && (
+        <Reset2FAModal
+          userId={reset2faTarget.id}
+          userEmail={reset2faTarget.email}
+          onClose={() => setReset2faTarget(null)}
+          onSuccess={() => {
+            setData((prev) =>
+              prev.map((u) =>
+                u.id === reset2faTarget.id ? { ...u, twoFactorEnrolled: false } : u
+              )
+            );
+          }}
         />
       )}
     </>

@@ -7,8 +7,10 @@ from werkzeug.security import check_password_hash
 
 from app.extensions import db, limiter
 from app.models import User
+from app.security import login_challenge
 from app.security.secrets import is_backup_key_acknowledged
 from app.services import settings as settings_service
+from app.services import two_factor
 from app.services.audit import log_action
 
 bp = Blueprint("auth", __name__)
@@ -19,6 +21,31 @@ def _pending_backup_key_ack(user) -> bool:
     Currently any admin who hasn't acknowledged the key (or hasn't since the
     last rotation) — non-admins never see the banner."""
     return user.role == 'admin' and not is_backup_key_acknowledged()
+
+
+def _build_login_response(user):
+    """Issue the final access+refresh token pair and the user payload that
+    the frontend caches in localStorage. Called from /api/login when 2FA is
+    not required, and from /api/login/2fa and /api/login/2fa-enroll-verify
+    once the second factor is satisfied."""
+    access_token = create_access_token(identity=user.id)
+    refresh_token = create_refresh_token(identity=user.id)
+    user.last_login = datetime.utcnow()
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "firstName": user.first_name,
+            "lastName": user.last_name,
+            "role": user.role,
+            "lastLogin": user.last_login,
+            "forcePasswordChange": user.force_password_change,
+            "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
+            "logoutOnClose": settings_service.get_logout_on_close(),
+        },
+    }
 
 
 @bp.route('/api/validateToken', methods=['GET'])
@@ -55,35 +82,46 @@ def login():
     user = User.query.filter_by(email=attempted_email).first()
 
     if user and check_password_hash(user.password, data['password']):
-        access_token = create_access_token(identity=user.id)
-        refresh_token = create_refresh_token(identity=user.id)
+        # 2FA precedence:
+        # 1. If the user has opted in (enrolled), always challenge them, even
+        #    when the org-wide toggle is off. A self-enabled second factor
+        #    stays active regardless of admin policy.
+        # 2. Otherwise, if the admin requires 2FA globally, force enrollment
+        #    mid-login.
+        # 3. Otherwise, plain password login.
+        # In cases 1 and 2 we defer the access/refresh pair and last_login
+        # bump until the second step completes.
+        if two_factor.is_enrolled(user):
+            token = login_challenge.issue(user.id, login_challenge.PURPOSE_2FA_CHALLENGE)
+            log_action(
+                'auth.login_password_ok',
+                user_id=user.id,
+                user_email=user.email,
+                extra={'next_step': '2fa_challenge'},
+            )
+            db.session.commit()
+            return jsonify({
+                "requires_2fa": True,
+                "challenge_token": token,
+            }), 200
 
-        user.last_login = datetime.utcnow()
-        log_action(
-            'auth.login',
-            user_id=user.id,
-            user_email=user.email,
-        )
+        if settings_service.get_two_factor_required():
+            token = login_challenge.issue(user.id, login_challenge.PURPOSE_2FA_ENROLLMENT)
+            log_action(
+                'auth.login_password_ok',
+                user_id=user.id,
+                user_email=user.email,
+                extra={'next_step': '2fa_enrollment'},
+            )
+            db.session.commit()
+            return jsonify({
+                "requires_2fa_enrollment": True,
+                "enrollment_token": token,
+            }), 200
+
+        response_body = _build_login_response(user)
+        log_action('auth.login', user_id=user.id, user_email=user.email)
         db.session.commit()
-
-        response_body = {
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "firstName": user.first_name,
-                "lastName": user.last_name,
-                "role": user.role,
-                "lastLogin": user.last_login,
-                "forcePasswordChange": user.force_password_change,
-                # Drives the warning banner. The key itself is never returned
-                # by login — admins must password-re-auth on /admin/encryption
-                # to actually see it.
-                "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
-                "logoutOnClose": settings_service.get_logout_on_close(),
-            },
-        }
         return jsonify(response_body), 200
 
     log_action(
@@ -97,6 +135,126 @@ def login():
     )
     db.session.commit()
     return jsonify({"error": "Invalid username or password"}), 401
+
+
+@bp.route('/api/login/2fa', methods=['POST'])
+@limiter.limit("10 per minute")
+def login_2fa():
+    """Second step of password+TOTP login. Body: {challenge_token, code}.
+    `code` may be a 6-digit TOTP or a recovery code. On success returns the
+    same shape as /api/login."""
+    data = request.get_json(silent=True) or {}
+    challenge_token = data.get('challenge_token')
+    code = data.get('code')
+
+    try:
+        user_id = login_challenge.verify(challenge_token, login_challenge.PURPOSE_2FA_CHALLENGE)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+
+    if not isinstance(code, str) or not code.strip():
+        return jsonify({"error": "code is required"}), 400
+
+    user = User.query.get(user_id)
+    if not user or not two_factor.is_enrolled(user):
+        return jsonify({"error": "Invalid challenge."}), 401
+
+    if not two_factor.verify_login_code(user, code):
+        log_action(
+            'auth.login_2fa',
+            user_id=user.id,
+            user_email=user.email,
+            status='failure',
+            extra={'reason': 'invalid_code'},
+        )
+        db.session.commit()
+        return jsonify({"error": "Invalid code"}), 401
+
+    response_body = _build_login_response(user)
+    log_action('auth.login', user_id=user.id, user_email=user.email, extra={'second_factor': 'totp'})
+    db.session.commit()
+    return jsonify(response_body), 200
+
+
+@bp.route('/api/login/2fa-enroll', methods=['POST'])
+@limiter.limit("10 per minute")
+def login_2fa_enroll():
+    """Mid-login enrollment, step 1. Issues a fresh TOTP secret + QR for a
+    user the admin's policy has forced into 2FA. Body: {enrollment_token}."""
+    data = request.get_json(silent=True) or {}
+    enrollment_token = data.get('enrollment_token')
+
+    try:
+        user_id = login_challenge.verify(enrollment_token, login_challenge.PURPOSE_2FA_ENROLLMENT)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Invalid enrollment session."}), 401
+    if two_factor.is_enrolled(user):
+        # Shouldn't happen in normal flow — /api/login routes enrolled users
+        # to the challenge path. Race or replay; safest to bounce them back
+        # to the password screen.
+        return jsonify({"error": "Already enrolled. Please sign in again."}), 400
+
+    try:
+        secret, uri, qr = two_factor.start_enrollment(user)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    log_action('user.2fa_enroll_start', user_id=user.id, user_email=user.email, extra={'via': 'login'})
+    db.session.commit()
+    return jsonify({
+        "secret": secret,
+        "provisioning_uri": uri,
+        "qr_data_url": qr,
+        # Echo the token so the client uses the same one for step 2.
+        "enrollment_token": enrollment_token,
+    })
+
+
+@bp.route('/api/login/2fa-enroll-verify', methods=['POST'])
+@limiter.limit("10 per minute")
+def login_2fa_enroll_verify():
+    """Mid-login enrollment, step 2. Body: {enrollment_token, code}. Confirms
+    the first code, marks the user enrolled, and returns the same shape as
+    /api/login plus the one-time recovery codes."""
+    data = request.get_json(silent=True) or {}
+    enrollment_token = data.get('enrollment_token')
+    code = data.get('code')
+
+    try:
+        user_id = login_challenge.verify(enrollment_token, login_challenge.PURPOSE_2FA_ENROLLMENT)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 401
+
+    if not isinstance(code, str) or not code.strip():
+        return jsonify({"error": "code is required"}), 400
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Invalid enrollment session."}), 401
+
+    try:
+        recovery_codes = two_factor.verify_enrollment(user, code.strip())
+    except ValueError as e:
+        log_action(
+            'user.2fa_enroll_verify',
+            user_id=user.id,
+            user_email=user.email,
+            status='failure',
+            extra={'via': 'login', 'reason': str(e)},
+        )
+        db.session.commit()
+        return jsonify({"error": str(e)}), 400
+
+    response_body = _build_login_response(user)
+    response_body["recovery_codes"] = recovery_codes
+    log_action('user.2fa_enroll_verify', user_id=user.id, user_email=user.email, extra={'via': 'login'})
+    log_action('auth.login', user_id=user.id, user_email=user.email, extra={'second_factor': 'totp_first_enroll'})
+    db.session.commit()
+    return jsonify(response_body), 200
 
 
 @bp.route('/refresh', methods=['POST'])

@@ -6,6 +6,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from app.extensions import db, limiter
 from app.models import User
 from app.security.auth import require_admin
+from app.services import two_factor
 from app.services.audit import log_action
 
 bp = Blueprint("users", __name__)
@@ -43,6 +44,7 @@ def get_all_users():
         "role": user.role,
         "createdAt": user.created_at,
         "lastLogin": user.last_login,
+        "twoFactorEnrolled": two_factor.is_enrolled(user),
     } for user in users]
 
     return jsonify(users_list)
@@ -201,4 +203,57 @@ def admin_reset_password(user_id):
         "message": "Password reset. User must change it on next login.",
         "userId": target.id,
         "forcePasswordChange": True,
+    }), 200
+
+
+@bp.route('/api/admin/users/<string:user_id>/reset-2fa', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+@limiter.limit("10 per minute")
+def admin_reset_2fa(user_id):
+    """Admin clears another user's TOTP secret and recovery codes. Used when
+    a user has lost both their phone and their recovery codes. Requires the
+    admin's own password as re-auth so a stolen admin token can't silently
+    strip a second factor. If the system-wide toggle is on, the target user
+    is forced through enrollment on their next login."""
+    data = request.get_json(silent=True) or {}
+    admin_password = data.get('adminPassword')
+    if not isinstance(admin_password, str) or not admin_password:
+        return jsonify({"error": "adminPassword is required"}), 400
+
+    admin_id = get_jwt_identity()
+    admin = User.query.get(admin_id)
+    if not admin or not check_password_hash(admin.password, admin_password):
+        log_action(
+            'admin.2fa_reset',
+            user_id=admin_id,
+            user_email=admin.email if admin else None,
+            resource_type='user',
+            resource_id=user_id,
+            status='failure',
+            extra={'reason': 'invalid_admin_password'},
+        )
+        db.session.commit()
+        return jsonify({"error": "Admin password is incorrect"}), 401
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    if not two_factor.is_enrolled(target) and not target.totp_secret:
+        return jsonify({"error": "User is not enrolled in 2FA"}), 400
+
+    two_factor.disable(target)
+    log_action(
+        'admin.2fa_reset',
+        user_id=admin.id,
+        user_email=admin.email,
+        resource_type='user',
+        resource_id=target.id,
+        extra={'target_email': target.email},
+    )
+    db.session.commit()
+    return jsonify({
+        "message": "2FA reset. User will be prompted to re-enroll if 2FA is required.",
+        "userId": target.id,
+        "twoFactorEnrolled": False,
     }), 200

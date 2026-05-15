@@ -41,6 +41,9 @@ def get_settings():
         "trash_auto_purge": settings_service.get_trash_auto_purge(),
         # When true, the Electron shell forgets credentials on app close.
         "logout_on_close": settings_service.get_logout_on_close(),
+        # When true, every user must pass a TOTP challenge after password auth.
+        # Users who haven't enrolled are forced through enrollment mid-login.
+        "two_factor_required": settings_service.get_two_factor_required(),
     })
 
 
@@ -175,6 +178,37 @@ def update_logout_on_close():
     db.session.commit()
 
     return jsonify({"logout_on_close": settings_service.get_logout_on_close()})
+
+
+@bp.route('/two-factor-required', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_two_factor_required():
+    """Toggle whether 2FA is required for all users.
+
+    Body: {"value": bool}. Flipping ON forces every user through TOTP — those
+    not yet enrolled enroll mid-login on their next sign-in. Flipping OFF
+    leaves stored secrets in place so flipping back ON doesn't make users
+    re-enroll.
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if not isinstance(value, bool):
+        return jsonify({"error": "value must be a boolean"}), 400
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_two_factor_required()
+    settings_service.set_value(settings_service.TWO_FACTOR_REQUIRED, value, updated_by=current_user)
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.TWO_FACTOR_REQUIRED,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({"two_factor_required": settings_service.get_two_factor_required()})
 
 
 @bp.route('/diarization-device', methods=['PUT'])

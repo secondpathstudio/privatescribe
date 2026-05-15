@@ -16,6 +16,18 @@ class User(db.Model):
     # navigate elsewhere until they pick their own password. Cleared by the
     # self-service /api/me/change-password endpoint.
     force_password_change = db.Column(db.Boolean, nullable=False, default=False)
+    # TOTP-based 2FA. `totp_secret` is the base32-encoded shared secret stored
+    # in the encrypted DB (never returned over the wire). `totp_enrolled_at`
+    # is the source of truth for "is this user enrolled" — `totp_secret` may
+    # be non-null while enrollment is still pending verification of the first
+    # code, in which case `totp_enrolled_at` stays null and the secret is
+    # overwritten on the next /enroll call.
+    totp_secret = db.Column(db.String(64), nullable=True)
+    totp_enrolled_at = db.Column(db.DateTime, nullable=True)
+    # JSON-encoded list of werkzeug password hashes of one-time recovery codes.
+    # On use, the matching slot is replaced with null so the list length stays
+    # stable and the user can see how many they have left.
+    recovery_codes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, default=datetime.utcnow)
 

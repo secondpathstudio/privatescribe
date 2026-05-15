@@ -17,6 +17,7 @@ DIARIZATION_DEVICE = "diarization_device"
 TRASH_RETENTION_DAYS = "trash_retention_days"
 TRASH_AUTO_PURGE = "trash_auto_purge"
 LOGOUT_ON_CLOSE = "logout_on_close"
+TWO_FACTOR_REQUIRED = "two_factor_required"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -42,6 +43,12 @@ DEFAULT_TRASH_AUTO_PURGE = False
 # the user has to re-authenticate every time they reopen the app. Web
 # clients ignore this flag — they manage their own sessions.
 DEFAULT_LOGOUT_ON_CLOSE = True
+
+# When True, every user must complete a TOTP code challenge after password
+# auth. Users who aren't yet enrolled get pushed through enrollment as part
+# of their next login. Flipping this off doesn't wipe stored secrets — it
+# just stops the challenge, so flipping it back on doesn't force re-enroll.
+DEFAULT_TWO_FACTOR_REQUIRED = False
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -120,6 +127,10 @@ def get_trash_auto_purge() -> bool:
 
 def get_logout_on_close() -> bool:
     return get_bool(LOGOUT_ON_CLOSE, DEFAULT_LOGOUT_ON_CLOSE)
+
+
+def get_two_factor_required() -> bool:
+    return get_bool(TWO_FACTOR_REQUIRED, DEFAULT_TWO_FACTOR_REQUIRED)
 
 
 def trash_purge_eligible_on(is_deleted_timestamp: Optional[datetime]) -> Optional[datetime]:
