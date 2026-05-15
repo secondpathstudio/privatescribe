@@ -30,6 +30,14 @@ class Note(db.Model):
     # update endpoint rejects raw-text changes once this is set. One-way for
     # v1; no un-approve path.
     approved_at = db.Column(db.DateTime, nullable=True)
+    # Workflow state: 'draft' -> 'finalized' -> 'signed'. draft<->finalized
+    # is reversible; signing is permanent. Once 'signed' the note body is
+    # immutable and further content is added only as addenda. Distinct from
+    # approved_at (which locks just the raw transcript) — signing implies
+    # approval, but the two remain separate axes for pre-feature notes.
+    status = db.Column(db.String(20), nullable=False, default='draft')
+    # Set when the note is signed. None until then.
+    signed_at = db.Column(db.DateTime, nullable=True)
     note_type = db.Column(db.String(50), nullable=False)
     version = db.Column(db.Integer(), nullable=False, default=1)
     is_deleted = db.Column(db.Boolean, default=False)
@@ -43,6 +51,15 @@ class Note(db.Model):
     author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
 
     participants = db.relationship('Participant', secondary='note_participants', back_populates='notes')
+    # Append-only timestamped entries added after a note is signed. Ordered
+    # oldest-first for display. Cascade-delete so trashing a note's row also
+    # clears its addenda.
+    addenda = db.relationship(
+        'NoteAddendum',
+        backref='note',
+        cascade='all, delete-orphan',
+        order_by='NoteAddendum.created_at',
+    )
 
     def __repr__(self):
         return f"<Note {self.id}>"

@@ -47,6 +47,19 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const [approvedAt, setApprovedAt] = React.useState<string | null>(
         note?.approvedAt ?? null,
     );
+    // Workflow status, mirrored locally so the UI updates without a reload
+    // after a transition. draft -> finalized -> signed; signing is permanent.
+    type NoteStatus = 'draft' | 'finalized' | 'signed';
+    const [status, setStatus] = React.useState<NoteStatus>(
+        (note?.status as NoteStatus) ?? 'draft',
+    );
+    const [signedAt, setSignedAt] = React.useState<string | null>(note?.signedAt ?? null);
+    const signed = status === 'signed';
+    // Addenda — the only way to add content once signed. Append-only.
+    type Addendum = { id: string; authorName: string; content: string; createdAt: string };
+    const [addenda, setAddenda] = React.useState<Addendum[]>(note?.addenda ?? []);
+    const [addendumDraft, setAddendumDraft] = React.useState('');
+    const [addingAddendum, setAddingAddendum] = React.useState(false);
     // Per-word Whisper probabilities from the persisted note. May be null on
     // legacy rows or notes whose audio source didn't go through Whisper.
     const whisperWords: WordInfo[] = note?.noteContentWords ?? [];
@@ -190,6 +203,96 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         setSavingNote(false);
     }
     
+    // Transition the note's workflow status. Forward moves (finalize, sign)
+    // save any pending edits first so the new state reflects what's on
+    // screen — mirrors handleApprove. Signing is permanent, hence the
+    // confirm. The backend enforces which transitions are legal.
+    const handleStatusChange = async (target: NoteStatus) => {
+        if (target === 'signed' && !window.confirm(
+            'Sign this note? Signing is permanent: the note becomes read-only ' +
+            'and any further changes can only be added as addenda. This also ' +
+            'locks the raw transcript.'
+        )) return;
+
+        setSavingNote(true);
+        try {
+            if (formState.isDirty && target !== 'draft') {
+                const saveRes = await fetch(`${API_BASE}/api/notes/${note.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`,
+                    },
+                    body: JSON.stringify(form.getValues()),
+                });
+                if (!saveRes.ok) {
+                    const err = await saveRes.json().catch(() => ({}));
+                    throw new Error(err.error || `Save failed (${saveRes.status})`);
+                }
+                const updated = await saveRes.json();
+                form.reset({
+                    authorId: updated?.authorId,
+                    authorName: updated?.authorName,
+                    name: updated?.name ?? '',
+                    noteDate: updated?.noteDate,
+                    noteContentRaw: updated?.noteContentRaw,
+                    noteContentMarkdown: updated?.noteContentMarkdown,
+                    noteType: updated?.noteType,
+                    version: updated?.version,
+                    createdAt: updated?.createdAt,
+                    updatedAt: updated?.updatedAt,
+                    participants: updated?.participants,
+                    noteTemplate: templates.find((t: any) => t.id === updated.noteTemplate)?.id,
+                });
+            }
+            const res = await fetch(`${API_BASE}/api/notes/${note.id}/status`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify({ status: target }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `Status change failed (${res.status})`);
+            }
+            const data = await res.json();
+            setStatus(data.status);
+            setSignedAt(data.signedAt ?? null);
+            if (data.approvedAt) setApprovedAt(data.approvedAt);
+        } catch (e: any) {
+            alert(e.message ?? 'Could not change note status.');
+        }
+        setSavingNote(false);
+    };
+
+    const handleAddAddendum = async () => {
+        const content = addendumDraft.trim();
+        if (!content) return;
+        setAddingAddendum(true);
+        try {
+            const res = await fetch(`${API_BASE}/api/notes/${note.id}/addenda`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify({ content }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `Failed to add addendum (${res.status})`);
+            }
+            const created = await res.json();
+            setAddenda((prev) => [...prev, created]);
+            setAddendumDraft('');
+        } catch (e: any) {
+            alert(e.message ?? 'Could not add addendum.');
+        }
+        setAddingAddendum(false);
+    };
+
     const handleDeleteNote = async () => {
         if (confirm('Are you sure you want to delete this note?')) {
             try {
@@ -456,6 +559,32 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     <Form {...form}>
     <form onSubmit={(e) => handleUpdateNote(e, form)}>
         <div className="flex flex-col gap-4">
+            {/* Workflow status banner. draft -> finalized -> signed. */}
+            <div className="flex items-center gap-2 text-sm">
+                <span className="font-bold uppercase tracking-wider text-xs">Status:</span>
+                <span
+                    className={
+                        "border-2 border-black px-2 py-0.5 text-xs font-extrabold uppercase tracking-wider " +
+                        (status === 'signed'
+                            ? "bg-green-200"
+                            : status === 'finalized'
+                            ? "bg-blue-200"
+                            : "bg-white")
+                    }
+                >
+                    {status}
+                </span>
+                {signed && signedAt && (
+                    <span className="text-xs text-muted-foreground">
+                        Signed {new Date(signedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                    </span>
+                )}
+                {signed && (
+                    <span className="text-xs text-muted-foreground italic">
+                        — locked; content can only be extended with addenda below.
+                    </span>
+                )}
+            </div>
             {/* Editable title for the notes table. Blank round-trips to
                 null on the server; the table view falls back to
                 "<template> – <datetime>" when null. */}
@@ -582,7 +711,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                                 onChange={(field.onChange)}
                                 onCreateParticipant={handleCreateParticipant}
                                 onDeleteParticipant={handleDeleteParticipant}
-                                disabled={false}
+                                disabled={signed || note?.isDeleted}
                                 savedParticipants={savedParticipants}
                             />
                         </FormControl>
@@ -625,8 +754,9 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                         <FormItem className="w-full mt-4">
                             <FormControl>
                                 {/* <Textarea {...field} />  */}
-                                <MarkdownEditor 
+                                <MarkdownEditor
                                     className="w-full"
+                                    readOnly={signed}
                                     plugins={[
                                         headingsPlugin(),
                                         quotePlugin(),
@@ -718,7 +848,52 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             </TabsContent>
         </Tabs>
         )}
-        
+
+        {/* Addenda — append-only entries on a signed note. The list shows
+            whenever any exist; the add form appears only once signed. */}
+        {(addenda.length > 0 || signed) && (
+            <div className="mt-6 border-2 border-black bg-white p-4">
+                <h3 className="text-sm font-black uppercase tracking-wider mb-3">Addenda</h3>
+                {addenda.length === 0 ? (
+                    <p className="text-sm text-muted-foreground italic">
+                        No addenda yet. Use the box below to append one.
+                    </p>
+                ) : (
+                    <div className="space-y-3">
+                        {addenda.map((a) => (
+                            <div key={a.id} className="border-l-4 border-black pl-3">
+                                <div className="text-xs text-muted-foreground mb-1">
+                                    {a.authorName} · {new Date(a.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                                </div>
+                                <div className="text-sm whitespace-pre-wrap break-words">{a.content}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                {signed && !note?.isDeleted && (
+                    <div className="mt-4 flex flex-col gap-2">
+                        <Textarea
+                            value={addendumDraft}
+                            onChange={(e) => setAddendumDraft(e.target.value)}
+                            placeholder="Add an addendum…"
+                            disabled={addingAddendum}
+                        />
+                        <div>
+                            <NeoButton
+                                type="button"
+                                onClick={handleAddAddendum}
+                                disabled={addingAddendum || !addendumDraft.trim()}
+                                backgroundColor="#fd3777"
+                                textColor="#ffffff"
+                            >
+                                {addingAddendum ? 'Adding…' : 'Add Addendum'}
+                            </NeoButton>
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+
         {/* Buttons */}
         {savingNote && (
             <div className="flex flex-col w-full justify-center items-center mt-4">
@@ -752,6 +927,38 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     <span className="text-xs text-muted-foreground">
                         Approved {new Date(approvedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
                     </span>
+                )}
+                {/* Workflow transitions. draft<->finalized is reversible;
+                    Sign is permanent. Hidden once signed (banner shows it)
+                    and while the note is trashed. */}
+                {!note?.isDeleted && status === 'draft' && (
+                    <NeoButton
+                        type="button"
+                        onClick={() => handleStatusChange('finalized')}
+                        disabled={savingNote}
+                    >
+                        Finalize
+                    </NeoButton>
+                )}
+                {!note?.isDeleted && status === 'finalized' && (
+                    <>
+                        <NeoButton
+                            type="button"
+                            onClick={() => handleStatusChange('draft')}
+                            disabled={savingNote}
+                        >
+                            Reopen as Draft
+                        </NeoButton>
+                        <NeoButton
+                            type="button"
+                            backgroundColor="#16a34a"
+                            textColor="#ffffff"
+                            onClick={() => handleStatusChange('signed')}
+                            disabled={savingNote}
+                        >
+                            Sign
+                        </NeoButton>
+                    </>
                 )}
             </div>
             <div className='flex gap-4 items-center'>

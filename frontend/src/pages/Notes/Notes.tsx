@@ -10,9 +10,12 @@ import { DataTable } from '@/components/data-table'
 import { Input } from '@/components/ui/input'
 import { Search, X } from 'lucide-react'
 
+type NoteStatus = 'draft' | 'finalized' | 'signed';
+
 type NoteRow = {
     id: string;
     name: string | null;
+    status: NoteStatus;
     noteDate: string;
     createdAt: string;
     updatedAt: string;
@@ -28,6 +31,7 @@ type NoteRow = {
 type SearchResult = {
     id: string;
     name: string | null;
+    status: NoteStatus;
     noteDate: string;
     createdAt: string;
     updatedAt: string;
@@ -67,6 +71,21 @@ const displayName = (row: { name: string | null; templateName: string | null; no
 
 const participantsLabel = (ps: NoteRow['participants']) =>
     ps.map((p) => [p.firstName, p.lastName].filter(Boolean).join(' ')).filter(Boolean).join(', ');
+
+// Neobrutalist status pill. draft = plain, finalized = blue, signed = green.
+const StatusBadge = ({ status }: { status: NoteStatus }) => {
+    const cls =
+        status === 'signed'
+            ? 'bg-green-200'
+            : status === 'finalized'
+            ? 'bg-blue-200'
+            : 'bg-white';
+    return (
+        <span className={`border-2 border-black px-1.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider ${cls}`}>
+            {status}
+        </span>
+    );
+};
 
 // Backend wraps each match in STX () / ETX () so we can split
 // safely without using dangerouslySetInnerHTML. React text rendering escapes
@@ -243,6 +262,13 @@ const Notes = () => {
             cell: ({ row }) => <span>{formatDate(row.original.noteDate)}</span>,
         },
         {
+            id: 'status',
+            accessorFn: (row) => row.status,
+            header: 'Status',
+            size: 110,
+            cell: ({ row }) => <StatusBadge status={row.original.status} />,
+        },
+        {
             id: 'templateName',
             accessorFn: (row) => row.templateName ?? '',
             header: 'Template',
@@ -354,10 +380,11 @@ const Notes = () => {
                             className='block w-full text-left px-3 py-3 border-b last:border-b-0 hover:bg-muted/40'
                         >
                             <div className='flex justify-between items-center mb-1'>
-                                <span className='font-semibold text-sm'>
+                                <span className='font-semibold text-sm flex items-center gap-2'>
                                     {r.name && r.name.trim()
                                         ? r.name
                                         : (r.templateName ?? <span className='italic text-muted-foreground'>No template</span>)}
+                                    {r.status && <StatusBadge status={r.status} />}
                                 </span>
                                 <span className='text-xs text-muted-foreground'>{formatDate(r.noteDate)}</span>
                             </div>

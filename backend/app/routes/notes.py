@@ -7,7 +7,7 @@ from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
-from app.models import AudioFile, Note, Participant, Template
+from app.models import AudioFile, Note, NoteAddendum, Participant, Template, User
 from app.services import audio_storage, note_export, note_search
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
@@ -219,6 +219,8 @@ def create_note():
         "noteContentSegments": new_note.note_content_segments,
         "noteContentWords": new_note.note_content_words,
         "approvedAt": new_note.approved_at,
+        "status": new_note.status,
+        "signedAt": new_note.signed_at,
         "participants": participants_response,
         "noteType": new_note.note_type,
         "authorId": new_note.author_id,
@@ -279,6 +281,9 @@ def get_note(id):
         "noteContentSegments": note.note_content_segments,
         "noteContentWords": note.note_content_words,
         "approvedAt": note.approved_at,
+        "status": note.status,
+        "signedAt": note.signed_at,
+        "addenda": [_addendum_payload(a) for a in note.addenda],
         "authorId": note.author_id,
         "authorName": note.author_name,
         "noteType": note.note_type,
@@ -397,6 +402,30 @@ def update_note(id):
 
     data = request.get_json(silent=True) or {}
 
+    # Signed notes are immutable except the discovery `name` (a UI label,
+    # not part of the record). The checks below are value-aware, not just
+    # key-presence: the edit form always echoes the whole note back, so a
+    # name-only save legitimately re-sends unchanged content. Only a real
+    # diff on a locked field is rejected — post-sign changes go through
+    # addenda. (Raw transcript edits are caught separately by the approved
+    # check below; signing always sets approved_at.)
+    if note.status == 'signed':
+        signed_locked = (
+            ('noteContentMarkdown' in data
+             and data['noteContentMarkdown'] != note.note_content_markdown)
+            or ('noteType' in data and data['noteType'] != note.note_type)
+        )
+        if not signed_locked and 'participants' in data and isinstance(data['participants'], list):
+            incoming_ids = sorted(
+                str(p.get('id')) for p in data['participants'] if isinstance(p, dict)
+            )
+            current_ids = sorted(str(p.id) for p in note.participants)
+            signed_locked = incoming_ids != current_ids
+        if signed_locked:
+            return jsonify({
+                "error": "This note is signed and locked. Add an addendum instead.",
+            }), 409
+
     # Snapshot pre-edit values so we can record a diff in the audit log.
     # note_content_markdown can be many KB; record just "changed?" instead
     # of the full before/after to keep the log compact.
@@ -499,6 +528,9 @@ def update_note(id):
             "noteContentSegments": note.note_content_segments,
             "noteContentWords": note.note_content_words,
             "approvedAt": note.approved_at,
+            "status": note.status,
+            "signedAt": note.signed_at,
+            "addenda": [_addendum_payload(a) for a in note.addenda],
             "participants": participants,
             "noteType": note.note_type,
             "authorId": note.author_id,
@@ -540,6 +572,142 @@ def approve_note(id):
         db.session.commit()
 
     return jsonify({"approvedAt": note.approved_at})
+
+
+# Workflow states and the legal moves between them. draft<->finalized is
+# reversible; finalized->signed is one-way. Signing is permanent — there is
+# deliberately no transition out of 'signed'.
+VALID_STATUSES = ('draft', 'finalized', 'signed')
+_ALLOWED_STATUS_TRANSITIONS = {
+    ('draft', 'finalized'),
+    ('finalized', 'draft'),
+    ('finalized', 'signed'),
+}
+
+
+def _status_payload(note: Note) -> dict:
+    return {
+        "id": note.id,
+        "status": note.status,
+        "signedAt": note.signed_at,
+        "approvedAt": note.approved_at,
+    }
+
+
+@bp.route('/<string:id>/status', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def update_note_status(id):
+    """Transition a note's workflow status.
+
+    Body: {"status": "draft" | "finalized" | "signed"}.
+
+    Legal moves: draft<->finalized, finalized->signed. Signing is permanent
+    and also locks the raw transcript — it sets approved_at if unset, since
+    signing implies approval. A no-op transition (status already == target)
+    returns 200 so the client doesn't have to special-case it.
+    """
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user, is_deleted=False).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    target = data.get('status')
+    if target not in VALID_STATUSES:
+        return jsonify({"error": f"status must be one of {list(VALID_STATUSES)}"}), 400
+
+    current = note.status or 'draft'
+    if target == current:
+        return jsonify(_status_payload(note))
+
+    if (current, target) not in _ALLOWED_STATUS_TRANSITIONS:
+        return jsonify({
+            "error": f"Cannot move a note from '{current}' to '{target}'.",
+        }), 409
+
+    note.status = target
+    note.updated_at = datetime.utcnow()
+    if target == 'signed':
+        now = datetime.utcnow()
+        note.signed_at = now
+        # Signing implies approval — lock the raw transcript too.
+        if note.approved_at is None:
+            note.approved_at = now
+
+    log_action(
+        'note.status_change',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+        extra={'from': current, 'to': target},
+    )
+    db.session.commit()
+    return jsonify(_status_payload(note))
+
+
+def _addendum_payload(addendum: NoteAddendum) -> dict:
+    return {
+        "id": addendum.id,
+        "noteId": addendum.note_id,
+        "authorId": addendum.author_id,
+        "authorName": addendum.author_name,
+        "content": addendum.content,
+        "createdAt": addendum.created_at,
+    }
+
+
+@bp.route('/<string:id>/addenda', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def create_addendum(id):
+    """Append an addendum to a signed note.
+
+    Once a note is signed its body is immutable; an addendum is the only
+    way to add further content. Rejected with 409 if the note isn't signed
+    — before signing, the note is edited directly.
+
+    The author name is derived server-side from the current user, never
+    taken from the request body.
+    """
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user, is_deleted=False).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    if note.status != 'signed':
+        return jsonify({
+            "error": "Addenda can only be added to signed notes.",
+        }), 409
+
+    data = request.get_json(silent=True) or {}
+    content = (data.get('content') or '').strip()
+    if not content:
+        return jsonify({"error": "Addendum content is required"}), 400
+
+    user = db.session.get(User, current_user)
+    author_name = (
+        ' '.join(filter(None, [user.first_name, user.last_name])).strip()
+        if user else note.author_name
+    )
+
+    addendum = NoteAddendum(
+        note_id=note.id,
+        author_id=current_user,
+        author_name=author_name[:100],
+        content=content,
+    )
+    db.session.add(addendum)
+    db.session.flush()
+    log_action(
+        'note.addendum_create',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+        extra={'addendum_id': addendum.id},
+    )
+    db.session.commit()
+    return jsonify(_addendum_payload(addendum)), 201
 
 
 @bp.route('/<string:id>/delete', methods=['PUT'])
@@ -768,6 +936,7 @@ def search_notes():
         results.append({
             "id": note.id,
             "name": note.name,
+            "status": note.status,
             "noteDate": note.note_date,
             "createdAt": note.created_at,
             "updatedAt": note.updated_at,
@@ -839,6 +1008,8 @@ def get_notes_for_user(user_id):
                 "updatedAt": note.updated_at,
                 "noteDate": note.note_date,
                 "noteContentMarkdown": note.note_content_markdown,
+                "status": note.status,
+                "signedAt": note.signed_at,
                 "participants": participants,
                 "templateId": note.template_id,
                 "templateName": template_names.get(note.template_id) if note.template_id else None,

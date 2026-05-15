@@ -7,6 +7,7 @@ from app.models.user import User
 from app.models.template import Template
 from app.models.participant import Participant, note_participants, user_participants
 from app.models.note import Note
+from app.models.note_addendum import NoteAddendum
 from app.models.audio_file import AudioFile
 from app.models.key_export import KeyExportLog, KeyExportDismissal
 from app.models.system_setting import SystemSetting
@@ -19,6 +20,7 @@ __all__ = [
     "note_participants",
     "user_participants",
     "Note",
+    "NoteAddendum",
     "AudioFile",
     "KeyExportLog",
     "KeyExportDismissal",
