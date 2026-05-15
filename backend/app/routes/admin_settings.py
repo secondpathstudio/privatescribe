@@ -47,6 +47,10 @@ def get_settings():
         # When true, users can download notes as PDF / DOCX. Flipping off makes
         # the export endpoints return 503 and hides the buttons in the UI.
         "exports_enabled": settings_service.get_exports_enabled(),
+        # When true, the transcribe pipeline honors spoken dictation commands
+        # ("new paragraph", "new section", "new line") by rewriting them as
+        # formatting before the LLM pass. Off = literal phrase is preserved.
+        "dictation_markers_enabled": settings_service.get_dictation_markers_enabled(),
     })
 
 
@@ -241,6 +245,41 @@ def update_exports_enabled():
     db.session.commit()
 
     return jsonify({"exports_enabled": settings_service.get_exports_enabled()})
+
+
+@bp.route('/dictation-markers-enabled', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_dictation_markers_enabled():
+    """Toggle whether spoken dictation commands rewrite the transcript.
+
+    Body: {"value": bool}. When true, the transcribe route runs Whisper output
+    through services/dictation_markers.py so "new paragraph", "new section",
+    and "new line" become real formatting. When false, those phrases stay as
+    literal words in the raw transcript. Takes effect on the next transcription.
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if not isinstance(value, bool):
+        return jsonify({"error": "value must be a boolean"}), 400
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_dictation_markers_enabled()
+    settings_service.set_value(
+        settings_service.DICTATION_MARKERS_ENABLED, value, updated_by=current_user
+    )
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.DICTATION_MARKERS_ENABLED,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({
+        "dictation_markers_enabled": settings_service.get_dictation_markers_enabled(),
+    })
 
 
 @bp.route('/diarization-device', methods=['PUT'])

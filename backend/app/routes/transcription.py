@@ -9,6 +9,7 @@ from app.extensions import db
 from app.models import AudioFile, Template
 from app.security.auth import require_admin
 from app.services import audio_storage, ollama_client
+from app.services import dictation_markers, settings as settings_service
 from app.services import structured_runtime
 from app.services.audit import log_action
 from app.services.strictness import effective_strictness, level_for
@@ -64,6 +65,10 @@ def transcribe():
         return jsonify({"error": "No file uploaded"}), 400
 
     diarize = _truthy(request.form.get('diarize', 'true'))
+    # Per-note dictation-markers choice. Defaults true to match the previous
+    # behavior for clients that don't send the field. Gated below by the
+    # admin-wide kill-switch.
+    apply_markers_requested = _truthy(request.form.get('apply_dictation_markers', 'true'))
     file = request.files['file']
     if not _is_allowed_audio_upload(file):
         return jsonify({"error": "Unsupported file type. Upload an audio file."}), 415
@@ -126,6 +131,19 @@ def transcribe():
 
             audio_path = prepare_wav(file)
             raw_text, whisper_segments = transcribe_path(audio_path)
+
+            # Honor spoken dictation commands ("new paragraph", "new line",
+            # "period", "comma") before the transcript reaches the LLM or
+            # storage. Two gates: the admin-wide kill-switch is checked first
+            # (off = nobody can use the feature), then the per-note user
+            # toggle. Diarized output is left untouched: speaker-labeled prose
+            # is almost always a conversation, not a dictation, and the labels
+            # complicate sentence-boundary detection.
+            if (
+                settings_service.get_dictation_markers_enabled()
+                and apply_markers_requested
+            ):
+                raw_text = dictation_markers.apply_markers(raw_text)
 
             if not diarize:
                 yield json.dumps({

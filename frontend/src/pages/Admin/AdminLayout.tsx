@@ -32,6 +32,7 @@ const NAV: NavGroup[] = [
       { to: "/admin/models", label: "Models" },
       { to: "/admin/upload-limit", label: "Upload Limit" },
       { to: "/admin/diarization", label: "Diarization" },
+      { to: "/admin/dictation-markers", label: "Dictation Commands" },
     ],
   },
 ];

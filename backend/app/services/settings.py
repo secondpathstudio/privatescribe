@@ -19,6 +19,7 @@ TRASH_AUTO_PURGE = "trash_auto_purge"
 LOGOUT_ON_CLOSE = "logout_on_close"
 TWO_FACTOR_REQUIRED = "two_factor_required"
 EXPORTS_ENABLED = "exports_enabled"
+DICTATION_MARKERS_ENABLED = "dictation_markers_enabled"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -55,6 +56,11 @@ DEFAULT_TWO_FACTOR_REQUIRED = False
 # off to broadly disable document exports — both endpoints return 503 and the
 # UI hides the download buttons.
 DEFAULT_EXPORTS_ENABLED = True
+
+# When True, the transcribe route post-processes Whisper output to honor
+# spoken dictation commands ("new paragraph", "new section", "new line").
+# See services/dictation_markers.py.
+DEFAULT_DICTATION_MARKERS_ENABLED = True
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -141,6 +147,10 @@ def get_two_factor_required() -> bool:
 
 def get_exports_enabled() -> bool:
     return get_bool(EXPORTS_ENABLED, DEFAULT_EXPORTS_ENABLED)
+
+
+def get_dictation_markers_enabled() -> bool:
+    return get_bool(DICTATION_MARKERS_ENABLED, DEFAULT_DICTATION_MARKERS_ENABLED)
 
 
 def trash_purge_eligible_on(is_deleted_timestamp: Optional[datetime]) -> Optional[datetime]:

@@ -28,6 +28,10 @@ interface User {
   // false the SingleNote page hides PDF/DOCX download buttons (and the
   // backend will 503 the export endpoints regardless).
   exportsEnabled?: boolean;
+  // Cached copy of the admin-toggleable "Dictation Commands" setting. When
+  // false, the per-note toggle in the new-note flow is hidden and the
+  // backend ignores any apply_dictation_markers form field.
+  dictationMarkersEnabled?: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

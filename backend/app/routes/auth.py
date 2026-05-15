@@ -45,6 +45,7 @@ def _build_login_response(user):
             "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
             "logoutOnClose": settings_service.get_logout_on_close(),
             "exportsEnabled": settings_service.get_exports_enabled(),
+            "dictationMarkersEnabled": settings_service.get_dictation_markers_enabled(),
         },
     }
 
@@ -68,6 +69,7 @@ def validate_token():
             "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
             "logoutOnClose": settings_service.get_logout_on_close(),
             "exportsEnabled": settings_service.get_exports_enabled(),
+            "dictationMarkersEnabled": settings_service.get_dictation_markers_enabled(),
         },
     })
 

@@ -8,7 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { CalendarIcon } from 'lucide-react'
+import { CalendarIcon, Pilcrow, Users } from 'lucide-react'
+import NeoToggleIconButton from '@/components/neo/neo-toggle-icon-button'
 import { Textarea } from '@/components/ui/textarea'
 import Microphone from '@/components/recording/microphone'
 import MarkdownEditor from '@/components/md-editor'
@@ -162,7 +163,13 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
 
     // Diarization is a UX choice, not a persisted note field — hold it in
     // local state so it isn't sent to /api/notes alongside form values.
-    const [diarize, setDiarize] = React.useState(true);
+    // Defaults off — solo dictation is the common case; users opt in to
+    // pyannote when the recording is a multi-speaker conversation.
+    const [diarize, setDiarize] = React.useState(false);
+    // Per-note dictation-markers toggle. Sent to /api/transcribe as
+    // apply_dictation_markers. Defaults off so the rewrite is opt-in per
+    // recording — even when the admin allows it globally.
+    const [applyDictationMarkers, setApplyDictationMarkers] = React.useState(false);
 
     // File-upload-as-source state. Distinct from the Microphone path so the
     // user can preview before kicking off transcription.
@@ -357,6 +364,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         // default to recording.webm for live MediaRecorder blobs.
         formData.append('file', blob, filename);
         formData.append('diarize', diarize ? 'true' : 'false');
+        formData.append('apply_dictation_markers', applyDictationMarkers ? 'true' : 'false');
 
         // Hint pyannote with an upper bound on speaker count when we have
         // a participant list. The backend treats this as max_speakers (not
@@ -880,20 +888,29 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             </fieldset>
         </div>
 
-        {/* Diarization toggle — defaults on. Sent to /api/transcribe so the
-            backend knows whether to run pyannote and return per-speaker segments. */}
-        <div className="flex items-center gap-2 mt-4">
-            <input
-                id="diarize-toggle"
-                type="checkbox"
-                checked={diarize}
-                onChange={(e) => setDiarize(e.target.checked)}
+        {/* Pre-transcription options. The shadows on these buttons extend
+            8px down-right when "off", so pb-3 below keeps them from kissing
+            the Record/Upload tabs underneath. */}
+        <div className="flex flex-row flex-wrap items-end gap-6 mt-4 pb-3">
+            <NeoToggleIconButton
+                icon={Users}
+                label="Speaker Diarization"
+                title="Identify speakers (diarize)"
+                on={diarize}
+                onToggle={setDiarize}
                 disabled={busy}
-                className="h-4 w-4 cursor-pointer accent-[#fd3777]"
             />
-            <label htmlFor="diarize-toggle" className="text-sm cursor-pointer select-none">
-                Identify speakers (diarize)
-            </label>
+            {/* Hidden when the admin has globally disabled dictation commands. */}
+            {auth.user?.dictationMarkersEnabled && (
+                <NeoToggleIconButton
+                    icon={Pilcrow}
+                    label="Punctuation Commands"
+                    title='Apply dictation commands ("new paragraph", "period", "comma", "new line")'
+                    on={applyDictationMarkers}
+                    onToggle={setApplyDictationMarkers}
+                    disabled={busy}
+                />
+            )}
         </div>
 
         {/* Audio source: live recording vs. file upload. The transcribe pipeline
