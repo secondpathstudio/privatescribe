@@ -80,12 +80,21 @@ def create_app() -> Flask:
     # `import app.models` here would shadow the local `app` Flask instance.
     from . import models  # noqa: F401
 
+    # Importing note_search registers its mapper-level event listeners on
+    # the Note model. Must happen before any flush so create/update/delete
+    # of notes maintains the FTS5 index in lockstep.
+    from .services import note_search  # noqa: F401
+
     register_blueprints(app)
     register_error_handlers(app)
     register_cli(app)
 
     with app.app_context():
         db.create_all()
+        # The FTS5 virtual table can't be expressed via SQLAlchemy metadata,
+        # so db.create_all() doesn't create it. Migrations do, but fresh
+        # boots that skip Alembic still need it — DDL is idempotent.
+        note_search.ensure_fts_table()
         # Load the admin-configured upload cap from the DB so MAX_CONTENT_LENGTH
         # reflects whatever was set in the previous session. Per-request PUTs
         # to /api/admin/settings/upload-limit-mb update this live.

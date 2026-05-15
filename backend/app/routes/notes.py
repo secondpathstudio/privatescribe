@@ -7,9 +7,15 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models import AudioFile, Note, Participant, Template
-from app.services import audio_storage
+from app.services import audio_storage, note_search
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
+
+# Cap server-side search input. Long queries are almost always paste accidents
+# and will just slow FTS down; the UI debounces at ~250ms so this is a hard
+# upper bound, not a UX limit.
+SEARCH_QUERY_MAX_LEN = 200
+SEARCH_RESULT_LIMIT = 50
 
 bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 
@@ -550,6 +556,85 @@ def mark_note_as_restored(id):
         "id": note.id,
         "message": "Note restored successfully.",
     })
+
+
+@bp.route('/search', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def search_notes():
+    """Full-text search over the caller's notes.
+
+    Query string params:
+      q                — search query (required, 2+ chars after trim)
+      include_deleted  — 'true' to include soft-deleted notes (default false)
+
+    Results are BM25-ranked and capped at SEARCH_RESULT_LIMIT. Each row
+    carries `rawSnippet` / `markdownSnippet` with `<mark>...</mark>`
+    highlights for the match, plus enough metadata to render the same
+    columns as the regular notes list.
+    """
+    current_user = get_jwt_identity()
+    q = (request.args.get('q') or '').strip()
+    include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
+
+    if len(q) < 2:
+        return jsonify([])
+    if len(q) > SEARCH_QUERY_MAX_LEN:
+        q = q[:SEARCH_QUERY_MAX_LEN]
+
+    hits = note_search.search_notes(
+        user_id=current_user,
+        query=q,
+        include_deleted=include_deleted,
+        limit=SEARCH_RESULT_LIMIT,
+    )
+    if not hits:
+        return jsonify([])
+
+    # Hydrate hit metadata in rank order. The FTS table is author-scoped at
+    # query time, but we still filter by author_id on the ORM read as a
+    # belt-and-suspenders check.
+    note_ids = [h['note_id'] for h in hits]
+    notes = Note.query.filter(
+        Note.id.in_(note_ids), Note.author_id == current_user
+    ).all()
+    by_id = {n.id: n for n in notes}
+
+    template_ids = {n.template_id for n in notes if n.template_id}
+    template_names: dict[str, str] = {}
+    if template_ids:
+        for t in Template.query.filter(Template.id.in_(template_ids)).all():
+            template_names[t.id] = t.name
+
+    results = []
+    for h in hits:
+        note = by_id.get(h['note_id'])
+        if note is None:
+            # Index out of sync with the table (e.g. a hard delete that
+            # bypassed the listener). Skip rather than 500.
+            continue
+        if note.is_deleted and not include_deleted:
+            continue
+        results.append({
+            "id": note.id,
+            "noteDate": note.note_date,
+            "createdAt": note.created_at,
+            "updatedAt": note.updated_at,
+            "templateId": note.template_id,
+            "templateName": template_names.get(note.template_id) if note.template_id else None,
+            "noteType": note.note_type,
+            "authorId": note.author_id,
+            "isDeleted": note.is_deleted,
+            "isDeletedTimestamp": note.is_deleted_timestamp,
+            "participants": [
+                {"id": p.id, "firstName": p.first_name, "lastName": p.last_name}
+                for p in note.participants
+            ],
+            "rawSnippet": h['raw_snippet'],
+            "markdownSnippet": h['markdown_snippet'],
+        })
+
+    return jsonify(results)
 
 
 @bp.route('/user/<string:user_id>', methods=['GET'])

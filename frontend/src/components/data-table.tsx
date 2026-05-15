@@ -38,6 +38,9 @@ type DataTableProps<TData> = {
     initialSorting?: SortingState;
     /** Default placeholder for the global search input. */
     searchPlaceholder?: string;
+    /** Hide the built-in search input. Use when the page owns its own search
+     *  UI (e.g. server-side full-text search) and doesn't want two boxes. */
+    hideSearch?: boolean;
     /** Extra toolbar content rendered to the right of the search box. */
     toolbar?: React.ReactNode;
     /** Rendered when filtered data is empty. */
@@ -78,6 +81,7 @@ export function DataTable<TData>({
     columns,
     initialSorting = [],
     searchPlaceholder = 'Search...',
+    hideSearch = false,
     toolbar,
     emptyState,
     onRowClick,
@@ -124,18 +128,22 @@ export function DataTable<TData>({
 
     return (
         <div className='flex flex-col gap-3 w-full'>
-            <div className='flex items-center gap-2'>
-                <div className='relative flex-1 max-w-sm'>
-                    <Search className='absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground' size={16} />
-                    <Input
-                        value={globalFilter}
-                        onChange={(e) => setGlobalFilter(e.target.value)}
-                        placeholder={searchPlaceholder}
-                        className='pl-8'
-                    />
+            {(!hideSearch || toolbar) && (
+                <div className='flex items-center gap-2'>
+                    {!hideSearch && (
+                        <div className='relative flex-1 max-w-sm'>
+                            <Search className='absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground' size={16} />
+                            <Input
+                                value={globalFilter}
+                                onChange={(e) => setGlobalFilter(e.target.value)}
+                                placeholder={searchPlaceholder}
+                                className='pl-8'
+                            />
+                        </div>
+                    )}
+                    <div className='flex items-center gap-2 ml-auto'>{toolbar}</div>
                 </div>
-                <div className='flex items-center gap-2 ml-auto'>{toolbar}</div>
-            </div>
+            )}
 
             <div className='border-2 border-black bg-white text-sm w-full'>
                 {/* Header */}
