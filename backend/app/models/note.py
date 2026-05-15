@@ -7,6 +7,9 @@ from app.extensions import db
 class Note(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     author_name = db.Column(db.String(100), nullable=False)
+    # User-supplied title for at-a-glance discovery in the notes table.
+    # Nullable: when blank the UI falls back to "<template> – <datetime>".
+    name = db.Column(db.String(120), nullable=True)
     note_date = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button'
 import { ArchiveRestore, CalendarIcon, ChevronRight, RefreshCcw, Trash, Trash2 } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -55,6 +56,9 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         defaultValues: {
             authorId: note?.authorId,
             authorName: note?.authorName,
+            // Empty string for null DB values so the input stays controlled;
+            // server trims + nulls on PUT.
+            name: note?.name ?? '',
             noteDate: note?.noteDate,
             noteContentRaw: note?.noteContentRaw,
             noteContentMarkdown: note?.noteContentMarkdown,
@@ -106,6 +110,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 form.reset({
                     authorId: updated?.authorId,
                     authorName: updated?.authorName,
+                    name: updated?.name ?? '',
                     noteDate: updated?.noteDate,
                     noteContentRaw: updated?.noteContentRaw,
                     noteContentMarkdown: updated?.noteContentMarkdown,
@@ -162,6 +167,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 const updatedNote = {
                     authorId: data?.authorId,
                     authorName: data?.authorName,
+                    name: data?.name ?? '',
                     noteDate: data?.noteDate,
                     noteContentRaw: data?.noteContentRaw,
                     noteContentMarkdown: data?.noteContentMarkdown,
@@ -382,6 +388,10 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 body: JSON.stringify({
                     authorId: auth.user?.id,
                     authorName: note.authorName,
+                    // Inherit the parent's name on re-transcribe — same
+                    // conversation, just re-formatted with a new template.
+                    // Editable on the new note's page.
+                    name: note.name ?? '',
                     noteDate: note.noteDate,
                     noteContentRaw: note.noteContentRaw,
                     noteContentMarkdown: formattedMarkdown,
@@ -446,10 +456,31 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     <Form {...form}>
     <form onSubmit={(e) => handleUpdateNote(e, form)}>
         <div className="flex flex-col gap-4">
+            {/* Editable title for the notes table. Blank round-trips to
+                null on the server; the table view falls back to
+                "<template> – <datetime>" when null. */}
+            <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Name <span className="text-xs text-muted-foreground font-normal">(optional)</span></FormLabel>
+                        <FormControl>
+                            <Input
+                                {...field}
+                                placeholder="e.g. Landlord call, Q2 review prep"
+                                maxLength={120}
+                                disabled={note?.isDeleted}
+                            />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
             <fieldset className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                <FormField 
-                    control={form.control} 
-                    name="noteTemplate" 
+                <FormField
+                    control={form.control}
+                    name="noteTemplate"
                     render={({ field }) => {
                         const currentTemplate = templates.find(t => t.id === field.value);
 

@@ -18,6 +18,26 @@ from app.services.audit import diff_fields, log_action
 SEARCH_QUERY_MAX_LEN = 200
 SEARCH_RESULT_LIMIT = 50
 
+# Matches Note.name's SQLAlchemy column length. Kept here so request handlers
+# can pre-clip user input rather than letting the DB driver raise.
+NOTE_NAME_MAX_LEN = 120
+
+
+def _clean_name(raw) -> str | None:
+    """Normalize an incoming `name` field: trim, clip, treat blank as None.
+
+    Returning None (rather than empty string) keeps the DB column null when
+    the user clears the field, which is what the table view's fallback
+    rendering keys off of.
+    """
+    if not isinstance(raw, str):
+        return None
+    s = raw.strip()
+    if not s:
+        return None
+    return s[:NOTE_NAME_MAX_LEN]
+
+
 bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 
 
@@ -146,6 +166,7 @@ def create_note():
         note_content_words=incoming_words,
         note_type='text',
         note_date=note_date,
+        name=_clean_name(data.get('name')),
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
         author_name=data['authorName'],
@@ -190,6 +211,7 @@ def create_note():
 
     return jsonify({
         "id": new_note.id,
+        "name": new_note.name,
         "createdAt": new_note.created_at,
         "updatedAt": new_note.updated_at,
         "noteContentRaw": new_note.note_content_raw,
@@ -248,6 +270,7 @@ def get_note(id):
 
     return jsonify({
         "id": note.id,
+        "name": note.name,
         "createdAt": note.created_at,
         "updatedAt": note.updated_at,
         "noteDate": note.note_date,
@@ -380,6 +403,7 @@ def update_note(id):
     before_markdown = note.note_content_markdown
     before_raw = note.note_content_raw
     before_note_type = note.note_type
+    before_name = note.name
     before_participant_ids = sorted(p.id for p in note.participants)
 
     # Raw transcript is editable only while the note is in draft. Once the
@@ -396,6 +420,8 @@ def update_note(id):
     # a new note instead.
     note.note_content_markdown = data.get('noteContentMarkdown', note.note_content_markdown)
     note.note_type = data.get('noteType', note.note_type)
+    if 'name' in data:
+        note.name = _clean_name(data.get('name'))
     note.updated_at = datetime.utcnow()
     note.version = note.version + 1
 
@@ -429,10 +455,12 @@ def update_note(id):
         diff = diff_fields(
             {
                 'note_type': before_note_type,
+                'name': before_name,
                 'participant_ids': before_participant_ids,
             },
             {
                 'note_type': note.note_type,
+                'name': note.name,
                 'participant_ids': after_participant_ids,
             },
         )
@@ -462,6 +490,7 @@ def update_note(id):
 
         return jsonify({
             "id": note.id,
+            "name": note.name,
             "createdAt": note.created_at,
             "updatedAt": note.updated_at,
             "noteDate": note.note_date,
@@ -738,6 +767,7 @@ def search_notes():
             continue
         results.append({
             "id": note.id,
+            "name": note.name,
             "noteDate": note.note_date,
             "createdAt": note.created_at,
             "updatedAt": note.updated_at,
@@ -804,6 +834,7 @@ def get_notes_for_user(user_id):
             # the single-note endpoint when the raw text is actually needed.
             note_data = {
                 "id": note.id,
+                "name": note.name,
                 "createdAt": note.created_at,
                 "updatedAt": note.updated_at,
                 "noteDate": note.note_date,

@@ -12,6 +12,7 @@ import { Search, X } from 'lucide-react'
 
 type NoteRow = {
     id: string;
+    name: string | null;
     noteDate: string;
     createdAt: string;
     updatedAt: string;
@@ -26,6 +27,7 @@ type NoteRow = {
 
 type SearchResult = {
     id: string;
+    name: string | null;
     noteDate: string;
     createdAt: string;
     updatedAt: string;
@@ -43,6 +45,24 @@ const formatDate = (value: string | null | undefined) => {
     if (!value) return '—';
     const d = new Date(value);
     return isNaN(d.getTime()) ? value : d.toLocaleDateString(undefined, { dateStyle: 'medium' });
+};
+
+const formatDateTime = (value: string | null | undefined) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    return isNaN(d.getTime())
+        ? value
+        : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+};
+
+// Computed display title for the Name column. When a row has no user-set
+// name, fall back to "<template> – <datetime>" — same shape as the old
+// header text, but now demoted to a hint inside the Name cell. Sorting
+// uses this string so named and unnamed rows still order consistently.
+const displayName = (row: { name: string | null; templateName: string | null; noteDate: string }) => {
+    if (row.name && row.name.trim()) return row.name;
+    const template = row.templateName ?? 'Transcription';
+    return `${template} – ${formatDateTime(row.noteDate)}`;
 };
 
 const participantsLabel = (ps: NoteRow['participants']) =>
@@ -199,6 +219,23 @@ const Notes = () => {
 
     const columns = useMemo<ColumnDef<NoteRow, unknown>[]>(() => [
         {
+            id: 'name',
+            accessorFn: (row) => displayName(row),
+            header: 'Name',
+            // Unnamed rows render the fallback in muted italic so the user
+            // can see at a glance which notes they've actually titled.
+            cell: ({ row }) => {
+                const named = !!(row.original.name && row.original.name.trim());
+                return named ? (
+                    <span className='font-semibold'>{row.original.name}</span>
+                ) : (
+                    <span className='text-muted-foreground italic'>{displayName(row.original)}</span>
+                );
+            },
+            sortingFn: (a, b) =>
+                displayName(a.original).localeCompare(displayName(b.original), undefined, { sensitivity: 'base' }),
+        },
+        {
             accessorKey: 'noteDate',
             header: 'Date',
             size: 140,
@@ -318,7 +355,9 @@ const Notes = () => {
                         >
                             <div className='flex justify-between items-center mb-1'>
                                 <span className='font-semibold text-sm'>
-                                    {r.templateName ?? <span className='italic text-muted-foreground'>No template</span>}
+                                    {r.name && r.name.trim()
+                                        ? r.name
+                                        : (r.templateName ?? <span className='italic text-muted-foreground'>No template</span>)}
                                 </span>
                                 <span className='text-xs text-muted-foreground'>{formatDate(r.noteDate)}</span>
                             </div>

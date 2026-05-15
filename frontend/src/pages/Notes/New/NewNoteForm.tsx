@@ -13,6 +13,7 @@ import NeoToggleIconButton from '@/components/neo/neo-toggle-icon-button'
 import ConfidenceText, { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
 import LiveTranscript, { type LiveTranscriptHandle } from '@/components/transcription/LiveTranscript'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 import Microphone from '@/components/recording/microphone'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
@@ -188,6 +189,10 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         defaultValues: {
             authorId: auth.user?.id,
             authorName: auth.user?.firstName,
+            // Optional user-supplied title for the notes table. Empty string
+            // round-trips to a null DB column; the backend handles the
+            // trim/blank-to-null normalization.
+            name: '',
             participants: currentParticipants,
             noteDate: new Date(),
             noteContentRaw: '',
@@ -885,10 +890,30 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     <Form {...form}>
     <form onSubmit={(e) => handleAddNewNote(e, form)}>
         <div className="flex flex-col gap-4">
+            {/* Optional name for at-a-glance discovery on the All Notes
+                table. Empty round-trips to a null DB column; the backend
+                trims + nulls blank strings. */}
+            <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                    <FormItem>
+                        <FormLabel>Name <span className="text-xs text-muted-foreground font-normal">(optional)</span></FormLabel>
+                        <FormControl>
+                            <Input
+                                {...field}
+                                placeholder="e.g. Landlord call, Q2 review prep"
+                                maxLength={120}
+                            />
+                        </FormControl>
+                        <FormMessage />
+                    </FormItem>
+                )}
+            />
             <fieldset className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                <FormField 
-                    control={form.control} 
-                    name="noteTemplate" 
+                <FormField
+                    control={form.control}
+                    name="noteTemplate"
                     render={({ field }) => (
                         <FormItem>
                             <FormLabel>Note Template</FormLabel>
