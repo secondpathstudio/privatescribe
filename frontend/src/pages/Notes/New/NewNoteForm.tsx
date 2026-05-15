@@ -37,7 +37,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     // Single pipeline state: null = idle, otherwise the currently-running stage.
     // The backend streams transcribing → diarizing; the frontend sets
     // 'formatting' itself before calling /api/getMarkdown.
-    type Stage = null | 'transcribing' | 'diarizing' | 'formatting';
+    type Stage = null | 'decoding' | 'transcribing' | 'diarizing' | 'formatting';
     const [stage, setStage] = React.useState<Stage>(null);
     const [elapsed, setElapsed] = React.useState(0);
     // Whisper transcription progress (0–1). Populated from the NDJSON stream
@@ -446,7 +446,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // event is either {stage: "complete", ...} or {stage: "error", ...}.
             // We have to buffer across chunks because a JSON object can span
             // network reads.
-            type ProgressEvent = { stage: 'transcribing' | 'diarizing'; progress?: number };
+            type ProgressEvent = { stage: 'decoding' | 'transcribing' | 'diarizing'; progress?: number };
             type TerminalEvent =
                 | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null; words?: WordInfo[]; audio_file_id?: string }
                 | { stage: 'error'; error?: string; message?: string; raw_note?: string; words?: WordInfo[]; audio_file_id?: string };
@@ -472,7 +472,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         console.error('Bad NDJSON line from /api/transcribe:', line, e);
                         continue;
                     }
-                    if (evt.stage === 'transcribing' || evt.stage === 'diarizing') {
+                    if (evt.stage === 'decoding' || evt.stage === 'transcribing' || evt.stage === 'diarizing') {
                         setStage(evt.stage);
                         if (evt.stage === 'transcribing' && typeof (evt as any).progress === 'number') {
                             setTranscribeProgress((evt as any).progress);
@@ -1121,6 +1121,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 <div className="flex items-center gap-2">
                     <span className="inline-block h-4 w-4 border-2 border-black border-t-transparent rounded-full animate-spin" />
                     <span>
+                        {stage === 'decoding' && 'Decoding audio (ffmpeg)...'}
                         {stage === 'transcribing' && 'Transcribing audio (Whisper)...'}
                         {stage === 'diarizing' && 'Identifying speakers (pyannote)...'}
                         {stage === 'formatting' && 'Formatting note (LLM)...'}

@@ -53,7 +53,9 @@ def transcribe():
     """Stream stage progress as NDJSON.
 
     Emits one JSON object per line:
-      {"stage": "transcribing"}
+      {"stage": "decoding"}                               # ffmpeg/pydub decode to WAV
+      {"stage": "transcribing"}                           # Whisper
+      {"stage": "transcribing", "progress": 0.0..1.0}     # per-segment progress
       {"stage": "diarizing"}                              # only if diarize=true
       {"stage": "complete", "raw_note": "...", "segments": [...] | null}
       {"stage": "error", "error": "...", "message": "...", "raw_note"?: "..."}
@@ -96,7 +98,12 @@ def transcribe():
         audio_file_id: str | None = None
         stored_filename: str | None = None
         try:
-            yield json.dumps({"stage": "transcribing"}) + "\n"
+            # Decoding first — covers the encrypted-save + pydub/ffmpeg WAV
+            # conversion. For large non-WAV uploads (mp4, webm) this can run
+            # several seconds before Whisper sees a single sample, so the
+            # client needs a distinct label here rather than a misleading
+            # "Transcribing" with no progress.
+            yield json.dumps({"stage": "decoding"}) + "\n"
 
             # Persist the original upload encrypted to disk before we touch
             # transcription. If the user abandons the form the row is left
@@ -135,6 +142,9 @@ def transcribe():
             # and decoding behaves exactly as it did before this feature.
             effective_vocab = vocabulary.get_effective_vocabulary(current_user)
             audio_path = prepare_wav(file)
+            # Decoded WAV in hand. Switch the client label to "transcribing"
+            # so the progress bar that follows reads against the right stage.
+            yield json.dumps({"stage": "transcribing"}) + "\n"
             # Stream per-segment progress (computed from info.duration vs
             # segment.end) so the client can paint a progress bar instead of
             # an indeterminate spinner.
