@@ -8,9 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { CalendarIcon, Pilcrow, Users } from 'lucide-react'
+import { CalendarIcon, MessageSquare, Pilcrow, Radio, Users } from 'lucide-react'
 import NeoToggleIconButton from '@/components/neo/neo-toggle-icon-button'
 import ConfidenceText, { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
+import LiveTranscript, { type LiveTranscriptHandle } from '@/components/transcription/LiveTranscript'
 import { Textarea } from '@/components/ui/textarea'
 import Microphone from '@/components/recording/microphone'
 import MarkdownEditor from '@/components/md-editor'
@@ -211,6 +212,20 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     // apply_dictation_markers. Defaults off so the rewrite is opt-in per
     // recording — even when the admin allows it globally.
     const [applyDictationMarkers, setApplyDictationMarkers] = React.useState(false);
+    // Live transcript toggle. When on, MediaRecorder emits 2s timeslices and
+    // each one is POSTed to /api/transcribe/live for a rolling preview.
+    // Independent of `diarize` above (which only applies to the final pass).
+    const [liveTranscript, setLiveTranscript] = React.useState(false);
+    // Nested: live speaker labels via pyannote on each tick. Heavy — off by
+    // default; only shown in the toggle row when liveTranscript is on. Note
+    // these toggles are evaluated when startRecording() runs, so flipping
+    // them mid-recording is a no-op for the in-progress session.
+    const [liveDiarize, setLiveDiarize] = React.useState(false);
+    // Append-only buffer of MediaRecorder timeslice chunks. LiveTranscript
+    // owns a cursor into this array; we never mutate or shrink existing
+    // entries so its cursor stays valid.
+    const [liveChunks, setLiveChunks] = React.useState<Blob[]>([]);
+    const liveTranscriptRef = React.useRef<LiveTranscriptHandle | null>(null);
 
     // File-upload-as-source state. Distinct from the Microphone path so the
     // user can preview before kicking off transcription.
@@ -237,6 +252,14 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
         };
     }, [uploadedAudioUrl]);
+
+    // Reset the live-chunk buffer whenever the Microphone is keyed (i.e.
+    // after a save or a reset). The LiveTranscript reads cumulatively from
+    // index 0, so clearing the array is the right boundary marker for a
+    // brand-new session.
+    React.useEffect(() => {
+        setLiveChunks([]);
+    }, [microphoneKey]);
 
     const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -1027,6 +1050,33 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     disabled={busy}
                 />
             )}
+            {/* Best-effort rolling preview while recording. The authoritative
+                transcript still comes from /api/transcribe on stop. */}
+            <NeoToggleIconButton
+                icon={Radio}
+                label="Live Transcript"
+                title="Show a rolling transcript while recording (applies on next recording)"
+                on={liveTranscript}
+                onToggle={setLiveTranscript}
+                disabled={busy}
+            />
+            {/* Nested under Live Transcript — diarizing every tick is heavy.
+                Always rendered but disabled until Live Transcript is on, so
+                there's no mount/unmount animation jank. Shown as visually
+                "off" while gated to make the dependency obvious. */}
+            <NeoToggleIconButton
+                icon={MessageSquare}
+                label="Live Speakers"
+                title={
+                    liveTranscript
+                        ? "Run speaker diarization on each live tick (CPU-heavy)"
+                        : "Enable Live Transcript first"
+                }
+                on={liveDiarize && liveTranscript}
+                onToggle={setLiveDiarize}
+                disabled={busy || !liveTranscript}
+                activeColor="#2563eb"
+            />
         </div>
 
         {/* Audio source: live recording vs. file upload. The transcribe pipeline
@@ -1053,10 +1103,29 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 <div className="flex justify-between items-center mt-4">
                     <Microphone
                         key={microphoneKey}
-                        onRecordingFinished={transcribeRecording}
+                        onRecordingFinished={(blob) => {
+                            // Fire-and-forget the live session cleanup; the
+                            // real transcribe call below is what matters.
+                            liveTranscriptRef.current?.finalize();
+                            transcribeRecording(blob);
+                        }}
+                        onPartialChunk={
+                            liveTranscript
+                                ? (chunk) => setLiveChunks((prev) => [...prev, chunk])
+                                : undefined
+                        }
+                        liveMode={liveTranscript}
                         disabled={!templateSelected}
                     />
                 </div>
+                {liveTranscript && (
+                    <LiveTranscript
+                        ref={liveTranscriptRef}
+                        chunks={liveChunks}
+                        diarize={liveDiarize}
+                        authToken={auth.token}
+                    />
+                )}
             </TabsContent>
 
             <TabsContent value="upload">

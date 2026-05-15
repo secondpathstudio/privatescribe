@@ -6,12 +6,21 @@ import NeoButton from "../neo/neo-button";
 
   
   // Export the MicrophoneComponent function component
-  export default function Microphone({ 
+  export default function Microphone({
     onRecordingFinished,
+    onPartialChunk,
+    liveMode=false,
     disabled=false,
-  } : { 
+  } : {
     onRecordingFinished: (blob: Blob) => void;
-    disabled?: boolean;    
+    // Fired once per MediaRecorder timeslice when liveMode is on. Used by the
+    // live transcription preview; the chunks are also accumulated for the
+    // final onRecordingFinished blob, so this is purely additive.
+    onPartialChunk?: (chunk: Blob) => void;
+    // When true, MediaRecorder.start() is called with a 2000ms timeslice so
+    // ondataavailable fires roughly every 2s instead of only on stop.
+    liveMode?: boolean;
+    disabled?: boolean;
   }) {
   const [isRecording, setIsRecording] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -58,6 +67,7 @@ import NeoButton from "../neo/neo-button";
     mediaRecorderRef.current.ondataavailable = (event) => {
       if (event.data.size > 0) {
         audioChunksRef.current.push(event.data);
+        if (liveMode) onPartialChunk?.(event.data);
       }
     };
 
@@ -70,7 +80,10 @@ import NeoButton from "../neo/neo-button";
       audioContext.close();
     };
 
-    mediaRecorderRef.current.start();
+    // 2s timeslice in liveMode so each chunk is small enough for the live
+    // transcribe loop. Without a timeslice MediaRecorder buffers everything
+    // until stop().
+    mediaRecorderRef.current.start(liveMode ? 2000 : undefined);
     setIsRecording(true);
   };
 
