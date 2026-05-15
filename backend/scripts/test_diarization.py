@@ -57,7 +57,7 @@ def main():
     wav_path, owns_temp = to_wav(args.audio)
     try:
         print(f"Transcribing {args.audio} ...")
-        text, whisper_segments = transcribe_path(wav_path)
+        text, whisper_segments, _words = transcribe_path(wav_path)
         print(f"  Whisper produced {len(whisper_segments)} segments.\n")
 
         if args.no_diarize:

@@ -15,6 +15,18 @@ class Note(db.Model):
     # Diarized turns: [{speaker, start, end, text}, ...] — None when diarization
     # was off or unavailable. Stored as JSON (SQLite TEXT under the hood).
     note_content_segments = db.Column(db.JSON, nullable=True)
+    # Per-word Whisper output: [{word, probability, start, end}, ...] — None
+    # for legacy rows or when not captured. Powers the low-confidence
+    # highlighting on the raw transcript view. Stays useful even after the
+    # user edits the raw text since the frontend uses a forward-greedy match
+    # that tolerates substitutions and reordering.
+    note_content_words = db.Column(db.JSON, nullable=True)
+    # Approval timestamp. Null while the note is in draft (raw transcript
+    # editable, highlights visible). Set when the user clicks Approve, at
+    # which point the raw transcript becomes immutable forever — the regular
+    # update endpoint rejects raw-text changes once this is set. One-way for
+    # v1; no un-approve path.
+    approved_at = db.Column(db.DateTime, nullable=True)
     note_type = db.Column(db.String(50), nullable=False)
     version = db.Column(db.Integer(), nullable=False, default=1)
     is_deleted = db.Column(db.Boolean, default=False)

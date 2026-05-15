@@ -20,6 +20,8 @@ import { useNavigate } from 'react-router'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 import NoteAudioPlayer, { type NoteAudioPlayerHandle } from '@/components/recording/note-audio-player'
 import DiarizedTranscript from '@/components/recording/diarized-transcript'
+import { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
+import EditableConfidenceText from '@/components/transcription/EditableConfidenceText'
 
 type Props = {
     note: any;
@@ -38,6 +40,15 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const [retranscribeTemplateId, setRetranscribeTemplateId] = React.useState('');
     const [retranscribing, setRetranscribing] = React.useState(false);
     const [siblingsExpanded, setSiblingsExpanded] = React.useState(false);
+    // Approval state. Mirrored locally so the UI re-renders without a full
+    // page reload after the user clicks Approve. The note prop reflects the
+    // initial server state; this overrides it once the user acts.
+    const [approvedAt, setApprovedAt] = React.useState<string | null>(
+        note?.approvedAt ?? null,
+    );
+    // Per-word Whisper probabilities from the persisted note. May be null on
+    // legacy rows or notes whose audio source didn't go through Whisper.
+    const whisperWords: WordInfo[] = note?.noteContentWords ?? [];
     const navigation = useNavigate();
 
     const form = useForm({
@@ -68,6 +79,59 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             form.setValue('noteTemplate', match.id, { shouldDirty: false });
         }
     }, [templates, note?.noteTemplate]);
+
+    const handleApprove = async () => {
+        if (!window.confirm(
+            'Lock the raw transcript? After approval, the raw text is read-only and the confidence highlights are hidden. This cannot be undone.'
+        )) return;
+        setSavingNote(true);
+        try {
+            // Save any pending edits first so the locked version reflects
+            // what the user is looking at right now.
+            if (formState.isDirty) {
+                const saveRes = await fetch(`${API_BASE}/api/notes/${note.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`,
+                    },
+                    body: JSON.stringify(form.getValues()),
+                });
+                if (!saveRes.ok) {
+                    const err = await saveRes.json().catch(() => ({}));
+                    throw new Error(err.error || `Save failed (${saveRes.status})`);
+                }
+                // Reset the form so isDirty clears.
+                const updated = await saveRes.json();
+                form.reset({
+                    authorId: updated?.authorId,
+                    authorName: updated?.authorName,
+                    noteDate: updated?.noteDate,
+                    noteContentRaw: updated?.noteContentRaw,
+                    noteContentMarkdown: updated?.noteContentMarkdown,
+                    noteType: updated?.noteType,
+                    version: updated?.version,
+                    createdAt: updated?.createdAt,
+                    updatedAt: updated?.updatedAt,
+                    participants: updated?.participants,
+                    noteTemplate: templates.find((t: any) => t.id === updated.noteTemplate)?.id,
+                });
+            }
+            const res = await fetch(`${API_BASE}/api/notes/${note.id}/approve`, {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${auth.token}` },
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `Approve failed (${res.status})`);
+            }
+            const data = await res.json();
+            setApprovedAt(data.approvedAt);
+        } catch (e: any) {
+            alert(e.message ?? 'Could not approve note.');
+        }
+        setSavingNote(false);
+    };
 
     const handleUpdateNote = async (e: FormEvent, form: any) => {
         e.preventDefault();
@@ -532,15 +596,51 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     <FormField
                         control={form.control}
                         name="noteContentRaw"
-                        render={({ field }) => (
-                            <FormItem className="flex flex-col mt-4">
-                                <FormLabel>Raw Transcription</FormLabel>
-                                <FormControl>
-                                    <Textarea {...field} disabled />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
+                        render={({ field }) => {
+                            const locked = approvedAt !== null;
+                            const lowCount = whisperWords.length
+                                ? countLowConfidence(whisperWords)
+                                : 0;
+                            return (
+                                <FormItem className="flex flex-col mt-4">
+                                    <div className="flex items-baseline justify-between">
+                                        <FormLabel>Raw Transcription</FormLabel>
+                                        {!locked && lowCount > 0 && (
+                                            <span className="text-xs text-muted-foreground">
+                                                <span
+                                                    className="inline-block align-middle mr-1"
+                                                    style={{
+                                                        width: 10,
+                                                        height: 10,
+                                                        backgroundColor: '#fff3a0',
+                                                        border: '1px solid #b78400',
+                                                    }}
+                                                />
+                                                {lowCount} word{lowCount === 1 ? '' : 's'} flagged for review
+                                            </span>
+                                        )}
+                                    </div>
+                                    <FormControl>
+                                        {locked || whisperWords.length === 0 ? (
+                                            // No word data (legacy / non-Whisper) or
+                                            // locked: plain disabled textarea.
+                                            <Textarea {...field} disabled={locked} />
+                                        ) : (
+                                            // Draft + word data present: contenteditable
+                                            // div with inline highlight spans. The user
+                                            // edits directly; highlights stay until they
+                                            // touch a flagged word.
+                                            <EditableConfidenceText
+                                                value={field.value || ''}
+                                                words={whisperWords}
+                                                onChange={(next) => field.onChange(next)}
+                                            />
+                                        )}
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            );
+                        }}
                     />
                 )}
             </TabsContent>
@@ -555,14 +655,33 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         )}
         {!savingNote && form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
         <div className='flex justify-between items-center gap-4 mt-4'>
-            <NeoButton 
-                type="submit"
-                backgroundColor='#fd3777'
-                textColor='#ffffff'
-                disabled={!formState.isDirty || savingNote}
-            >
-                Save Note
-            </NeoButton>
+            <div className='flex gap-3 items-center'>
+                <NeoButton
+                    type="submit"
+                    backgroundColor='#fd3777'
+                    textColor='#ffffff'
+                    disabled={!formState.isDirty || savingNote}
+                >
+                    Save Note
+                </NeoButton>
+                {/* Approve locks the raw transcript forever. Only shown while
+                    the note is still in draft (approvedAt is null) and the
+                    note isn't in the trash. */}
+                {approvedAt === null && !note?.isDeleted && (
+                    <NeoButton
+                        type="button"
+                        onClick={handleApprove}
+                        disabled={savingNote}
+                    >
+                        Approve
+                    </NeoButton>
+                )}
+                {approvedAt !== null && (
+                    <span className="text-xs text-muted-foreground">
+                        Approved {new Date(approvedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                    </span>
+                )}
+            </div>
             <div className='flex gap-4 items-center'>
                 <NeoButton 
                     type="button"

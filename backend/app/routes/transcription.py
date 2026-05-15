@@ -135,7 +135,7 @@ def transcribe():
             # and decoding behaves exactly as it did before this feature.
             effective_vocab = vocabulary.get_effective_vocabulary(current_user)
             audio_path = prepare_wav(file)
-            raw_text, whisper_segments = transcribe_path(
+            raw_text, whisper_segments, whisper_words = transcribe_path(
                 audio_path,
                 initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
             )
@@ -161,10 +161,17 @@ def transcribe():
             )
 
             if not diarize:
+                # `words` ride along with the non-diarized payload so the
+                # client can highlight low-confidence Whisper output inline.
+                # The list still references the ORIGINAL Whisper tokens —
+                # dictation markers and abbreviation expansion may have
+                # reshaped `raw_text` afterward, so the client does a
+                # forward-greedy match to align display tokens to words.
                 yield json.dumps({
                     "stage": "complete",
                     "raw_note": raw_text,
                     "segments": None,
+                    "words": whisper_words,
                     "audio_file_id": audio_file_id,
                 }) + "\n"
                 return
@@ -174,13 +181,16 @@ def transcribe():
                 turns = diarize_path(audio_path, max_speakers=max_speakers)
             except DiarizationUnavailable as e:
                 # Same contract as the old 422: client falls back to the raw
-                # transcript and surfaces the message.
+                # transcript and surfaces the message. We also include the
+                # word list here so the confidence-highlighting view still
+                # works on the fallback.
                 print(f"Diarization unavailable: {e}")
                 yield json.dumps({
                     "stage": "error",
                     "error": "diarization_unavailable",
                     "message": str(e),
                     "raw_note": raw_text,
+                    "words": whisper_words,
                     "audio_file_id": audio_file_id,
                 }) + "\n"
                 return

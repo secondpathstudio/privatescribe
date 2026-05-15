@@ -50,31 +50,54 @@ def transcribe_path(
     language: str = "en",
     *,
     initial_prompt: str | None = None,
-) -> tuple[str, list[dict]]:
-    """Transcribe a WAV path and return (concatenated_text, [{start, end, text}, ...]).
+) -> tuple[str, list[dict], list[dict]]:
+    """Transcribe a WAV path and return ``(text, segments, words)``.
+
+    - ``text`` is the concatenated transcript.
+    - ``segments`` is the per-segment list ``[{start, end, text}, ...]``
+      used by the diarization merge.
+    - ``words`` is a flat per-word list ``[{word, probability, start, end}]``
+      across all segments. Powers confidence highlighting in the UI; safe
+      to ignore for callers that don't care.
 
     ``initial_prompt`` is forwarded to Faster-Whisper as a recognition hint
     — typically a comma-separated vocabulary list of domain terms. None
     skips the kwarg entirely so we don't perturb decoding for callers that
     don't care.
+
+    Word-level timestamps come at a small CPU cost (~10-15%) and the
+    decoder produces them once per token regardless of whether the caller
+    consumes them, so it's worth always asking for them and discarding when
+    unused.
     """
-    kwargs: dict = {"language": language}
+    kwargs: dict = {"language": language, "word_timestamps": True}
     if initial_prompt:
         kwargs["initial_prompt"] = initial_prompt
     segments, _info = get_model().transcribe(audio_path, **kwargs)
-    out = []
-    parts = []
+    out_segments: list[dict] = []
+    out_words: list[dict] = []
+    parts: list[str] = []
     for s in segments:
-        out.append({"start": float(s.start), "end": float(s.end), "text": s.text})
+        out_segments.append({"start": float(s.start), "end": float(s.end), "text": s.text})
         parts.append(s.text)
-    return " ".join(parts), out
+        # `s.words` is a list[Word] with .start/.end/.word/.probability
+        # when word_timestamps=True. It can be None if the segment was
+        # empty, so guard accordingly.
+        for w in (s.words or []):
+            out_words.append({
+                "word": w.word,
+                "probability": float(w.probability),
+                "start": float(w.start),
+                "end": float(w.end),
+            })
+    return " ".join(parts), out_segments, out_words
 
 
 def transcribe_file(file_storage, language: str = "en") -> str:
     """Back-compat helper for callers that only need the flat transcript text."""
     path = prepare_wav(file_storage)
     try:
-        text, _ = transcribe_path(path, language=language)
+        text, _segments, _words = transcribe_path(path, language=language)
         return text
     finally:
         try:

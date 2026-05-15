@@ -130,10 +130,20 @@ def create_note():
             else:
                 participants.append(participant_data)
 
+    incoming_words = data.get('noteContentWords')
+    print(
+        f"[create_note] noteContentWords keys={list(data.keys())[:20]} "
+        f"type={type(incoming_words).__name__} "
+        f"len={len(incoming_words) if isinstance(incoming_words, list) else 'n/a'}"
+    )
     new_note = Note(
         note_content_raw=data['noteContentRaw'],
         note_content_markdown=data['noteContentMarkdown'],
         note_content_segments=data.get('noteContentSegments'),
+        # Per-word Whisper probabilities flow in from the new-note flow's
+        # transcription stream. Optional — older clients and pasted-text
+        # notes won't supply it.
+        note_content_words=incoming_words,
         note_type='text',
         note_date=note_date,
         created_at=datetime.utcnow(),
@@ -185,6 +195,8 @@ def create_note():
         "noteContentRaw": new_note.note_content_raw,
         "noteContentMarkdown": new_note.note_content_markdown,
         "noteContentSegments": new_note.note_content_segments,
+        "noteContentWords": new_note.note_content_words,
+        "approvedAt": new_note.approved_at,
         "participants": participants_response,
         "noteType": new_note.note_type,
         "authorId": new_note.author_id,
@@ -242,6 +254,8 @@ def get_note(id):
         "noteContentRaw": note.note_content_raw,
         "noteContentMarkdown": note.note_content_markdown,
         "noteContentSegments": note.note_content_segments,
+        "noteContentWords": note.note_content_words,
+        "approvedAt": note.approved_at,
         "authorId": note.author_id,
         "authorName": note.author_name,
         "noteType": note.note_type,
@@ -364,8 +378,18 @@ def update_note(id):
     # note_content_markdown can be many KB; record just "changed?" instead
     # of the full before/after to keep the log compact.
     before_markdown = note.note_content_markdown
+    before_raw = note.note_content_raw
     before_note_type = note.note_type
     before_participant_ids = sorted(p.id for p in note.participants)
+
+    # Raw transcript is editable only while the note is in draft. Once the
+    # user clicks Approve (approved_at is set) the raw is immutable forever.
+    if 'noteContentRaw' in data and data['noteContentRaw'] != note.note_content_raw:
+        if note.approved_at is not None:
+            return jsonify({
+                "error": "Raw transcript is locked because this note has been approved.",
+            }), 409
+        note.note_content_raw = data['noteContentRaw']
 
     # template_id is intentionally not updatable — a note is locked to its
     # original template. Re-recording with a different template should create
@@ -414,6 +438,8 @@ def update_note(id):
         )
         if before_markdown != note.note_content_markdown:
             diff['note_content_markdown'] = {'changed': True}
+        if before_raw != note.note_content_raw:
+            diff['note_content_raw'] = {'changed': True}
         log_action(
             'note.update',
             user_id=current_user,
@@ -442,6 +468,8 @@ def update_note(id):
             "noteContentRaw": note.note_content_raw,
             "noteContentMarkdown": note.note_content_markdown,
             "noteContentSegments": note.note_content_segments,
+            "noteContentWords": note.note_content_words,
+            "approvedAt": note.approved_at,
             "participants": participants,
             "noteType": note.note_type,
             "authorId": note.author_id,
@@ -456,6 +484,33 @@ def update_note(id):
         db.session.rollback()
         print(f"Error updating note: {str(e)}")
         return jsonify({"error": "Failed to update note"}), 500
+
+
+@bp.route('/<string:id>/approve', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def approve_note(id):
+    """Lock the raw transcript. After this, the raw text is immutable —
+    update_note rejects raw changes with 409. One-way for v1; no un-approve.
+    Idempotent: approving an already-approved note returns the existing
+    timestamp without re-stamping it.
+    """
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user, is_deleted=False).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    if note.approved_at is None:
+        note.approved_at = datetime.utcnow()
+        log_action(
+            'note.approve',
+            user_id=current_user,
+            resource_type='note',
+            resource_id=note.id,
+        )
+        db.session.commit()
+
+    return jsonify({"approvedAt": note.approved_at})
 
 
 @bp.route('/<string:id>/delete', methods=['PUT'])

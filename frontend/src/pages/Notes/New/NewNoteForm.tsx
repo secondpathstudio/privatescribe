@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button'
 import { CalendarIcon, Pilcrow, Users } from 'lucide-react'
 import NeoToggleIconButton from '@/components/neo/neo-toggle-icon-button'
+import ConfidenceText, { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
 import { Textarea } from '@/components/ui/textarea'
 import Microphone from '@/components/recording/microphone'
 import MarkdownEditor from '@/components/md-editor'
@@ -42,6 +43,19 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const busy = stage !== null;
     const [markdown, setMarkdown] = React.useState('');
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
+    // Per-word Whisper probabilities. Populated from the /api/transcribe
+    // complete event; used to highlight low-confidence stretches in the
+    // raw transcript view AND persisted with the note so SingleNote can
+    // keep showing them. We mirror state into a ref because the save chain
+    // (transcribeRecording → getMarkdown → handleAddNewNote) runs inside an
+    // async closure that was bound before setWhisperWords took effect —
+    // reading the ref dodges that stale-closure trap.
+    const [whisperWords, setWhisperWords] = React.useState<WordInfo[]>([]);
+    const whisperWordsRef = React.useRef<WordInfo[]>([]);
+    const updateWhisperWords = React.useCallback((next: WordInfo[]) => {
+        whisperWordsRef.current = next;
+        setWhisperWords(next);
+    }, []);
     const [savingNote, setSavingNote] = React.useState(false);
     const [selectedTemplateName, setSelectedTemplateName] = React.useState('');
     const [selectedTemplateLlmModel, setSelectedTemplateLlmModel] = React.useState<string | null>(null);
@@ -113,6 +127,23 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         setSavingNote(true);
         const formValues = form.getValues();
 
+        // Attach Whisper per-word probabilities for the persisted note so
+        // the SingleNote page can render the confidence highlight overlay.
+        // Not stored on the form because the field is ephemeral / not user-
+        // editable.
+        // Read from the ref, not the state. transcribeRecording → getMarkdown
+        // → handleAddNewNote runs inside an async closure bound BEFORE the
+        // setWhisperWords call returned, so closing over the state value
+        // captures the empty initial array.
+        const currentWords = whisperWordsRef.current;
+        const payload = {
+            ...formValues,
+            noteContentWords: currentWords.length ? currentWords : null,
+        };
+        console.log(
+            '[NewNoteForm save] whisperWordsRef len=', currentWords.length,
+            'payload.noteContentWords len=', payload.noteContentWords?.length ?? 'null',
+        );
 
         try {
             const response = await fetch(`${API_BASE}/api/notes`, {
@@ -121,7 +152,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${auth.token}`,
                 },
-                body: JSON.stringify(formValues)
+                body: JSON.stringify(payload)
             });
 
             const data = await response.json();
@@ -406,8 +437,8 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // network reads.
             type ProgressEvent = { stage: 'transcribing' | 'diarizing' };
             type TerminalEvent =
-                | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null; audio_file_id?: string }
-                | { stage: 'error'; error?: string; message?: string; raw_note?: string; audio_file_id?: string };
+                | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null; words?: WordInfo[]; audio_file_id?: string }
+                | { stage: 'error'; error?: string; message?: string; raw_note?: string; words?: WordInfo[]; audio_file_id?: string };
             type StageEvent = ProgressEvent | TerminalEvent;
 
             const reader = response.body.getReader();
@@ -462,6 +493,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     form.setValue('noteContentRaw', finalEvent.raw_note);
                     form.setValue('noteContentSegments', null);
                     if (finalEvent.audio_file_id) form.setValue('audioFileId', finalEvent.audio_file_id);
+                    updateWhisperWords(finalEvent.words ?? []);
                     setStage('formatting');
                     await getMarkdown(finalEvent.raw_note);
                 } else {
@@ -485,6 +517,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             form.setValue('noteContentRaw', finalEvent.raw_note);
             form.setValue('noteContentSegments', finalEvent.segments ?? null);
             if (finalEvent.audio_file_id) form.setValue('audioFileId', finalEvent.audio_file_id);
+            // Stash per-word confidences (only present on the non-diarized
+            // path for v1). Empty array clears any previous run's data.
+            updateWhisperWords(finalEvent.words ?? []);
 
             // Hand off to the formatting stage. getMarkdown clears stage in
             // its finally block, so we don't clear it here.
@@ -1135,19 +1170,40 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         </div>
                     </div>
                 ) : (
-                    <FormField
-                        control={form.control}
-                        name="noteContentRaw"
-                        render={({ field }) => (
-                            <FormItem className="flex flex-col mt-4">
-                                <FormLabel>Raw Transcription</FormLabel>
-                                <FormControl>
-                                    <Textarea {...field} disabled />
-                                </FormControl>
-                                <FormMessage />
-                            </FormItem>
-                        )}
-                    />
+                    <div className="flex flex-col mt-4 gap-1">
+                        <div className="flex items-baseline justify-between">
+                            <FormLabel>Raw Transcription</FormLabel>
+                            {whisperWords.length > 0 && (() => {
+                                const low = countLowConfidence(whisperWords);
+                                return low > 0 ? (
+                                    <span className="text-xs text-muted-foreground">
+                                        <span
+                                            className="inline-block align-middle mr-1"
+                                            style={{
+                                                width: 10,
+                                                height: 10,
+                                                backgroundColor: '#fff3a0',
+                                                border: '1px solid #b78400',
+                                            }}
+                                        />
+                                        {low} word{low === 1 ? '' : 's'} flagged for review
+                                    </span>
+                                ) : null;
+                            })()}
+                        </div>
+                        <div className="border-2 border-black bg-white p-3 max-h-96 overflow-y-auto text-sm">
+                            {whisperWords.length > 0 ? (
+                                <ConfidenceText
+                                    text={form.getValues('noteContentRaw') || ''}
+                                    words={whisperWords}
+                                />
+                            ) : (
+                                <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                    {form.getValues('noteContentRaw')}
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 )}
             </TabsContent>
         </Tabs>
