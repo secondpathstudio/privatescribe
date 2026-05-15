@@ -40,8 +40,18 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     type Stage = null | 'transcribing' | 'diarizing' | 'formatting';
     const [stage, setStage] = React.useState<Stage>(null);
     const [elapsed, setElapsed] = React.useState(0);
+    // Whisper transcription progress (0–1). Populated from the NDJSON stream
+    // every time a segment is decoded. null = the backend hasn't reported a
+    // value yet, render the spinner alone (e.g. while ffmpeg decodes the
+    // upload to WAV before Whisper starts).
+    const [transcribeProgress, setTranscribeProgress] = React.useState<number | null>(null);
     const busy = stage !== null;
     const [markdown, setMarkdown] = React.useState('');
+    // Streaming preview text from /api/getMarkdown. Updated on every NDJSON
+    // chunk so the user sees the LLM's raw output materialize in real time,
+    // without paying the cost of re-parsing markdown in MDXEditor each tick.
+    // Cleared after the stream completes; the proper editor takes over.
+    const [streamingPreview, setStreamingPreview] = React.useState('');
     const [microphoneKey, setMicrophoneKey] = React.useState(0);
     // Per-word Whisper probabilities. Populated from the /api/transcribe
     // complete event; used to highlight low-confidence stretches in the
@@ -389,6 +399,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         }
 
         setStage('transcribing');
+        setTranscribeProgress(null);
         const formData = new FormData();
         // Backend uses the filename's extension to pick a pydub decoder, so we
         // pass through the real filename for uploads (mp3/m4a/wav/...) and
@@ -435,7 +446,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // event is either {stage: "complete", ...} or {stage: "error", ...}.
             // We have to buffer across chunks because a JSON object can span
             // network reads.
-            type ProgressEvent = { stage: 'transcribing' | 'diarizing' };
+            type ProgressEvent = { stage: 'transcribing' | 'diarizing'; progress?: number };
             type TerminalEvent =
                 | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null; words?: WordInfo[]; audio_file_id?: string }
                 | { stage: 'error'; error?: string; message?: string; raw_note?: string; words?: WordInfo[]; audio_file_id?: string };
@@ -463,6 +474,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     }
                     if (evt.stage === 'transcribing' || evt.stage === 'diarizing') {
                         setStage(evt.stage);
+                        if (evt.stage === 'transcribing' && typeof (evt as any).progress === 'number') {
+                            setTranscribeProgress((evt as any).progress);
+                        }
                     } else {
                         // 'complete' or 'error' — terminal events. We don't
                         // break here because the server should have closed the
@@ -685,6 +699,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         form.setValue('noteContentMarkdown', rawNote);
         mdxEditorRef.current?.setMarkdown(rawNote);
         setMarkdown(rawNote);
+        // Drop any in-flight streaming preview so it doesn't linger over the
+        // fallback view.
+        setStreamingPreview('');
     };
 
     const cancelFormatting = () => {
@@ -750,10 +767,74 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 throw new Error(errorData.error || `Server error: ${response.status}`);
             }
 
-            const result = await response.json();
-            form.setValue('noteContentMarkdown', result.formatted_markdown);
-            mdxEditorRef.current?.setMarkdown(result.formatted_markdown);
-            setMarkdown(result.formatted_markdown);
+            // NDJSON stream: chunks arrive incrementally, terminal event carries
+            // the joined final markdown. We render the accumulating text in a
+            // read-only "peek under the hood" preview pane (cheap) and only
+            // hand off to MDXEditor once at the end (expensive re-parse).
+            if (!response.body) throw new Error('Markdown stream had no body');
+            setStreamingPreview('');
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let accumulated = '';
+            let finalMarkdown: string | null = null;
+            let streamError: string | null = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    let evt: any;
+                    try { evt = JSON.parse(line); } catch (e) {
+                        console.error('Bad NDJSON line from /api/getMarkdown:', line, e);
+                        continue;
+                    }
+                    if (evt.stage === 'chunk' && typeof evt.delta === 'string') {
+                        accumulated += evt.delta;
+                        setStreamingPreview(accumulated);
+                    } else if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
+                        finalMarkdown = evt.markdown;
+                    } else if (evt.stage === 'error') {
+                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                    }
+                    // 'start' is informational; ignored.
+                }
+            }
+            if (buffer.trim()) {
+                try {
+                    const evt = JSON.parse(buffer);
+                    if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
+                        finalMarkdown = evt.markdown;
+                    } else if (evt.stage === 'error') {
+                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                    }
+                } catch { /* ignore */ }
+            }
+
+            if (streamError) {
+                setStreamingPreview('');
+                flagOllamaDown();
+                fallBackToRawTranscript(rawNote);
+                alert(streamError);
+                return;
+            }
+            if (finalMarkdown === null) {
+                // Stream ended without a complete event. Treat the accumulator
+                // as the result so the user doesn't lose what came through.
+                finalMarkdown = accumulated;
+            }
+
+            // Hand off to the real editor once. Clearing the preview here
+            // would cause a brief flash; we clear it in the finally block of
+            // getMarkdown after stage transitions away.
+            form.setValue('noteContentMarkdown', finalMarkdown);
+            mdxEditorRef.current?.setMarkdown(finalMarkdown);
+            setMarkdown(finalMarkdown);
+            setStreamingPreview('');
 
             //save note
             handleAddNewNote({ preventDefault: () => {} } as React.FormEvent, form);
@@ -1045,6 +1126,26 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         {stage === 'formatting' && 'Formatting note (LLM)...'}
                     </span>
                 </div>
+                {/* Determinate progress bar for Whisper. The other stages have
+                    no good progress signal (pyannote runs as a single pass;
+                    LLM token count is unknown ahead of time), so they keep
+                    the spinner-only treatment. */}
+                {stage === 'transcribing' && transcribeProgress !== null && (
+                    <div className="w-64 mt-1">
+                        <div className="h-2 border-2 border-black bg-white overflow-hidden">
+                            <div
+                                className="h-full bg-[#fd3777]"
+                                style={{
+                                    width: `${Math.min(100, Math.round(transcribeProgress * 100))}%`,
+                                    transition: 'width 120ms linear',
+                                }}
+                            />
+                        </div>
+                        <div className="text-[10px] text-gray-600 tabular-nums text-center mt-0.5">
+                            {Math.round(transcribeProgress * 100)}%
+                        </div>
+                    </div>
+                )}
                 <span className="text-xs text-gray-600 tabular-nums">
                     {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')} elapsed
                 </span>
@@ -1057,6 +1158,24 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         Cancel — keep raw transcript
                     </button>
                 )}
+            </div>
+        )}
+
+        {/* Live preview of the streaming LLM output. Plain-text so re-rendering
+            is cheap; replaced by the proper MDXEditor once the stream completes. */}
+        {stage === 'formatting' && streamingPreview && (
+            <div className="mt-4 border-2 border-black bg-[#1a1a1a] text-[#e5e5e5] p-4 font-mono text-xs">
+                <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-[11px] font-bold uppercase tracking-wider text-[#fd3777]">
+                        Generating note…
+                    </h3>
+                    <span className="text-[10px] uppercase tracking-wider text-gray-500">
+                        Peek under the hood
+                    </span>
+                </div>
+                <pre className="whitespace-pre-wrap break-words max-h-72 overflow-y-auto leading-snug">
+                    {streamingPreview}
+                </pre>
             </div>
         )}
 

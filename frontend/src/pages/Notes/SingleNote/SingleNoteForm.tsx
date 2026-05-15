@@ -330,7 +330,48 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 if (fmtResponse.status === 503) flagOllamaDown();
                 throw new Error(err.error || `Format failed: ${fmtResponse.status}`);
             }
-            const fmtData = await fmtResponse.json();
+
+            // NDJSON stream: drain to completion. Re-transcribe doesn't have
+            // a live editor to push deltas into (the user clicked a button
+            // and is staring at a spinner), so we just accumulate.
+            if (!fmtResponse.body) throw new Error('Markdown stream had no body');
+            const reader = fmtResponse.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            let accumulated = '';
+            let finalMarkdown: string | null = null;
+            let streamError: string | null = null;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                const lines = buf.split('\n');
+                buf = lines.pop() ?? '';
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    let evt: any;
+                    try { evt = JSON.parse(line); } catch { continue; }
+                    if (evt.stage === 'chunk' && typeof evt.delta === 'string') {
+                        accumulated += evt.delta;
+                    } else if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
+                        finalMarkdown = evt.markdown;
+                    } else if (evt.stage === 'error') {
+                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                    }
+                }
+            }
+            if (buf.trim()) {
+                try {
+                    const evt = JSON.parse(buf);
+                    if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
+                        finalMarkdown = evt.markdown;
+                    } else if (evt.stage === 'error') {
+                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                    }
+                } catch { /* ignore */ }
+            }
+            if (streamError) { flagOllamaDown(); throw new Error(streamError); }
+            const formattedMarkdown = finalMarkdown ?? accumulated;
 
             const saveResponse = await fetch(`${API_BASE}/api/notes`, {
                 method: 'POST',
@@ -343,7 +384,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     authorName: note.authorName,
                     noteDate: note.noteDate,
                     noteContentRaw: note.noteContentRaw,
-                    noteContentMarkdown: fmtData.formatted_markdown,
+                    noteContentMarkdown: formattedMarkdown,
                     noteType: note.noteType,
                     noteTemplate: retranscribeTemplateId,
                     participants: note.participants,

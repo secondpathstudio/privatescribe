@@ -19,7 +19,7 @@ from app.services.diarization import (
     merge_segments,
     segments_to_text,
 )
-from app.services.whisper import prepare_wav, transcribe_path
+from app.services.whisper import prepare_wav, transcribe_path_streaming
 
 bp = Blueprint("transcription", __name__)
 
@@ -135,10 +135,23 @@ def transcribe():
             # and decoding behaves exactly as it did before this feature.
             effective_vocab = vocabulary.get_effective_vocabulary(current_user)
             audio_path = prepare_wav(file)
-            raw_text, whisper_segments, whisper_words = transcribe_path(
+            # Stream per-segment progress (computed from info.duration vs
+            # segment.end) so the client can paint a progress bar instead of
+            # an indeterminate spinner.
+            raw_text: str = ""
+            whisper_segments: list = []
+            whisper_words: list = []
+            for kind, payload in transcribe_path_streaming(
                 audio_path,
                 initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
-            )
+            ):
+                if kind == "progress":
+                    yield json.dumps({
+                        "stage": "transcribing",
+                        "progress": payload,
+                    }) + "\n"
+                elif kind == "result":
+                    raw_text, whisper_segments, whisper_words = payload
 
             # Honor spoken dictation commands ("new paragraph", "new line",
             # "period", "comma") before the transcript reaches the LLM or
@@ -263,6 +276,20 @@ def ollama_health():
 @bp.route('/api/getMarkdown', methods=['POST'])
 @jwt_required()
 def get_markdown():
+    """Stream the LLM's template-fill output as NDJSON.
+
+    Wire events (one JSON object per line):
+      {"stage": "start"}                       — emitted before the first delta
+      {"stage": "chunk", "delta": "..."}       — N of these, in order
+      {"stage": "complete", "markdown": "..."} — the full joined output
+      {"stage": "error", "message": "..."}     — fatal mid-stream error
+
+    Preflight errors (no template, template not found, Ollama unreachable,
+    model not installed, no-template "verbatim" path) still return as a
+    regular JSON response with 4xx/5xx so the client can branch cleanly
+    on them before deciding to read the stream. Once the streaming Response
+    is returned the HTTP status is locked at 200 and errors become events.
+    """
     request_data = request.get_json(silent=True) or {}
     if not request_data:
         return jsonify({"error": "No JSON data provided"}), 400
@@ -270,17 +297,20 @@ def get_markdown():
     raw_note = request_data.get('raw_note')
     note_details = request_data.get('note_details', {})
 
-    # author_id is taken from the JWT, not the client
     if not all(k in note_details for k in ('note_date', 'participants')):
         return jsonify({"error": "Missing required fields in note_details"}), 400
 
     current_user = get_jwt_identity()
 
-    # No template = save the raw transcript verbatim. The user gets a regular
-    # note they can edit; we just skip the LLM formatting step.
+    # No template = the user wants the raw transcript saved verbatim. Skip
+    # the LLM entirely. Emit as a single-event NDJSON stream so the client
+    # has just one success code path (streaming) to handle.
     template_id = note_details.get('template_id')
     if not template_id:
-        return jsonify({"formatted_markdown": raw_note})
+        @stream_with_context
+        def verbatim():
+            yield json.dumps({"stage": "complete", "markdown": raw_note}) + "\n"
+        return Response(verbatim(), mimetype="application/x-ndjson")
 
     template = Template.query.filter_by(
         id=template_id,
@@ -290,17 +320,13 @@ def get_markdown():
     if not template:
         return jsonify({"error": "Template not found"}), 404
 
-    # Trust the JWT, not the client, for the author identity in the prompt
     note_details['author_id'] = current_user
-
-    print(f"template: {template.content}")
-
     model_name = template.llm_model or ollama_client.DEFAULT_OLLAMA_MODEL
-    print(f"using model: {model_name}")
 
     # Pre-flight: distinguish "Ollama unreachable" (503) from "model not
-    # installed" (422). Without this, both fall through to a generic 503 from
-    # the chat() call and the operator can't tell which they need to fix.
+    # installed" (422). Doing this before the stream opens lets clients
+    # surface those errors as normal HTTP failures instead of having to
+    # parse an event mid-stream.
     try:
         installed = ollama_client.is_model_installed(model_name)
     except Exception as e:
@@ -322,29 +348,40 @@ def get_markdown():
             "raw_note": raw_note,
         }), 422
 
-    try:
-        formatted_markdown = ollama_client.generate_markdown(
-            template, raw_note, note_details, model_name
-        )
-    except Exception as e:
-        print(f"Ollama failure: {type(e).__name__}: {e}")
-        return jsonify({
-            "error": "AI formatting unavailable. Make sure Ollama is running and the configured model is pulled.",
-            "raw_note": raw_note,
-        }), 503
+    @stream_with_context
+    def generate():
+        try:
+            yield json.dumps({"stage": "start"}) + "\n"
+            buffer: list[str] = []
+            for delta in ollama_client.generate_markdown_stream(
+                template, raw_note, note_details, model_name
+            ):
+                buffer.append(delta)
+                yield json.dumps({"stage": "chunk", "delta": delta}) + "\n"
+            full_markdown = "".join(buffer)
+            yield json.dumps({"stage": "complete", "markdown": full_markdown}) + "\n"
 
-    print("Formatted markdown: " + formatted_markdown)
+            log_action(
+                'markdown.generate',
+                user_id=current_user,
+                resource_type='template',
+                resource_id=template_id,
+                extra={'model': model_name, 'mode': 'stream'},
+            )
+            db.session.commit()
+        except Exception as e:
+            # Mid-stream failure (Ollama disconnected, timeout, etc). The
+            # status code is already 200, so we surface the error inline.
+            print(f"Ollama stream failure: {type(e).__name__}: {e}")
+            yield json.dumps({
+                "stage": "error",
+                "message": (
+                    "AI formatting failed mid-stream. Make sure Ollama is "
+                    "running and the configured model is pulled."
+                ),
+            }) + "\n"
 
-    log_action(
-        'markdown.generate',
-        user_id=current_user,
-        resource_type='template',
-        resource_id=template_id,
-        extra={'model': model_name},
-    )
-    db.session.commit()
-
-    return jsonify({"formatted_markdown": formatted_markdown})
+    return Response(generate(), mimetype="application/x-ndjson")
 
 
 def _structured_mode_for_template(template: Template) -> str:

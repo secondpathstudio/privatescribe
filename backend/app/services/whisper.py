@@ -45,35 +45,26 @@ def prepare_wav(file_storage) -> str:
     return tmp.name
 
 
-def transcribe_path(
+def transcribe_path_streaming(
     audio_path: str,
     language: str = "en",
     *,
     initial_prompt: str | None = None,
-) -> tuple[str, list[dict], list[dict]]:
-    """Transcribe a WAV path and return ``(text, segments, words)``.
+):
+    """Generator variant of transcribe_path that yields progress events.
 
-    - ``text`` is the concatenated transcript.
-    - ``segments`` is the per-segment list ``[{start, end, text}, ...]``
-      used by the diarization merge.
-    - ``words`` is a flat per-word list ``[{word, probability, start, end}]``
-      across all segments. Powers confidence highlighting in the UI; safe
-      to ignore for callers that don't care.
-
-    ``initial_prompt`` is forwarded to Faster-Whisper as a recognition hint
-    — typically a comma-separated vocabulary list of domain terms. None
-    skips the kwarg entirely so we don't perturb decoding for callers that
-    don't care.
-
-    Word-level timestamps come at a small CPU cost (~10-15%) and the
-    decoder produces them once per token regardless of whether the caller
-    consumes them, so it's worth always asking for them and discarding when
-    unused.
+    Yields ``("progress", float_in_0_to_1)`` after each segment is decoded,
+    and finally ``("result", (text, segments, words))`` once the audio has
+    been consumed. Progress is computed against ``info.duration`` (the
+    total audio length faster-whisper reports up front), so it stays
+    honest even when VAD trims silence.
     """
     kwargs: dict = {"language": language, "word_timestamps": True}
     if initial_prompt:
         kwargs["initial_prompt"] = initial_prompt
-    segments, _info = get_model().transcribe(audio_path, **kwargs)
+    segments, info = get_model().transcribe(audio_path, **kwargs)
+    total_duration = float(getattr(info, "duration", 0) or 0)
+
     out_segments: list[dict] = []
     out_words: list[dict] = []
     parts: list[str] = []
@@ -90,7 +81,31 @@ def transcribe_path(
                 "start": float(w.start),
                 "end": float(w.end),
             })
-    return " ".join(parts), out_segments, out_words
+        if total_duration > 0:
+            yield "progress", min(1.0, float(s.end) / total_duration)
+    yield "result", (" ".join(parts), out_segments, out_words)
+
+
+def transcribe_path(
+    audio_path: str,
+    language: str = "en",
+    *,
+    initial_prompt: str | None = None,
+) -> tuple[str, list[dict], list[dict]]:
+    """Transcribe a WAV path and return ``(text, segments, words)``.
+
+    Back-compat wrapper around transcribe_path_streaming for callers that
+    don't care about progress (CLI script, transcribe_file helper). The
+    streaming variant is the source of truth.
+    """
+    result: tuple[str, list[dict], list[dict]] | None = None
+    for kind, payload in transcribe_path_streaming(
+        audio_path, language, initial_prompt=initial_prompt
+    ):
+        if kind == "result":
+            result = payload  # type: ignore[assignment]
+    assert result is not None, "transcribe_path_streaming did not yield a result"
+    return result
 
 
 def transcribe_file(file_storage, language: str = "en") -> str:
