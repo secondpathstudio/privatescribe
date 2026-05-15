@@ -4,6 +4,12 @@ The model is loaded lazily on first use and cached process-wide. Loading it
 is slow (hundreds of MB of weights), so create_app() can call get_model()
 during boot to warm the cache and avoid a stall on the first /api/transcribe.
 
+Which model size loads is admin-configurable via the `whisper_model` system
+setting (default "base"). Admins switch it from the Transcription settings
+page, which downloads the weights first — see services/whisper_manager.py.
+When the admin changes the setting, the route calls reload_model() to drop
+the cached instance so the next get_model() picks up the new size.
+
 Audio is decoded to a temp WAV file once so both Whisper and pyannote
 diarization can read it without re-decoding.
 """
@@ -14,14 +20,43 @@ import tempfile
 from faster_whisper import WhisperModel
 from pydub import AudioSegment
 
+from app.services import settings as settings_service
+
 _model = None
+# Size of the currently-cached _model, so callers can report it and so a
+# stale cache (setting changed without reload_model being called) is at
+# least detectable.
+_model_size: str | None = None
 
 
 def get_model() -> WhisperModel:
-    global _model
+    """Return the cached WhisperModel, loading it on first use.
+
+    The size comes from the `whisper_model` setting. The admin flow only
+    ever points that setting at an already-downloaded model, so this load
+    is offline-safe; if a hand-edited setting names an uninstalled model,
+    faster-whisper would try to fetch it — acceptable since that's an
+    operator error, not a normal path.
+    """
+    global _model, _model_size
     if _model is None:
-        _model = WhisperModel("base", device="cpu", compute_type="int8")
+        _model_size = settings_service.get_whisper_model()
+        _model = WhisperModel(_model_size, device="cpu", compute_type="int8")
     return _model
+
+
+def reload_model() -> None:
+    """Drop the cached model so the next get_model() reloads from the
+    current `whisper_model` setting. Called after the admin installs and
+    activates a different size."""
+    global _model, _model_size
+    _model = None
+    _model_size = None
+
+
+def loaded_model_size() -> str | None:
+    """Size of the model currently held in memory, or None if not loaded."""
+    return _model_size
 
 
 # Demuxer hints we trust pydub/ffmpeg to receive. The filename is attacker-

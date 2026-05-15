@@ -3,13 +3,16 @@
 PUTs apply immediately to the running process so admins don't have to restart
 the backend after changing a limit.
 """
-from flask import Blueprint, current_app, jsonify, request
+import json
+
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
 
 from app.extensions import db
 from app.security.auth import require_admin
 from app.services import diarization, settings as settings_service
+from app.services import whisper, whisper_manager
 from app.services.audit import log_action
 
 bp = Blueprint("admin_settings", __name__, url_prefix="/api/admin/settings")
@@ -420,3 +423,108 @@ def update_diarization_device():
         "diarization_device": value,
         "diarization_device_effective": effective,
     })
+
+
+@bp.route('/whisper/models', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def whisper_models():
+    """Return the Whisper model catalog for the Transcription settings UI.
+
+      available    — every size the UI can offer
+      installed    — subset already cached on disk (offline-ready)
+      active       — the size /api/transcribe will use
+      loaded       — size currently held in memory, or null if not loaded
+      approxSizeMb — rough download size per model, for the pre-flight hint
+    """
+    return jsonify({
+        "available": whisper_manager.AVAILABLE_MODELS,
+        "installed": whisper_manager.installed_models(),
+        "active": settings_service.get_whisper_model(),
+        "loaded": whisper.loaded_model_size(),
+        "approxSizeMb": whisper_manager.APPROX_SIZE_MB,
+    })
+
+
+@bp.route('/whisper/install', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def whisper_install():
+    """Download a Whisper model, then activate it — streamed as NDJSON.
+
+    Body: {"model": "small"}
+
+    Each response line is one JSON object:
+      {"status": "starting", "model": str, "totalBytes": int}
+      {"status": "downloading", "completed": int, "total": int}   # repeated
+      {"status": "activated", "model": str, "done": true}         # terminal OK
+      {"status": "error", "message": str, "done": true}           # terminal err
+
+    The model is only persisted as the active `whisper_model` setting AFTER
+    the download fully succeeds — an aborted or failed download leaves the
+    previous model untouched, so transcription keeps working. This is the
+    offline-first contract: the admin watches it reach "activated" before
+    disconnecting.
+    """
+    data = request.get_json(silent=True) or {}
+    model = (data.get('model') or '').strip()
+    if model not in whisper_manager.AVAILABLE_MODELS:
+        return jsonify({
+            "error": f"model must be one of {whisper_manager.AVAILABLE_MODELS}",
+        }), 400
+
+    current_user = get_jwt_identity()
+
+    @stream_with_context
+    def generate():
+        succeeded = False
+        try:
+            for event in whisper_manager.download_model_stream(model):
+                if event.get("status") == "success":
+                    succeeded = True
+                    break
+                if event.get("status") == "error":
+                    yield json.dumps({**event, "done": True}) + "\n"
+                    return
+                yield json.dumps(event) + "\n"
+        except Exception as e:
+            print(f"Whisper install failure: {type(e).__name__}: {e}")
+            yield json.dumps({
+                "status": "error",
+                "message": f"{type(e).__name__}: {e}",
+                "done": True,
+            }) + "\n"
+            return
+
+        if not succeeded:
+            yield json.dumps({
+                "status": "error",
+                "message": "Download ended without completing.",
+                "done": True,
+            }) + "\n"
+            return
+
+        # Download is on disk — now make it the active model. Persist the
+        # setting and drop the cached WhisperModel so the next transcription
+        # loads the new size.
+        previous = settings_service.get_whisper_model()
+        settings_service.set_value(
+            settings_service.WHISPER_MODEL, model, updated_by=current_user
+        )
+        whisper.reload_model()
+        log_action(
+            'admin.settings_update',
+            user_id=current_user,
+            resource_type='setting',
+            resource_id=settings_service.WHISPER_MODEL,
+            extra={'old': previous, 'new': model},
+        )
+        db.session.commit()
+
+        yield json.dumps({
+            "status": "activated",
+            "model": model,
+            "done": True,
+        }) + "\n"
+
+    return Response(generate(), mimetype="application/x-ndjson")

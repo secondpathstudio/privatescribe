@@ -1,10 +1,19 @@
 import SectionHeader from "./SectionHeader";
 import VocabularyEditor from "@/components/transcription/VocabularyEditor";
 import AbbreviationsEditor from "@/components/transcription/AbbreviationsEditor";
+import WhisperModelCard from "@/components/admin/WhisperModelCard";
 
 export default function TranscriptionSection() {
   return (
     <>
+      <SectionHeader
+        title="Transcription model"
+        description="The Whisper speech-to-text model used for all recordings. Switching downloads the weights up front so the app keeps running offline afterward."
+      />
+      <div className="space-y-6 mb-8">
+        <WhisperModelCard />
+      </div>
+
       <SectionHeader
         title="Vocabulary & Abbreviations"
         description="Org-wide transcription overlays. Vocabulary biases Whisper toward expected terms; abbreviations expand short forms into long forms in the raw transcript before the AI pass. Each user can layer their own additions on top in their Account page."

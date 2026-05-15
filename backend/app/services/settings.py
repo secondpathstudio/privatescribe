@@ -22,12 +22,19 @@ EXPORTS_ENABLED = "exports_enabled"
 DICTATION_MARKERS_ENABLED = "dictation_markers_enabled"
 VOCABULARY_TERMS = "vocabulary_terms"
 ABBREVIATIONS = "abbreviations"
+WHISPER_MODEL = "whisper_model"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
 MAX_UPLOAD_LIMIT_MB = 5120  # 5 GB — generous, but blocks "infinite upload" footguns
 
 DEFAULT_DIARIZATION_DEVICE = "auto"
+
+# faster-whisper model size used for transcription. "base" matches the
+# original hardcoded value, so an unset row keeps pre-feature behavior.
+# The admin can switch to a larger model from the Transcription settings
+# page (which downloads the weights first — see services/whisper_manager).
+DEFAULT_WHISPER_MODEL = "base"
 
 # Trash retention. A soft-deleted note/template must sit in the trash at least
 # this many days before it can be permanently deleted — manually or by the
@@ -133,6 +140,10 @@ def get_upload_limit_mb() -> int:
 
 def get_diarization_device() -> str:
     return get_str(DIARIZATION_DEVICE, DEFAULT_DIARIZATION_DEVICE)
+
+
+def get_whisper_model() -> str:
+    return get_str(WHISPER_MODEL, DEFAULT_WHISPER_MODEL)
 
 
 def get_trash_retention_days() -> int:
