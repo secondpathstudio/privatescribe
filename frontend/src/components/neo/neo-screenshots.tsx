@@ -1,4 +1,5 @@
 import NeoButton from './neo-button';
+import NeoHardwareCallout from './neo-hardware-callout';
 import { GithubIcon } from 'lucide-react';
 
 type Props = {
@@ -136,6 +137,9 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
               </NeoButton>
             </div>
           </div>
+
+          {/* Recommended hardware tiers */}
+          <NeoHardwareCallout />
         </div>
       </div>
     </section>
