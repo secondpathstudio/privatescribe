@@ -2,10 +2,12 @@ import { useRef, useState } from 'react';
 import {
     ColumnDef,
     ColumnFiltersState,
+    PaginationState,
     SortingState,
     flexRender,
     getCoreRowModel,
     getFilteredRowModel,
+    getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
 } from '@tanstack/react-table';
@@ -51,7 +53,23 @@ type DataTableProps<TData> = {
     rowHeight?: number;
     /** Max height of the scroll viewport. Default 70vh. */
     maxBodyHeight?: string;
+    /** Enable client-side pagination. Adds a rows-per-page selector
+     *  (10/25/50/All by default) and prev/next controls to the footer.
+     *  Virtualization still renders inside the active page, so picking
+     *  "All" on a large list stays performant. Default false (no
+     *  pagination — current virtualized-all-rows behavior). */
+    pagination?: boolean;
+    /** Initial rows per page when pagination is on. Default 25. */
+    initialPageSize?: number;
+    /** Page size options shown in the selector. Default [10, 25, 50].
+     *  "All" is appended automatically. */
+    pageSizeOptions?: number[];
 };
+
+// Sentinel for the "All" choice in the page-size selector. Picked large
+// enough that tanstack's paginator returns every filtered row in a single
+// page — virtualization still keeps rendering cheap.
+const ALL_PAGE_SIZE = Number.MAX_SAFE_INTEGER;
 
 /**
  * Fall-back stringification used by the global search filter. We grab every
@@ -87,22 +105,36 @@ export function DataTable<TData>({
     onRowClick,
     rowHeight = 56,
     maxBodyHeight = '70vh',
+    pagination = false,
+    initialPageSize = 25,
+    pageSizeOptions = [10, 25, 50],
 }: DataTableProps<TData>) {
     const [sorting, setSorting] = useState<SortingState>(initialSorting);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [globalFilter, setGlobalFilter] = useState('');
+    const [paginationState, setPaginationState] = useState<PaginationState>({
+        pageIndex: 0,
+        pageSize: initialPageSize,
+    });
 
     const table = useReactTable({
         data,
         columns,
-        state: { sorting, columnFilters, globalFilter },
+        state: {
+            sorting,
+            columnFilters,
+            globalFilter,
+            ...(pagination ? { pagination: paginationState } : {}),
+        },
         onSortingChange: setSorting,
         onColumnFiltersChange: setColumnFilters,
         onGlobalFilterChange: setGlobalFilter,
+        onPaginationChange: pagination ? setPaginationState : undefined,
         globalFilterFn: defaultGlobalFilterFn as never,
         getCoreRowModel: getCoreRowModel(),
         getSortedRowModel: getSortedRowModel(),
         getFilteredRowModel: getFilteredRowModel(),
+        ...(pagination ? { getPaginationRowModel: getPaginationRowModel() } : {}),
     });
 
     const rows = table.getRowModel().rows;
@@ -239,11 +271,74 @@ export function DataTable<TData>({
                     )}
                 </div>
 
-                {/* Footer summary */}
-                <div className='border-t-2 border-black bg-muted/30 px-3 py-2 text-xs text-muted-foreground flex justify-between'>
-                    <span>
-                        {rows.length} of {data.length} {data.length === 1 ? 'row' : 'rows'}
-                    </span>
+                {/* Footer — row count + pagination controls (when enabled).
+                    Range math is computed against the *filtered* row count
+                    (table.getFilteredRowModel().rows.length) so the "of N"
+                    figure tracks the search box. */}
+                <div className='border-t-2 border-black bg-muted/30 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2'>
+                    {pagination ? (
+                        (() => {
+                            const filteredCount = table.getFilteredRowModel().rows.length;
+                            const ps = paginationState.pageSize;
+                            const pageStart = filteredCount === 0 ? 0 : paginationState.pageIndex * ps + 1;
+                            const pageEnd = Math.min(filteredCount, pageStart + rows.length - 1);
+                            const pageCount = Math.max(1, table.getPageCount());
+                            const selectValue = ps >= ALL_PAGE_SIZE ? 'all' : String(ps);
+                            return (
+                                <>
+                                    <div className='flex items-center gap-2 text-muted-foreground'>
+                                        <span>Rows per page:</span>
+                                        <select
+                                            value={selectValue}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setPaginationState({
+                                                    pageIndex: 0,
+                                                    pageSize: v === 'all' ? ALL_PAGE_SIZE : Number(v),
+                                                });
+                                            }}
+                                            className='border border-black/40 rounded text-xs px-1 py-0.5 bg-white text-foreground'
+                                        >
+                                            {pageSizeOptions.map((opt) => (
+                                                <option key={opt} value={String(opt)}>{opt}</option>
+                                            ))}
+                                            <option value='all'>All</option>
+                                        </select>
+                                        <span className='ml-2'>
+                                            {filteredCount === 0
+                                                ? '0 of 0'
+                                                : `${pageStart}–${pageEnd} of ${filteredCount}`}
+                                        </span>
+                                    </div>
+                                    <div className='flex items-center gap-2 text-muted-foreground'>
+                                        <span>
+                                            Page {paginationState.pageIndex + 1} of {pageCount}
+                                        </span>
+                                        <button
+                                            type='button'
+                                            onClick={() => table.previousPage()}
+                                            disabled={!table.getCanPreviousPage()}
+                                            className='border border-black/60 px-2 py-0.5 bg-white text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed'
+                                        >
+                                            Prev
+                                        </button>
+                                        <button
+                                            type='button'
+                                            onClick={() => table.nextPage()}
+                                            disabled={!table.getCanNextPage()}
+                                            className='border border-black/60 px-2 py-0.5 bg-white text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed'
+                                        >
+                                            Next
+                                        </button>
+                                    </div>
+                                </>
+                            );
+                        })()
+                    ) : (
+                        <span className='text-muted-foreground'>
+                            {rows.length} of {data.length} {data.length === 1 ? 'row' : 'rows'}
+                        </span>
+                    )}
                 </div>
             </div>
         </div>

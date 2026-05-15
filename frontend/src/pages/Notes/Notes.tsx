@@ -384,6 +384,7 @@ const Notes = () => {
                     columns={columns}
                     initialSorting={[{ id: 'noteDate', desc: true }]}
                     hideSearch
+                    pagination
                     emptyState={showDeleted ? 'No deleted notes.' : 'No notes yet — create one to get started.'}
                     onRowClick={(row) => navigate(`/notes/${row.id}`)}
                 />

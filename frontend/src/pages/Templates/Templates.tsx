@@ -232,6 +232,7 @@ const Templates = () => {
                     columns={columns}
                     initialSorting={[{ id: 'updatedAt', desc: true }]}
                     searchPlaceholder='Search by name, content, or model...'
+                    pagination
                     emptyState='No templates yet — create one to get started.'
                     onRowClick={(row) => navigate(`/templates/${row.id}`)}
                 />
