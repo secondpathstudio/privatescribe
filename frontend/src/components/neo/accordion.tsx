@@ -15,7 +15,7 @@ const NeoAccordion = () => {
     },
     {
       question: "Does PrivateScribe ever connect to the internet?",
-      answer: "PrivateScribe itself never needs to connect to the internet if you choose. Currently, we do rely on Ollama for serving local LLMs and therefore an internet connection is needed to download Ollama and AI models during first setup as well as if you ever want to update or add more models. After that, if you choose to use PrivateScribe Studio, an internet connection is only needed to sync the templates you design there. Templates are blueprints (e.g. \"Subjective: extract symptoms\"), not sensitive data. The transcription engine and your recordings, transcripts, and formatted notes run entirely on your local computer and are never transmitted, even when your computer is online. Pull the network cable mid-session and the app keeps recording and transcribing."
+      answer: "PrivateScribe itself never needs to connect to the internet if you choose. Currently, we do rely on Ollama for serving local LLMs and therefore an internet connection is needed to download Ollama and AI models during first setup, as well as if you ever want to update or add more models. After that, if you choose to use PrivateScribe Studio, an internet connection is only needed to sync the templates you design there. Templates are blueprints (e.g. \"Subjective: extract symptoms\"), not sensitive data. The transcription engine and your recordings, transcripts, and formatted notes run entirely on your local computer and are never transmitted, even when your computer is online."
     },
     {
       question: "Is this HIPAA compliant?",
@@ -23,7 +23,7 @@ const NeoAccordion = () => {
     },
     {
       question: "Are the original audio recordings private too?",
-      answer: "Yes. Every recording is encrypted on disk with the same 256-bit standard as the notes, using a key derived from your database key. You can play it back inside the note when the exact wording matters, and nothing about the audio is ever transmitted off the device."
+      answer: "Yes. Every recording is encrypted on disk with the same 256-bit standard as the notes. You can play it back inside the note when the exact wording matters, and nothing about the audio is ever transmitted off the device."
     },
     {
       question: "Can a team or practice use this together?",
@@ -31,7 +31,7 @@ const NeoAccordion = () => {
     },
     {
       question: "What does it cost?",
-      answer: "PrivateScribe is open source under MIT — free for personal use and for commercial use inside a practice. Paid tiers (coming soon) layer on top: PrivateScribe Studio for designing richer, more customizable templates than the built-in editor allows (with central management across a team if you have one — one edit propagates to everyone, no version drift), access to fine-tuned and custom-trained premium models for specialized workflows, deployment assistance, and priority support. The privacy guarantees don't change between tiers: paid or free, your data still never leaves your machine."
+      answer: "The PrivateScribe application is open source under MIT — free for personal use and for commercial use inside a practice. PrivateScribe Studio is a paid product for designing richer, more customizable templates than the built-in editor allows (with central management across a team if you have one — one edit propagates to everyone). The privacy guarantees don't change between tiers: paid or free, your data still never leaves your machine."
     }
   ];
 
