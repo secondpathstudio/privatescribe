@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
 import TwoFactorSection from "@/components/account/TwoFactorSection";
+import VocabularyEditor from "@/components/transcription/VocabularyEditor";
+import AbbreviationsEditor from "@/components/transcription/AbbreviationsEditor";
 
 const MIN_LEN = 8;
 
@@ -170,6 +172,26 @@ export default function Account() {
       </section>
 
       <TwoFactorSection />
+
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-xl font-black">Transcription overlays</h2>
+          <p className="text-sm text-muted-foreground">
+            Your personal additions on top of any admin-wide defaults. These
+            apply to every recording you transcribe.
+          </p>
+        </div>
+        <VocabularyEditor
+          endpoint="/api/user/vocabulary"
+          title="My vocabulary"
+          description="Domain terms Whisper should expect to hear. Useful for drug names, frequent patient names, or jargon Whisper tends to mangle."
+        />
+        <AbbreviationsEditor
+          endpoint="/api/user/abbreviations"
+          title="My abbreviations"
+          description="Short forms that should be expanded in your transcripts after Whisper finishes."
+        />
+      </section>
     </div>
   );
 }

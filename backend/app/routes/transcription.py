@@ -10,7 +10,7 @@ from app.models import AudioFile, Template
 from app.security.auth import require_admin
 from app.services import audio_storage, ollama_client
 from app.services import dictation_markers, settings as settings_service
-from app.services import structured_runtime
+from app.services import structured_runtime, vocabulary
 from app.services.audit import log_action
 from app.services.strictness import effective_strictness, level_for
 from app.services.diarization import (
@@ -129,8 +129,16 @@ def transcribe():
             )
             db.session.commit()
 
+            # Bias Whisper toward the user's effective vocabulary list
+            # (admin defaults + user additions). build_whisper_prompt returns
+            # None when both lists are empty, in which case we pass nothing
+            # and decoding behaves exactly as it did before this feature.
+            effective_vocab = vocabulary.get_effective_vocabulary(current_user)
             audio_path = prepare_wav(file)
-            raw_text, whisper_segments = transcribe_path(audio_path)
+            raw_text, whisper_segments = transcribe_path(
+                audio_path,
+                initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
+            )
 
             # Honor spoken dictation commands ("new paragraph", "new line",
             # "period", "comma") before the transcript reaches the LLM or
@@ -144,6 +152,13 @@ def transcribe():
                 and apply_markers_requested
             ):
                 raw_text = dictation_markers.apply_markers(raw_text)
+
+            # Expand abbreviations (admin + user, user-wins-on-conflicts) so
+            # the LLM and the stored raw transcript both see long forms.
+            # Empty dict short-circuits inside apply_abbreviations.
+            raw_text = vocabulary.apply_abbreviations(
+                raw_text, vocabulary.get_effective_abbreviations(current_user)
+            )
 
             if not diarize:
                 yield json.dumps({

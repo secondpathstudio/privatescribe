@@ -51,6 +51,11 @@ def get_settings():
         # ("new paragraph", "new section", "new line") by rewriting them as
         # formatting before the LLM pass. Off = literal phrase is preserved.
         "dictation_markers_enabled": settings_service.get_dictation_markers_enabled(),
+        # Admin-wide vocabulary list + abbreviation map. Each user's
+        # effective values at transcribe time merge these with their own
+        # overlays (see services/vocabulary.py).
+        "vocabulary_terms": settings_service.get_admin_vocabulary_terms(),
+        "abbreviations": settings_service.get_admin_abbreviations(),
     })
 
 
@@ -280,6 +285,81 @@ def update_dictation_markers_enabled():
     return jsonify({
         "dictation_markers_enabled": settings_service.get_dictation_markers_enabled(),
     })
+
+
+@bp.route('/vocabulary', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def get_admin_vocabulary():
+    """Mirrors the user-side GET shape ({"terms": [...]}) so the shared
+    VocabularyEditor component can point at either scope unmodified."""
+    return jsonify({"terms": settings_service.get_admin_vocabulary_terms()})
+
+
+@bp.route('/vocabulary', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_admin_vocabulary():
+    """Body: {"terms": [str, ...]}. Replaces the admin-wide list entirely."""
+    from app.services import vocabulary
+    data = request.get_json(silent=True) or {}
+    terms = data.get('terms')
+    if not isinstance(terms, list) or not all(isinstance(t, str) for t in terms):
+        return jsonify({"error": "terms must be a list of strings"}), 400
+    cleaned = vocabulary.parse_vocabulary_textarea("\n".join(terms))
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_admin_vocabulary_terms()
+    settings_service.set_value(settings_service.VOCABULARY_TERMS, cleaned, updated_by=current_user)
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.VOCABULARY_TERMS,
+        extra={'old_count': len(previous), 'new_count': len(cleaned)},
+    )
+    db.session.commit()
+    return jsonify({"terms": cleaned})
+
+
+@bp.route('/abbreviations', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def get_admin_abbreviations():
+    """Mirrors the user-side GET shape ({"abbreviations": {...}})."""
+    return jsonify({"abbreviations": settings_service.get_admin_abbreviations()})
+
+
+@bp.route('/abbreviations', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_admin_abbreviations():
+    """Body: {"abbreviations": {short: long, ...}}. Replaces entirely."""
+    data = request.get_json(silent=True) or {}
+    mapping = data.get('abbreviations')
+    if not isinstance(mapping, dict):
+        return jsonify({"error": "abbreviations must be an object"}), 400
+    cleaned: dict[str, str] = {}
+    for k, v in mapping.items():
+        if not isinstance(k, str) or not isinstance(v, str):
+            return jsonify({"error": "abbreviation keys and values must be strings"}), 400
+        k = k.strip()
+        v = v.strip()
+        if k and v:
+            cleaned[k] = v
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_admin_abbreviations()
+    settings_service.set_value(settings_service.ABBREVIATIONS, cleaned, updated_by=current_user)
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.ABBREVIATIONS,
+        extra={'old_count': len(previous), 'new_count': len(cleaned)},
+    )
+    db.session.commit()
+    return jsonify({"abbreviations": cleaned})
 
 
 @bp.route('/diarization-device', methods=['PUT'])

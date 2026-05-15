@@ -28,6 +28,17 @@ class User(db.Model):
     # On use, the matching slot is replaced with null so the list length stays
     # stable and the user can see how many they have left.
     recovery_codes = db.Column(db.Text, nullable=True)
+    # JSON-encoded user-scoped overlays for transcription. Both default to
+    # empty containers so the merge logic in services/vocabulary.py can
+    # treat "no row yet" and "empty list" the same way.
+    #   vocabulary_terms: JSON array of strings — passed to Whisper as part
+    #     of `initial_prompt` to bias recognition toward domain terms.
+    #   abbreviations:    JSON object {short: long} — applied as case-
+    #     insensitive whole-word substitution after Whisper, before the LLM.
+    # Admin-wide defaults live in the system_setting table; merge logic
+    # combines them (user values win on key conflicts for abbreviations).
+    vocabulary_terms = db.Column(db.Text, nullable=False, default='[]')
+    abbreviations = db.Column(db.Text, nullable=False, default='{}')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, default=datetime.utcnow)
 

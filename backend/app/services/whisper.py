@@ -45,9 +45,23 @@ def prepare_wav(file_storage) -> str:
     return tmp.name
 
 
-def transcribe_path(audio_path: str, language: str = "en") -> tuple[str, list[dict]]:
-    """Transcribe a WAV path and return (concatenated_text, [{start, end, text}, ...])."""
-    segments, _info = get_model().transcribe(audio_path, language=language)
+def transcribe_path(
+    audio_path: str,
+    language: str = "en",
+    *,
+    initial_prompt: str | None = None,
+) -> tuple[str, list[dict]]:
+    """Transcribe a WAV path and return (concatenated_text, [{start, end, text}, ...]).
+
+    ``initial_prompt`` is forwarded to Faster-Whisper as a recognition hint
+    — typically a comma-separated vocabulary list of domain terms. None
+    skips the kwarg entirely so we don't perturb decoding for callers that
+    don't care.
+    """
+    kwargs: dict = {"language": language}
+    if initial_prompt:
+        kwargs["initial_prompt"] = initial_prompt
+    segments, _info = get_model().transcribe(audio_path, **kwargs)
     out = []
     parts = []
     for s in segments:

@@ -37,6 +37,7 @@ import SessionSection from './pages/Admin/sections/Session.tsx'
 import TwoFactorSection from './pages/Admin/sections/TwoFactor.tsx'
 import ExportsSection from './pages/Admin/sections/Exports.tsx'
 import DictationMarkersSection from './pages/Admin/sections/DictationMarkers.tsx'
+import TranscriptionSection from './pages/Admin/sections/Transcription.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 import Og from './pages/Og/Og.tsx'
 import OllamaGate from './components/OllamaGate.tsx'
@@ -81,6 +82,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="two-factor" element={<TwoFactorSection />} />
             <Route path="exports" element={<ExportsSection />} />
             <Route path="dictation-markers" element={<DictationMarkersSection />} />
+            <Route path="vocabulary" element={<TranscriptionSection />} />
           </Route>
           <Route path="/roadmap" element={<Roadmap />} />
           <Route path="/login" element={<Login />} />

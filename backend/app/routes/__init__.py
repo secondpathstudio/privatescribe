@@ -10,6 +10,7 @@ from app.routes.templates import bp as templates_bp
 from app.routes.participants import bp as participants_bp
 from app.routes.transcription import bp as transcription_bp
 from app.routes.two_factor import bp as two_factor_bp
+from app.routes.user_settings import bp as user_settings_bp
 
 
 def register_blueprints(app):
@@ -24,3 +25,4 @@ def register_blueprints(app):
     app.register_blueprint(participants_bp)
     app.register_blueprint(transcription_bp)
     app.register_blueprint(two_factor_bp)
+    app.register_blueprint(user_settings_bp)

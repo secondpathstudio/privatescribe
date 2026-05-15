@@ -20,6 +20,8 @@ LOGOUT_ON_CLOSE = "logout_on_close"
 TWO_FACTOR_REQUIRED = "two_factor_required"
 EXPORTS_ENABLED = "exports_enabled"
 DICTATION_MARKERS_ENABLED = "dictation_markers_enabled"
+VOCABULARY_TERMS = "vocabulary_terms"
+ABBREVIATIONS = "abbreviations"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -61,6 +63,12 @@ DEFAULT_EXPORTS_ENABLED = True
 # spoken dictation commands ("new paragraph", "new section", "new line").
 # See services/dictation_markers.py.
 DEFAULT_DICTATION_MARKERS_ENABLED = True
+
+# Admin-wide defaults for vocabulary and abbreviations. Both are empty by
+# default — the feature only kicks in when an admin or user actually
+# populates a list. Stored JSON-encoded under their respective keys.
+DEFAULT_VOCABULARY_TERMS: list[str] = []
+DEFAULT_ABBREVIATIONS: dict[str, str] = {}
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -151,6 +159,35 @@ def get_exports_enabled() -> bool:
 
 def get_dictation_markers_enabled() -> bool:
     return get_bool(DICTATION_MARKERS_ENABLED, DEFAULT_DICTATION_MARKERS_ENABLED)
+
+
+def get_admin_vocabulary_terms() -> list[str]:
+    """Admin-wide vocabulary list. Returns [] if unset or malformed."""
+    raw = _get_raw(VOCABULARY_TERMS)
+    if raw is None:
+        return list(DEFAULT_VOCABULARY_TERMS)
+    try:
+        value = json.loads(raw)
+        if isinstance(value, list):
+            return [str(v) for v in value if isinstance(v, str) and v.strip()]
+        return list(DEFAULT_VOCABULARY_TERMS)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return list(DEFAULT_VOCABULARY_TERMS)
+
+
+def get_admin_abbreviations() -> dict[str, str]:
+    """Admin-wide abbreviation map. Returns {} if unset or malformed."""
+    raw = _get_raw(ABBREVIATIONS)
+    if raw is None:
+        return dict(DEFAULT_ABBREVIATIONS)
+    try:
+        value = json.loads(raw)
+        if isinstance(value, dict):
+            return {str(k): str(v) for k, v in value.items()
+                    if isinstance(k, str) and isinstance(v, str) and k.strip()}
+        return dict(DEFAULT_ABBREVIATIONS)
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return dict(DEFAULT_ABBREVIATIONS)
 
 
 def trash_purge_eligible_on(is_deleted_timestamp: Optional[datetime]) -> Optional[datetime]:

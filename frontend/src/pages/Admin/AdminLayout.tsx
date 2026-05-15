@@ -33,6 +33,7 @@ const NAV: NavGroup[] = [
       { to: "/admin/upload-limit", label: "Upload Limit" },
       { to: "/admin/diarization", label: "Diarization" },
       { to: "/admin/dictation-markers", label: "Dictation Commands" },
+      { to: "/admin/vocabulary", label: "Vocabulary & Abbreviations" },
     ],
   },
 ];
