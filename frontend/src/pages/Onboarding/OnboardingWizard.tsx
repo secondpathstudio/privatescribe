@@ -1,14 +1,21 @@
-import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useEffect, useState } from "react";
+import { Navigate, useNavigate } from "react-router";
+import { toast } from "sonner";
+import { API_BASE } from "@/lib/api";
+import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
 
-// The wizard walks a fresh admin through first-run setup. Welcome is the only
-// step wired so far; recovery-key backup, the Ollama check, the Whisper
-// notice, and use-case selection land in later commits — each inserted before
-// the finish.
-const TOTAL_STEPS = 1;
+// The wizard walks a fresh admin through first-run setup. Welcome and the
+// use-case picker are wired so far; recovery-key backup, the Ollama check, and
+// the Whisper notice land in later commits, inserted between the two.
+const TOTAL_STEPS = 2;
 
-type StepProps = { onNext: () => void };
+type CatalogUseCase = { id: string; label: string; templates: string[] };
+
+type StepProps = {
+  onNext: () => void;
+  onBack?: () => void;
+};
 
 function WelcomeStep({ onNext }: StepProps) {
   return (
@@ -33,20 +40,154 @@ function WelcomeStep({ onNext }: StepProps) {
   );
 }
 
+type UseCaseStepProps = StepProps & {
+  selected: string[];
+  onToggle: (id: string) => void;
+  finishing: boolean;
+};
+
+function UseCaseStep({ selected, onToggle, onNext, onBack, finishing }: UseCaseStepProps) {
+  const auth = useAuth();
+  // null = catalog not loaded yet.
+  const [catalog, setCatalog] = useState<CatalogUseCase[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/onboarding/catalog`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setCatalog(d.useCases ?? []); })
+      .catch(() => { if (!cancelled) setCatalog([]); });
+    return () => { cancelled = true; };
+  }, [auth.token]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h1 className="text-3xl font-black uppercase">What will you use it for?</h1>
+      <p className="text-sm">
+        Pick any that apply — we'll add a few starter templates for each. You
+        can edit, add, or remove templates anytime from the Templates page.
+      </p>
+
+      {catalog === null ? (
+        <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          {catalog.map((useCase) => {
+            const on = selected.includes(useCase.id);
+            return (
+              <button
+                key={useCase.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onToggle(useCase.id)}
+                className={
+                  "border-4 border-black p-4 text-left transition-colors " +
+                  (on ? "bg-[#fd3777] text-white" : "bg-white text-black")
+                }
+              >
+                <div className="font-black uppercase tracking-wide">{useCase.label}</div>
+                <div className="mt-1 text-xs">{useCase.templates.join(" · ")}</div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="flex justify-between pt-2">
+        <NeoButton onClick={onBack} disabled={finishing}>
+          Back
+        </NeoButton>
+        <NeoButton
+          onClick={onNext}
+          disabled={finishing}
+          backgroundColor="#fd3777"
+          textColor="#ffffff"
+        >
+          {finishing ? "Finishing…" : selected.length > 0 ? "Finish setup" : "Skip for now"}
+        </NeoButton>
+      </div>
+    </div>
+  );
+}
+
 export default function OnboardingWizard() {
+  const auth = useAuth();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const [useCases, setUseCases] = useState<string[]>([]);
+  const [finishing, setFinishing] = useState(false);
+  // null = onboarding status not yet known.
+  const [completed, setCompleted] = useState<boolean | null>(null);
 
-  // Advance to the next step, or finish the wizard on the last one.
+  // Don't let an admin who already finished onboarding re-run the wizard.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/api/onboarding/status`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setCompleted(!!d.completed); })
+      // Probe failed — let them through the wizard rather than blocking it.
+      .catch(() => { if (!cancelled) setCompleted(false); });
+    return () => { cancelled = true; };
+  }, [auth.token]);
+
+  const toggleUseCase = (id: string) => {
+    setUseCases((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
+
+  // Seed the picked starter templates and mark onboarding complete, then drop
+  // the admin into a fresh note. A failed call is non-fatal — we still let
+  // them into the app rather than trapping them in the wizard.
+  const finish = async () => {
+    setFinishing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/onboarding/complete`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ useCases }),
+      });
+      if (!res.ok) throw new Error(`status ${res.status}`);
+    } catch {
+      toast.error(
+        "Setup didn't fully finish — you can add templates anytime from the Templates page.",
+      );
+    }
+    navigate("/notes/new", { replace: true });
+  };
+
   const next = () => {
     if (step < TOTAL_STEPS - 1) setStep(step + 1);
-    else navigate("/notes/new", { replace: true });
+    else finish();
   };
+
+  const back = () => {
+    if (step > 0) setStep(step - 1);
+  };
+
+  if (completed === null) return null; // brief blank during the one-roundtrip probe
+  if (completed) return <Navigate to="/notes" replace />;
 
   return (
     <div className="min-h-screen flex justify-center items-start px-4 py-10">
       <div className="w-full max-w-xl border-4 border-black bg-white p-8 shadow-[8px_8px_0px_0px_#000000]">
         {step === 0 && <WelcomeStep onNext={next} />}
+        {step === 1 && (
+          <UseCaseStep
+            selected={useCases}
+            onToggle={toggleUseCase}
+            onNext={next}
+            onBack={back}
+            finishing={finishing}
+          />
+        )}
       </div>
     </div>
   );
