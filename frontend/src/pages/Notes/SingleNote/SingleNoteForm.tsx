@@ -625,7 +625,8 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             </div>
             {/* Editable title for the notes table. Blank round-trips to
                 null on the server; the table view falls back to
-                "<template> – <datetime>" when null. */}
+                "<template> – <datetime>" when null.
+                Locked once the note is signed, like the rest of the record. */}
             <FormField
                 control={form.control}
                 name="name"
@@ -637,7 +638,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                                 {...field}
                                 placeholder="e.g. Landlord call, Q2 review prep"
                                 maxLength={120}
-                                disabled={note?.isDeleted}
+                                disabled={signed || note?.isDeleted}
                             />
                         </FormControl>
                         <FormMessage />
@@ -717,7 +718,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                             <FormControl>
                                 <Popover>
                                     <PopoverTrigger asChild>
-                                        <Button variant="outline" color="primary" size="sm">
+                                        <Button variant="outline" color="primary" size="sm" disabled={signed || note?.isDeleted}>
                                             {field.value ? format(field.value, "PPP") : <span>Select a date</span>}
                                             <CalendarIcon />
                                         </Button>

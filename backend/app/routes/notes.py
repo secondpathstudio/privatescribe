@@ -441,18 +441,20 @@ def update_note(id):
 
     data = request.get_json(silent=True) or {}
 
-    # Signed notes are immutable except the discovery `name` (a UI label,
-    # not part of the record). The checks below are value-aware, not just
-    # key-presence: the edit form always echoes the whole note back, so a
-    # name-only save legitimately re-sends unchanged content. Only a real
-    # diff on a locked field is rejected — post-sign changes go through
-    # addenda. (Raw transcript edits are caught separately by the approved
-    # check below; signing always sets approved_at.)
+    # A signed note is fully immutable — every field of the original
+    # record is locked, including the discovery `name`, and further
+    # content is added only as addenda. The checks below are value-aware,
+    # not just key-presence: the edit form echoes the whole note back on
+    # every save, so an unchanged field is legitimately re-sent and must
+    # not be rejected — only a real diff on a locked field is a 409. (Raw
+    # transcript edits are caught separately by the approved check below;
+    # signing always sets approved_at.)
     if note.status == 'signed':
         signed_locked = (
             ('noteContentMarkdown' in data
              and data['noteContentMarkdown'] != note.note_content_markdown)
             or ('noteType' in data and data['noteType'] != note.note_type)
+            or ('name' in data and _clean_name(data.get('name')) != note.name)
         )
         if not signed_locked and 'participants' in data and isinstance(data['participants'], list):
             incoming_ids = sorted(
