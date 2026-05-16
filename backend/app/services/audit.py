@@ -79,9 +79,10 @@ def log_action(
     """Record one audit log row.
 
     All fields except `action` are optional. Request context (IP, UA) is
-    captured automatically when called from inside a Flask request. The row
-    is added to the current session and committed in its own savepoint so
-    a failure here cannot poison the caller's transaction.
+    captured automatically when called from inside a Flask request. The audit
+    row is added inside a SAVEPOINT — the caller's own pending work is flushed
+    first — so a failed audit write rolls back only the audit row and never
+    the caller's transaction.
     """
     try:
         ip = None
@@ -92,38 +93,43 @@ def log_action(
             if ua_header:
                 ua = ua_header[:_USER_AGENT_MAX]
 
-        user_id, user_email, user_role = _resolve_actor(user_id, user_email)
-
-        # Cast resource_id to str so callers don't have to remember — most of
-        # the app uses string UUIDs but some legacy integer IDs sneak in.
-        rid = str(resource_id) if resource_id is not None else None
-
-        entry = AuditLog(
-            user_id=user_id,
-            user_email=user_email,
-            user_role=user_role,
-            action=action,
-            resource_type=resource_type,
-            resource_id=rid,
-            status=status,
-            ip_address=ip,
-            user_agent=ua,
-            extra_data=dict(extra) if extra else None,
-        )
-        db.session.add(entry)
-        # Flush so the insert hits the DB now; the caller's outer commit
-        # will persist it alongside whatever else they did. If the caller
-        # already committed, flush is effectively a no-op and we commit
-        # right after.
+        # Flush the caller's own pending work into the transaction first, so
+        # the SAVEPOINT below brackets nothing but the audit row.
         db.session.flush()
+
+        # The actor lookup and the audit INSERT run inside a SAVEPOINT.
+        # begin_nested() flushes and releases the savepoint on a clean exit;
+        # on any exception it rolls back to the savepoint *only*. So a failed
+        # audit write undoes nothing but the audit row — the caller's pending
+        # work (flushed above) and their later commit are unaffected.
+        with db.session.begin_nested():
+            user_id, user_email, user_role = _resolve_actor(user_id, user_email)
+
+            # Cast resource_id to str so callers don't have to remember — most
+            # of the app uses string UUIDs but some legacy integer IDs sneak in.
+            rid = str(resource_id) if resource_id is not None else None
+
+            entry = AuditLog(
+                user_id=user_id,
+                user_email=user_email,
+                user_role=user_role,
+                action=action,
+                resource_type=resource_type,
+                resource_id=rid,
+                status=status,
+                ip_address=ip,
+                user_agent=ua,
+                extra_data=dict(extra) if extra else None,
+            )
+            db.session.add(entry)
     except Exception as e:
-        # Don't let audit failures break the request. Roll back our piece
-        # so the caller's session is still usable.
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
-        logger.error(f"[audit] failed to log action={action!r}: {type(e).__name__}: {e}")
+        # Audit logging must never break the underlying request, so swallow
+        # and just record it. A failure inside the SAVEPOINT rolled back only
+        # the audit row; a failure in the flush above is the caller's own bad
+        # data surfacing — either way we don't re-raise.
+        logger.error(
+            f"[audit] failed to log action={action!r}: {type(e).__name__}: {e}"
+        )
 
 
 def diff_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
