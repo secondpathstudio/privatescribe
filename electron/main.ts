@@ -212,22 +212,14 @@ app.whenReady().then(async () => {
   }
 
   await createWindow(apiBase);
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow(apiBase);
-    }
-  });
 });
 
 app.on('window-all-closed', () => {
-  if (backend) {
-    stopBackend(backend);
-    backend = null;
-  }
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // PrivateScribe is a single-window app with a bundled backend — there's
+  // nothing useful to keep resident once the window closes, so quit on all
+  // platforms (macOS would normally stay alive). before-quit stops the
+  // backend.
+  app.quit();
 });
 
 app.on('before-quit', () => {
