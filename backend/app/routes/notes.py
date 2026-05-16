@@ -161,25 +161,26 @@ def create_note():
             # silently re-link, which would orphan the previous group's audio.
             return jsonify({"error": "audioFileId already linked to a different note"}), 409
 
+    # Resolve each participant by id, scoped to the caller. A note may only
+    # reference contacts the caller owns: participants are created up front
+    # via POST /api/participants (which stamps author_id), so by the time a
+    # note is saved every entry already exists server-side. An id that
+    # doesn't resolve to one of the caller's own participants is rejected —
+    # never silently attached (which would leak another user's contact) or
+    # created as an author-less orphan row.
     participants = []
     if 'participants' in data:
         for participant_data in data['participants']:
-            if isinstance(participant_data, dict):
-                if 'id' in participant_data:
-                    existing_participant = Participant.query.get(participant_data['id'])
-                    if existing_participant:
-                        participants.append(existing_participant)
-                        continue
-
-                participant = Participant(
-                    id=participant_data.get('id'),
-                    first_name=participant_data.get('firstName', ''),
-                    last_name=participant_data.get('lastName', ''),
-                    email=participant_data.get('email', ''),
-                )
-                participants.append(participant)
-            else:
-                participants.append(participant_data)
+            if not isinstance(participant_data, dict):
+                return jsonify({"error": "Each participant must be an object"}), 400
+            participant_id = participant_data.get('id')
+            participant = (
+                Participant.query.filter_by(id=participant_id, author_id=current_user).first()
+                if participant_id else None
+            )
+            if not participant:
+                return jsonify({"error": f"Participant with ID {participant_id} not found"}), 400
+            participants.append(participant)
 
     incoming_words = data.get('noteContentWords')
     print(
@@ -496,28 +497,28 @@ def update_note(id):
     note.version = note.version + 1
 
     if 'participants' in data and isinstance(data['participants'], list):
-        note.participants.clear()
-
+        # Re-resolve the note's participants. Same rule as create_note: every
+        # entry must be one of the caller's own contacts, looked up by id and
+        # scoped to author_id. A foreign or unknown id is rejected — never
+        # silently attached, and never used to overwrite another user's
+        # contact. Participant details are edited via /api/participants, not
+        # as a side effect of saving a note. Resolve fully before mutating
+        # note.participants so a bad id can't leave the note half-updated.
+        resolved = []
         for participant_data in data['participants']:
-            if not isinstance(participant_data, dict) or 'id' not in participant_data or 'firstName' not in participant_data:
-                return jsonify({"error": "Each participant must have an id and firstName"}), 400
+            if not isinstance(participant_data, dict):
+                return jsonify({"error": "Each participant must be an object"}), 400
+            participant_id = participant_data.get('id')
+            participant = (
+                Participant.query.filter_by(id=participant_id, author_id=current_user).first()
+                if participant_id else None
+            )
+            if not participant:
+                return jsonify({"error": f"Participant with ID {participant_id} not found"}), 400
+            resolved.append(participant)
 
-            participant_id = participant_data['id']
-
-            participant = Participant.query.get(participant_id)
-            if participant:
-                participant.first_name = participant_data['firstName']
-                participant.last_name = participant_data.get('lastName', '')
-                participant.email = participant_data.get('email', '')
-            else:
-                participant = Participant(
-                    id=participant_id,
-                    first_name=participant_data['firstName'],
-                    last_name=participant_data.get('lastName', ''),
-                    email=participant_data.get('email', ''),
-                )
-                db.session.add(participant)
-
+        note.participants.clear()
+        for participant in resolved:
             note.participants.append(participant)
 
     try:
