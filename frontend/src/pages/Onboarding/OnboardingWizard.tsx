@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
 
-// The wizard walks a fresh admin through first-run setup. Welcome, recovery-key
-// backup, and the use-case picker are wired so far; the Ollama check and the
-// Whisper notice land in the next commit, inserted before the use-case step.
-const TOTAL_STEPS = 3;
+// The first-run admin wizard: Welcome → recovery-key backup → Ollama check →
+// Whisper notice → use-case picker → finish (seed templates, mark done).
+const TOTAL_STEPS = 5;
 
 type CatalogUseCase = { id: string; label: string; templates: string[] };
 
@@ -184,6 +183,152 @@ function RecoveryKeyStep({ onNext, onBack }: StepProps) {
   );
 }
 
+type OllamaState = "checking" | "ready" | "no-model" | "down";
+
+function OllamaCheckStep({ onNext, onBack }: StepProps) {
+  const auth = useAuth();
+  const [state, setState] = useState<OllamaState>("checking");
+  const [defaultModel, setDefaultModel] = useState("llama3.2");
+
+  // Probe Ollama: a 503/network failure means the daemon is down; otherwise
+  // check the default model is among the installed ones (tag-tolerant, so
+  // "llama3.2" matches "llama3.2:latest").
+  const check = useCallback(async () => {
+    setState("checking");
+    try {
+      const res = await fetch(`${API_BASE}/api/ollama/models`, {
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+      if (!res.ok) {
+        setState("down");
+        return;
+      }
+      const data = await res.json();
+      const def: string = data.default || "llama3.2";
+      setDefaultModel(def);
+      const stripTag = (name: string) => name.split(":")[0];
+      const models: { name: string }[] = data.models || [];
+      const hasDefault = models.some((m) => stripTag(m.name) === stripTag(def));
+      setState(hasDefault ? "ready" : "no-model");
+    } catch {
+      setState("down");
+    }
+  }, [auth.token]);
+
+  useEffect(() => { check(); }, [check]);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h1 className="text-3xl font-black uppercase">Check the AI engine</h1>
+      <p className="text-sm">
+        PrivateScribe uses Ollama to run a language model locally — it's what
+        turns your raw transcript into a formatted note.
+      </p>
+
+      {state === "checking" && (
+        <p className="text-sm text-muted-foreground">Checking…</p>
+      )}
+
+      {state === "ready" && (
+        <div className="border-4 border-black bg-green-100 p-4 text-sm font-bold">
+          ✓ Ollama is running and the {defaultModel} model is installed —
+          you're all set.
+        </div>
+      )}
+
+      {state === "down" && (
+        <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
+          <p className="mb-2 font-bold">Ollama doesn't appear to be running.</p>
+          <ol className="list-decimal space-y-2 pl-5">
+            <li>
+              Install Ollama from{" "}
+              <a
+                href="https://ollama.com/download/mac"
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold underline"
+              >
+                ollama.com/download/mac
+              </a>
+              .
+            </li>
+            <li>
+              In a terminal, run:
+              <pre className="mt-1 bg-black p-2 font-mono text-xs text-white">
+                ollama pull {defaultModel}
+              </pre>
+            </li>
+            <li>Leave Ollama running, then re-check.</li>
+          </ol>
+        </div>
+      )}
+
+      {state === "no-model" && (
+        <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
+          <p className="mb-2 font-bold">
+            Ollama is running, but the {defaultModel} model isn't installed yet.
+          </p>
+          <p className="mb-1">In a terminal, run:</p>
+          <pre className="bg-black p-2 font-mono text-xs text-white">
+            ollama pull {defaultModel}
+          </pre>
+          <p className="mt-2">Then re-check below.</p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-2">
+        <NeoButton onClick={onBack}>Back</NeoButton>
+        {state === "ready" ? (
+          <NeoButton onClick={onNext} backgroundColor="#fd3777" textColor="#ffffff">
+            Next
+          </NeoButton>
+        ) : (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onNext}
+              className="text-xs font-bold uppercase tracking-wider underline"
+            >
+              Continue anyway
+            </button>
+            <NeoButton
+              onClick={check}
+              disabled={state === "checking"}
+              backgroundColor="#fd3777"
+              textColor="#ffffff"
+            >
+              {state === "checking" ? "Checking…" : "Re-check"}
+            </NeoButton>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WhisperNoticeStep({ onNext, onBack }: StepProps) {
+  return (
+    <div className="flex flex-col gap-4">
+      <h1 className="text-3xl font-black uppercase">Transcription</h1>
+      <p className="text-sm">
+        PrivateScribe transcribes your recordings with Whisper, running locally
+        on this device. It's set to a sensible default model that works well
+        for most recordings.
+      </p>
+      <p className="text-sm">
+        If you want a faster or more accurate model later, you can change it
+        anytime in Admin → Transcription. Nothing to do here for now.
+      </p>
+      <div className="flex items-center justify-between pt-2">
+        <NeoButton onClick={onBack}>Back</NeoButton>
+        <NeoButton onClick={onNext} backgroundColor="#fd3777" textColor="#ffffff">
+          Next
+        </NeoButton>
+      </div>
+    </div>
+  );
+}
+
 type UseCaseStepProps = StepProps & {
   selected: string[];
   onToggle: (id: string) => void;
@@ -324,7 +469,9 @@ export default function OnboardingWizard() {
       <div className="w-full max-w-xl border-4 border-black bg-white p-8 shadow-[8px_8px_0px_0px_#000000]">
         {step === 0 && <WelcomeStep onNext={next} />}
         {step === 1 && <RecoveryKeyStep onNext={next} onBack={back} />}
-        {step === 2 && (
+        {step === 2 && <OllamaCheckStep onNext={next} onBack={back} />}
+        {step === 3 && <WhisperNoticeStep onNext={next} onBack={back} />}
+        {step === 4 && (
           <UseCaseStep
             selected={useCases}
             onToggle={toggleUseCase}
