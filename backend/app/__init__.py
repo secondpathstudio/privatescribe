@@ -68,6 +68,12 @@ def create_app() -> Flask:
     # nothing pending.
     audio_storage.recover_pending_reencryption()
 
+    # Live-transcription sessions keep a temp webm in the OS temp dir; the
+    # registry tracking them doesn't survive a restart, so sweep any
+    # leftovers from a previous run.
+    from app.routes.transcription_live import cleanup_stale_session_files
+    cleanup_stale_session_files()
+
     app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
     app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'creator': sqlcipher.open_keyed_connection}
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False

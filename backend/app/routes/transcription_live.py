@@ -48,6 +48,25 @@ WINDOW_SECONDS = 30.0
 COMMIT_CUTOFF_SECONDS = 20.0  # absolute end-time cutoff = total_duration - this
 SESSION_TTL_SECONDS = 600
 
+# Cap the on-disk size of a single live session's webm. Live transcription is
+# a best-effort preview of audio about to be uploaded for real through
+# /api/transcribe; it needn't support arbitrarily long recordings, and
+# _decode_and_slice re-decodes the whole file each tick so very long sessions
+# are impractical regardless. ~100 MB is well over an hour of voice webm.
+MAX_SESSION_BYTES = 100 * 1024 * 1024
+
+# Caps on concurrent live sessions. Each holds a tempfile, so without a ceiling
+# a client (or a stolen token) could open sessions until the disk fills.
+# Expired sessions are swept before these are checked, so they only reject
+# when this many sessions are genuinely live.
+MAX_ACTIVE_SESSIONS = 24
+MAX_SESSIONS_PER_USER = 3
+
+
+class SessionSizeExceeded(Exception):
+    """Raised by _append_chunk when a chunk would push the session file past
+    MAX_SESSION_BYTES."""
+
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
@@ -90,6 +109,32 @@ def _cleanup_expired_locked() -> None:
                 pass
 
 
+def cleanup_stale_session_files() -> int:
+    """Delete leftover live-session temp files from previous runs.
+
+    Called once at startup (from create_app). The in-memory _sessions registry
+    doesn't survive a process restart, so any ps_live_* file in the temp dir
+    at boot is an orphan from a crashed or stopped run. Returns the count.
+    """
+    removed = 0
+    tmp = tempfile.gettempdir()
+    try:
+        names = os.listdir(tmp)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith("ps_live_"):
+            continue
+        try:
+            os.unlink(os.path.join(tmp, name))
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        logger.info(f"transcription_live: cleared {removed} stale session file(s) on boot")
+    return removed
+
+
 def _new_session_locked(user_id: str) -> tuple[str, _LiveSession]:
     """Allocate a new session. Caller holds _registry_lock."""
     session_id = str(uuid.uuid4())
@@ -101,7 +146,23 @@ def _new_session_locked(user_id: str) -> tuple[str, _LiveSession]:
 
 
 def _append_chunk(audio_path: str, chunk_file) -> None:
+    """Append an uploaded chunk to the session's webm file.
+
+    Raises SessionSizeExceeded — before writing anything — when the chunk
+    would push the file past MAX_SESSION_BYTES, so the file is never grown
+    beyond the cap.
+    """
+    chunk_file.seek(0, os.SEEK_END)
+    incoming = chunk_file.tell()
     chunk_file.seek(0)
+    try:
+        current = os.path.getsize(audio_path)
+    except OSError:
+        current = 0
+    if current + incoming > MAX_SESSION_BYTES:
+        raise SessionSizeExceeded(
+            f"live session file would exceed {MAX_SESSION_BYTES} bytes"
+        )
     with open(audio_path, "ab") as f:
         f.write(chunk_file.read())
 
@@ -197,6 +258,19 @@ def transcribe_live():
                 # Don't leak existence of someone else's session.
                 return jsonify({"error": "Session not found"}), 404
         else:
+            # Starting a fresh session — enforce the concurrency caps so a
+            # client can't open sessions without bound. Expired sessions were
+            # just swept, so these counts reflect genuinely-live sessions.
+            if len(_sessions) >= MAX_ACTIVE_SESSIONS:
+                return jsonify({
+                    "error": "live_capacity",
+                    "message": "The server is at its live-transcription capacity. Try again shortly.",
+                }), 429
+            if sum(1 for s in _sessions.values() if s.user_id == user_id) >= MAX_SESSIONS_PER_USER:
+                return jsonify({
+                    "error": "too_many_sessions",
+                    "message": "Too many live transcription sessions open. Finish one and retry.",
+                }), 429
             session_id, sess = _new_session_locked(user_id)
         sess.last_touched = time.time()
 
@@ -205,7 +279,17 @@ def transcribe_live():
     # sessions tick freely in parallel.
     with sess.lock:
         chunk = request.files["chunk"]
-        _append_chunk(sess.audio_path, chunk)
+        try:
+            _append_chunk(sess.audio_path, chunk)
+        except SessionSizeExceeded:
+            # The session file is frozen at the cap; further chunks keep being
+            # rejected and the session ages out via the TTL. The browser keeps
+            # recording — the full audio still goes through /api/transcribe on
+            # stop.
+            return jsonify({
+                "error": "session_limit",
+                "message": "Live preview reached its size limit. Stop the recording to transcribe the full audio.",
+            }), 413
 
         try:
             wav_path, window_start_abs, total_duration = _decode_and_slice(sess.audio_path)
