@@ -6,7 +6,7 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import AudioFile, Template
 from app.security.auth import require_admin
 from app.services import audio_storage, ollama_client
@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 bp = Blueprint("transcription", __name__)
 
-# Cheap pre-filter so junk uploads don't reach pydub/ffmpeg. Matches the format
-# hints whisper.prepare_wav trusts (see _FORMAT_HINT_ALLOWLIST there).
+# Cheap pre-filter so obvious junk uploads don't even reach ffmpeg. ffmpeg
+# still probes the real content; this is just an early, friendly rejection.
 _AUDIO_UPLOAD_EXTS = {
     'wav', 'mp3', 'm4a', 'mp4', 'ogg', 'opus', 'webm', 'flac', 'aac',
 }
@@ -53,6 +53,7 @@ def _is_allowed_audio_upload(file) -> bool:
 
 @bp.route('/api/transcribe', methods=['POST'])
 @jwt_required()
+@limiter.limit("10 per minute")
 def transcribe():
     """Stream stage progress as NDJSON.
 

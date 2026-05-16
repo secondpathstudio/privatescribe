@@ -13,8 +13,8 @@ the cached instance so the next get_model() picks up the new size.
 Audio is decoded to a temp WAV file once so both Whisper and pyannote
 diarization can read it without re-decoding.
 """
-import io
 import os
+import subprocess
 import tempfile
 
 from faster_whisper import WhisperModel
@@ -59,25 +59,83 @@ def loaded_model_size() -> str | None:
     return _model_size
 
 
-# Demuxer hints we trust pydub/ffmpeg to receive. The filename is attacker-
-# controlled, so we never pass through arbitrary extensions — values outside
-# this set fall through to ffmpeg autodetection from the content itself.
-_FORMAT_HINT_ALLOWLIST = {
-    'wav', 'mp3', 'm4a', 'mp4', 'ogg', 'opus', 'webm', 'flac', 'aac',
-}
+# Hard ceiling on the ffmpeg transcode. A real upload transcodes far faster
+# than realtime; this only trips on a pathological or crafted file, turning a
+# potential hang into a clean error.
+_FFMPEG_TIMEOUT_SECONDS = 600
 
 
 def prepare_wav(file_storage) -> str:
-    """Decode an upload to a temp WAV file and return the path. Caller owns deletion."""
-    raw_ext = (file_storage.filename or '').rsplit('.', 1)[-1].lower() if file_storage.filename else ''
-    src_format = raw_ext if raw_ext in _FORMAT_HINT_ALLOWLIST else None
-    file_storage.seek(0)
-    audio_bytes = file_storage.read()
-    audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format=src_format)
-    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-    audio.export(tmp.name, format="wav")
-    tmp.close()
-    return tmp.name
+    """Decode an upload to a temp WAV file and return the path. Caller owns deletion.
+
+    The upload is streamed to a temp file and transcoded by a direct ffmpeg
+    subprocess, so neither the compressed upload nor the decoded audio is ever
+    held whole in this process's memory — a large (or maliciously large)
+    upload can't OOM the backend. Output is 16 kHz mono, which is what both
+    Whisper and pyannote consume anyway.
+    """
+    src_fd, src_path = tempfile.mkstemp(suffix=".upload")
+    os.close(src_fd)
+    try:
+        # Stream the upload to disk via FileStorage.save (a bounded-buffer
+        # copy) rather than reading the whole thing into memory.
+        file_storage.seek(0)
+        file_storage.save(src_path)
+
+        wav_fd, wav_path = tempfile.mkstemp(suffix=".wav")
+        os.close(wav_fd)
+        try:
+            _transcode_to_wav(src_path, wav_path)
+        except Exception:
+            try:
+                os.unlink(wav_path)
+            except OSError:
+                pass
+            raise
+        return wav_path
+    finally:
+        try:
+            os.unlink(src_path)
+        except OSError:
+            pass
+
+
+def _transcode_to_wav(src_path: str, wav_path: str) -> None:
+    """Transcode any audio file to 16 kHz mono WAV via a direct ffmpeg call.
+
+    ffmpeg streams the decode, so nothing large lands in this process's
+    memory. The input format is auto-detected from the content — no
+    attacker-controlled format hint is passed to ffmpeg, and the call uses no
+    shell, so the attacker-influenced filename never reaches a command.
+    """
+    cmd = [
+        AudioSegment.converter,  # the ffmpeg binary pydub resolved
+        "-nostdin",
+        "-loglevel", "error",
+        "-y",
+        "-i", src_path,
+        "-vn",            # drop any video stream
+        "-ac", "1",       # mono
+        "-ar", "16000",   # 16 kHz — Whisper's and pyannote's working rate
+        "-f", "wav",
+        wav_path,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=_FFMPEG_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(
+            "Audio decoding timed out — the file is too large or malformed."
+        )
+    if proc.returncode != 0:
+        lines = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        detail = lines[-1] if lines else f"ffmpeg exited {proc.returncode}"
+        raise RuntimeError(f"Could not decode the uploaded audio: {detail}")
 
 
 def transcribe_path_streaming(
