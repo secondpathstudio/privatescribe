@@ -16,6 +16,11 @@ class User(db.Model):
     # navigate elsewhere until they pick their own password. Cleared by the
     # self-service /api/me/change-password endpoint.
     force_password_change = db.Column(db.Boolean, nullable=False, default=False)
+    # False when an admin has deactivated the account (off-boarding). A
+    # deactivated user can't log in and all their sessions are revoked, but
+    # their notes/templates/participants are kept. Reversible from the admin
+    # Users page.
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
     # TOTP-based 2FA. `totp_secret` is the base32-encoded shared secret stored
     # in the encrypted DB (never returned over the wire). `totp_enrolled_at`
     # is the source of truth for "is this user enrolled" — `totp_secret` may

@@ -1,4 +1,3 @@
-import { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -6,6 +5,7 @@ import { ArrowUpDown } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
 import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 import Reset2FAModal from "@/components/admin/Reset2FAModal";
+import DeactivateUserModal from "@/components/admin/DeactivateUserModal";
 
 interface User {
   id: string;
@@ -15,6 +15,7 @@ interface User {
   createdAt: string;
   lastLogin: string;
   twoFactorEnrolled?: boolean;
+  isActive?: boolean;
 }
 
 const formatLocal = (value?: string) => {
@@ -24,11 +25,14 @@ const formatLocal = (value?: string) => {
 };
 
 export default function UsersTable({ users }: { users: User[] }) {
-    const auth = useAuth();
-    const [data, setData] = useState<User[]>(users);
+  const auth = useAuth();
+  const [data, setData] = useState<User[]>(users);
   const [sortConfig, setSortConfig] = useState<{ key: keyof User; direction: "asc" | "desc" } | null>(null);
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [reset2faTarget, setReset2faTarget] = useState<User | null>(null);
+  const [activeTarget, setActiveTarget] = useState<
+    { user: User; action: "deactivate" | "activate" } | null
+  >(null);
 
   const handleSort = (key: keyof User) => {
     let direction: "asc" | "desc" = "asc";
@@ -38,13 +42,14 @@ export default function UsersTable({ users }: { users: User[] }) {
     setSortConfig({ key, direction });
 
     const isDateColumn = key === "createdAt" || key === "lastLogin";
-    const compareKey = (u: User) => {
+    const compareKey = (u: User): string | number => {
       const v = u[key];
       if (isDateColumn) {
         const t = new Date(v as string).getTime();
         return isNaN(t) ? -Infinity : t;
       }
-      return v;
+      if (typeof v === "boolean") return v ? 1 : 0;
+      return v ?? "";
     };
 
     const sortedData = [...data].sort((a, b) => {
@@ -58,11 +63,14 @@ export default function UsersTable({ users }: { users: User[] }) {
     setData(sortedData);
   };
 
-    useEffect(() => {
-        setData(users);
-        console.log(users);
-    }, [users]);
+  useEffect(() => {
+    setData(users);
+  }, [users]);
 
+  // Reflect an activate/deactivate without a full refetch.
+  const setActive = (userId: string, isActive: boolean) => {
+    setData((prev) => prev.map((u) => (u.id === userId ? { ...u, isActive } : u)));
+  };
 
   return (
     <>
@@ -83,6 +91,7 @@ export default function UsersTable({ users }: { users: User[] }) {
                 </Button>
               </TableHead>
             ))}
+            <TableHead>Status</TableHead>
             <TableHead>2FA</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
@@ -90,6 +99,7 @@ export default function UsersTable({ users }: { users: User[] }) {
         <TableBody>
           {data.map((user) => {
             const isSelf = user.id === auth.user?.id;
+            const isInactive = user.isActive === false;
             return (
               <TableRow key={user.id}>
                 <TableCell className="text-xs">{user.id}</TableCell>
@@ -98,6 +108,16 @@ export default function UsersTable({ users }: { users: User[] }) {
                 <TableCell>{user.firstName}</TableCell>
                 <TableCell>{user.lastName}</TableCell>
                 <TableCell>{user.lastLogin ? formatLocal(user.lastLogin) : 'No logins'}</TableCell>
+                <TableCell>
+                  <span
+                    className={[
+                      "inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border-2 border-black",
+                      isInactive ? "bg-red-200 text-red-900" : "bg-[#c6f6d5] text-green-900",
+                    ].join(" ")}
+                  >
+                    {isInactive ? "Inactive" : "Active"}
+                  </span>
+                </TableCell>
                 <TableCell>
                   <span
                     className={[
@@ -129,6 +149,18 @@ export default function UsersTable({ users }: { users: User[] }) {
                           Reset 2FA
                         </Button>
                       )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setActiveTarget({
+                            user,
+                            action: isInactive ? "activate" : "deactivate",
+                          })
+                        }
+                      >
+                        {isInactive ? "Reactivate" : "Deactivate"}
+                      </Button>
                     </div>
                   )}
                 </TableCell>
@@ -156,6 +188,17 @@ export default function UsersTable({ users }: { users: User[] }) {
               )
             );
           }}
+        />
+      )}
+      {activeTarget && (
+        <DeactivateUserModal
+          userId={activeTarget.user.id}
+          userEmail={activeTarget.user.email}
+          action={activeTarget.action}
+          onClose={() => setActiveTarget(null)}
+          onSuccess={() =>
+            setActive(activeTarget.user.id, activeTarget.action === "activate")
+          }
         />
       )}
     </>

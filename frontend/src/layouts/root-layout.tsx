@@ -1,6 +1,7 @@
 import NeoNavbar from "@/components/neo/neo-navbar";
 import Navbar from "../components/Navbar";
 import ForcePasswordChangeGate from "@/components/auth/ForcePasswordChangeGate";
+import IdleLogout from "@/components/auth/IdleLogout";
 import KeyExportBanner from "@/components/admin/KeyExportBanner";
 import PendingBackupKeyBanner from "@/components/admin/PendingBackupKeyBanner";
 import { Outlet } from "react-router";
@@ -12,6 +13,7 @@ export default function RootLayout() {
       <KeyExportBanner />
       <PendingBackupKeyBanner />
       <ForcePasswordChangeGate />
+      <IdleLogout />
       <Outlet />
     </>
   );

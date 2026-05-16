@@ -1,10 +1,12 @@
 from functools import wraps
 
 from flask import jsonify, request
-from flask_jwt_extended import (get_jwt_identity, jwt_required,
+from flask_jwt_extended import (get_jwt, get_jwt_identity, jwt_required,
                                 verify_jwt_in_request)
 
+from app.extensions import db
 from app.models.user import User
+from app.security import sessions
 
 
 def require_admin(fn):
@@ -18,43 +20,83 @@ def require_admin(fn):
     return wrapper
 
 
-# Endpoints an authenticated user must still reach while force_password_change
-# is set: the password-change endpoint itself, the "who am I" check the SPA
-# runs on every protected route, and token refresh so a slow change doesn't
-# 401 the user out midway.
+# Endpoints a force_password_change user must still reach: the password-change
+# endpoint itself, the "who am I" check the SPA runs on every protected route,
+# token refresh, and logout. Session validity (revoked / idle / deactivated)
+# is NOT exempted anywhere — a dead session fails everything.
 _PASSWORD_CHANGE_EXEMPT_ENDPOINTS = frozenset({
     'auth.validate_token',
     'auth.refresh',
+    'auth.logout',
     'users.change_own_password',
 })
 
 
-def enforce_password_change():
-    """before_request guard: a user flagged force_password_change may do
-    nothing but rotate their password.
+def request_guard():
+    """App-wide before_request guard for authenticated requests.
 
-    Registered app-wide in create_app() rather than per-route, so a newly
-    added blueprint can't silently miss it. Without this, force_password_change
-    is only a frontend redirect — a direct API call carrying the user's
-    (still valid) access token would otherwise sail straight through.
+    Registered in create_app() rather than per-route, so a newly added
+    blueprint can't silently miss it. For any request carrying a valid access
+    token it enforces, in order:
+
+      1. The server-side session must exist and not be revoked   -> 401
+      2. The session must not be idle-expired                    -> 401 (+revoke)
+      3. The user account must still be active                   -> 401 (+revoke)
+      4. force_password_change confines the user to a few routes -> 403
+
+    A request with no token (public route, or pre-login) is left alone — the
+    route's own @jwt_required, if any, handles rejection. /refresh is skipped
+    here because it carries a refresh token, not an access token; it
+    self-validates its session (see routes/auth.py).
     """
     if request.method == 'OPTIONS':
         return  # CORS preflight carries no auth
-    if request.endpoint is None or request.endpoint in _PASSWORD_CHANGE_EXEMPT_ENDPOINTS:
-        return
-    # optional=True: a missing token is fine (public route) — defer to the
-    # route's own @jwt_required. A present-but-invalid token raises; swallow
-    # it and defer for the same reason.
+    if request.endpoint is None:
+        return  # unrouted request — let Flask 404 it
+
+    # optional=True: a missing token is fine (public route). A present-but-
+    # invalid token (expired, a refresh token, malformed) raises — swallow it
+    # and defer to the route's own @jwt_required.
     try:
         verify_jwt_in_request(optional=True)
     except Exception:
         return
     identity = get_jwt_identity()
     if not identity:
-        return
+        return  # unauthenticated request
+
+    session = sessions.get_session(get_jwt().get('sid'))
+    if session is None or session.revoked:
+        return jsonify({
+            "error": "Your session has ended. Please sign in again.",
+            "code": "session_revoked",
+        }), 401
+
+    if sessions.is_idle_expired(session):
+        sessions.revoke_session(session, 'idle_timeout')
+        db.session.commit()
+        return jsonify({
+            "error": "Signed out due to inactivity. Please sign in again.",
+            "code": "session_timeout",
+        }), 401
+
     user = User.query.get(identity)
-    if user and user.force_password_change:
+    if user is None:
+        return  # vanished user — let the route 404 it
+    if not user.is_active:
+        sessions.revoke_session(session, 'user_deactivated')
+        db.session.commit()
+        return jsonify({
+            "error": "This account has been deactivated.",
+            "code": "account_deactivated",
+        }), 401
+
+    if user.force_password_change and request.endpoint not in _PASSWORD_CHANGE_EXEMPT_ENDPOINTS:
         return jsonify({
             "error": "You must change your password before continuing.",
             "code": "password_change_required",
         }), 403
+
+    # Session is good — record activity (throttled write).
+    if sessions.touch(session):
+        db.session.commit()

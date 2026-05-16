@@ -2,12 +2,12 @@ from datetime import datetime
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import (create_access_token, create_refresh_token,
-                                get_jwt_identity, jwt_required)
+                                get_jwt, get_jwt_identity, jwt_required)
 from werkzeug.security import check_password_hash
 
 from app.extensions import db, limiter
 from app.models import User
-from app.security import login_challenge
+from app.security import login_challenge, sessions
 from app.security.secrets import is_backup_key_acknowledged
 from app.services import settings as settings_service
 from app.services import two_factor
@@ -23,30 +23,43 @@ def _pending_backup_key_ack(user) -> bool:
     return user.role == 'admin' and not is_backup_key_acknowledged()
 
 
+def _user_payload(user) -> dict:
+    """The user object the frontend caches in localStorage. Shared by login
+    and /api/validateToken so the two can't drift."""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "firstName": user.first_name,
+        "lastName": user.last_name,
+        "role": user.role,
+        "lastLogin": user.last_login,
+        "forcePasswordChange": user.force_password_change,
+        "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
+        "logoutOnClose": settings_service.get_logout_on_close(),
+        "exportsEnabled": settings_service.get_exports_enabled(),
+        "dictationMarkersEnabled": settings_service.get_dictation_markers_enabled(),
+        "idleTimeoutMinutes": settings_service.get_session_idle_timeout_minutes(),
+    }
+
+
 def _build_login_response(user):
     """Issue the final access+refresh token pair and the user payload that
     the frontend caches in localStorage. Called from /api/login when 2FA is
     not required, and from /api/login/2fa and /api/login/2fa-enroll-verify
-    once the second factor is satisfied."""
-    access_token = create_access_token(identity=user.id)
-    refresh_token = create_refresh_token(identity=user.id)
+    once the second factor is satisfied.
+
+    Creates the server-side Session row and stamps its id into both tokens as
+    the `sid` claim — the request guard validates that row on every call, so
+    logout / idle timeout / deactivation can revoke access immediately."""
+    session = sessions.start_session(user.id)
+    claims = {"sid": session.id}
+    access_token = create_access_token(identity=user.id, additional_claims=claims)
+    refresh_token = create_refresh_token(identity=user.id, additional_claims=claims)
     user.last_login = datetime.utcnow()
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "firstName": user.first_name,
-            "lastName": user.last_name,
-            "role": user.role,
-            "lastLogin": user.last_login,
-            "forcePasswordChange": user.force_password_change,
-            "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
-            "logoutOnClose": settings_service.get_logout_on_close(),
-            "exportsEnabled": settings_service.get_exports_enabled(),
-            "dictationMarkersEnabled": settings_service.get_dictation_markers_enabled(),
-        },
+        "user": _user_payload(user),
     }
 
 
@@ -58,19 +71,7 @@ def validate_token():
         return jsonify({"error": "User not found"}), 404
     return jsonify({
         "message": "Valid token",
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "firstName": user.first_name,
-            "lastName": user.last_name,
-            "role": user.role,
-            "lastLogin": user.last_login,
-            "forcePasswordChange": user.force_password_change,
-            "pendingBackupKeyAcknowledgment": _pending_backup_key_ack(user),
-            "logoutOnClose": settings_service.get_logout_on_close(),
-            "exportsEnabled": settings_service.get_exports_enabled(),
-            "dictationMarkersEnabled": settings_service.get_dictation_markers_enabled(),
-        },
+        "user": _user_payload(user),
     })
 
 
@@ -86,6 +87,19 @@ def login():
     user = User.query.filter_by(email=attempted_email).first()
 
     if user and check_password_hash(user.password, data['password']):
+        # A deactivated account can't sign in — stop before 2FA / token issue.
+        if not user.is_active:
+            log_action(
+                'auth.login_failed',
+                user_id=user.id,
+                user_email=user.email,
+                status='failure',
+                extra={'reason': 'account_deactivated'},
+            )
+            db.session.commit()
+            return jsonify({
+                "error": "This account has been deactivated. Contact an administrator.",
+            }), 403
         # 2FA precedence:
         # 1. If the user has opted in (enrolled), always challenge them, even
         #    when the org-wide toggle is off. A self-enabled second factor
@@ -160,7 +174,7 @@ def login_2fa():
         return jsonify({"error": "code is required"}), 400
 
     user = User.query.get(user_id)
-    if not user or not two_factor.is_enrolled(user):
+    if not user or not user.is_active or not two_factor.is_enrolled(user):
         return jsonify({"error": "Invalid challenge."}), 401
 
     if not two_factor.verify_login_code(user, code):
@@ -194,7 +208,7 @@ def login_2fa_enroll():
         return jsonify({"error": str(e)}), 401
 
     user = User.query.get(user_id)
-    if not user:
+    if not user or not user.is_active:
         return jsonify({"error": "Invalid enrollment session."}), 401
     if two_factor.is_enrolled(user):
         # Shouldn't happen in normal flow — /api/login routes enrolled users
@@ -237,7 +251,7 @@ def login_2fa_enroll_verify():
         return jsonify({"error": "code is required"}), 400
 
     user = User.query.get(user_id)
-    if not user:
+    if not user or not user.is_active:
         return jsonify({"error": "Invalid enrollment session."}), 401
 
     try:
@@ -265,7 +279,48 @@ def login_2fa_enroll_verify():
 @jwt_required(refresh=True)
 def refresh():
     current_user = get_jwt_identity()
-    new_access_token = create_access_token(identity=current_user)
+    # The request guard can't see refresh tokens, so /refresh validates its
+    # own session: a revoked, idle-expired, or deactivated session can't be
+    # used to mint a fresh access token.
+    sid = get_jwt().get('sid')
+    session = sessions.get_session(sid)
+    if session is None or session.revoked:
+        return jsonify({
+            "error": "Your session has ended. Please sign in again.",
+            "code": "session_revoked",
+        }), 401
+    if sessions.is_idle_expired(session):
+        sessions.revoke_session(session, 'idle_timeout')
+        db.session.commit()
+        return jsonify({
+            "error": "Signed out due to inactivity. Please sign in again.",
+            "code": "session_timeout",
+        }), 401
+    user = User.query.get(current_user)
+    if not user or not user.is_active:
+        sessions.revoke_session(session, 'user_deactivated')
+        db.session.commit()
+        return jsonify({
+            "error": "This account is no longer active.",
+            "code": "account_deactivated",
+        }), 401
+    sessions.touch(session)
+    new_access_token = create_access_token(
+        identity=current_user, additional_claims={"sid": sid}
+    )
     log_action('auth.token_refresh', user_id=current_user)
     db.session.commit()
     return jsonify(access_token=new_access_token)
+
+
+@bp.route('/api/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    """Revoke the current session server-side. The frontend still clears its
+    stored tokens; this is what makes the token itself stop working."""
+    session = sessions.get_session(get_jwt().get('sid'))
+    if session and not session.revoked:
+        sessions.revoke_session(session, 'logout')
+        log_action('auth.logout', user_id=get_jwt_identity())
+        db.session.commit()
+    return jsonify({"message": "Logged out"}), 200

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState } from "react";
+import { API_BASE } from "@/lib/api";
 
 interface AuthContextType {
   token: string | null;
@@ -32,6 +33,9 @@ interface User {
   // false, the per-note toggle in the new-note flow is hidden and the
   // backend ignores any apply_dictation_markers form field.
   dictationMarkersEnabled?: boolean;
+  // Admin-configured idle timeout in minutes (0 = disabled). The IdleLogout
+  // component signs the user out after this long with no user input.
+  idleTimeoutMinutes?: number;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -80,6 +84,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const logout = () => {
+    // Best-effort server-side session revoke. keepalive lets the request
+    // complete even if the page navigates away right after; local state is
+    // cleared either way so the UI returns to signed-out immediately.
+    const stored = localStorage.getItem("access_token");
+    if (stored) {
+      fetch(`${API_BASE}/api/logout`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${stored}` },
+        keepalive: true,
+      }).catch(() => {});
+    }
     setToken(null);
     setUser(null);
     localStorage.removeItem("user");

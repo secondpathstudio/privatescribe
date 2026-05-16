@@ -49,6 +49,11 @@ def get_settings():
         "audio_retention_days": settings_service.get_audio_retention_days(),
         "audio_retention_days_min": settings_service.MIN_AUDIO_RETENTION_DAYS,
         "audio_retention_days_max": settings_service.MAX_AUDIO_RETENTION_DAYS,
+        # Idle session timeout in minutes (0 = disabled): a logged-in user with
+        # no authenticated request for this long is automatically signed out.
+        "session_idle_timeout_minutes": settings_service.get_session_idle_timeout_minutes(),
+        "session_idle_timeout_minutes_min": settings_service.MIN_SESSION_IDLE_TIMEOUT_MINUTES,
+        "session_idle_timeout_minutes_max": settings_service.MAX_SESSION_IDLE_TIMEOUT_MINUTES,
         # When true, the Electron shell forgets credentials on app close.
         "logout_on_close": settings_service.get_logout_on_close(),
         # When true, every user must pass a TOTP challenge after password auth.
@@ -278,6 +283,50 @@ def update_logout_on_close():
     db.session.commit()
 
     return jsonify({"logout_on_close": settings_service.get_logout_on_close()})
+
+
+@bp.route('/session-idle-timeout', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_session_idle_timeout():
+    """Set the idle session timeout in minutes. 0 disables it.
+
+    Body: {"value": int}. Takes effect immediately — the request guard reads
+    the fresh value on the next call, and it rides along in the user payload
+    so clients pick up the new duration on their next validateToken.
+    """
+    data = request.get_json(silent=True) or {}
+    raw = data.get('value')
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        return jsonify({"error": "value must be an integer (minutes)"}), 400
+
+    if (value < settings_service.MIN_SESSION_IDLE_TIMEOUT_MINUTES
+            or value > settings_service.MAX_SESSION_IDLE_TIMEOUT_MINUTES):
+        return jsonify({
+            "error": (
+                f"value must be between {settings_service.MIN_SESSION_IDLE_TIMEOUT_MINUTES} "
+                f"and {settings_service.MAX_SESSION_IDLE_TIMEOUT_MINUTES} minutes "
+                f"({settings_service.MIN_SESSION_IDLE_TIMEOUT_MINUTES} disables it)"
+            ),
+        }), 400
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_session_idle_timeout_minutes()
+    settings_service.set_value(
+        settings_service.SESSION_IDLE_TIMEOUT_MINUTES, value, updated_by=current_user
+    )
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.SESSION_IDLE_TIMEOUT_MINUTES,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({"session_idle_timeout_minutes": value})
 
 
 @bp.route('/two-factor-required', methods=['PUT'])

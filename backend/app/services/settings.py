@@ -25,6 +25,7 @@ ABBREVIATIONS = "abbreviations"
 WHISPER_MODEL = "whisper_model"
 AUDIO_STORAGE_ENABLED = "audio_storage_enabled"
 AUDIO_RETENTION_DAYS = "audio_retention_days"
+SESSION_IDLE_TIMEOUT_MINUTES = "session_idle_timeout_minutes"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -63,6 +64,14 @@ DEFAULT_AUDIO_STORAGE_ENABLED = True
 DEFAULT_AUDIO_RETENTION_DAYS = 0
 MIN_AUDIO_RETENTION_DAYS = 0
 MAX_AUDIO_RETENTION_DAYS = 3650
+
+# Idle session timeout. A logged-in user who makes no authenticated request
+# for this many minutes is signed out automatically — the next request is
+# rejected and the session row revoked. 0 disables the idle timeout. The
+# ceiling is 24h, long enough for any "stay signed in for my shift" need.
+DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES = 30
+MIN_SESSION_IDLE_TIMEOUT_MINUTES = 0
+MAX_SESSION_IDLE_TIMEOUT_MINUTES = 1440
 
 # When True, the Electron shell clears stored auth tokens on app launch so
 # the user has to re-authenticate every time they reopen the app. Web
@@ -178,6 +187,12 @@ def get_audio_retention_days() -> int:
     value = get_int(AUDIO_RETENTION_DAYS, DEFAULT_AUDIO_RETENTION_DAYS)
     # Clamp defensively — a bad row shouldn't make the window negative or absurd.
     return max(MIN_AUDIO_RETENTION_DAYS, min(MAX_AUDIO_RETENTION_DAYS, value))
+
+
+def get_session_idle_timeout_minutes() -> int:
+    value = get_int(SESSION_IDLE_TIMEOUT_MINUTES, DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES)
+    # Clamp defensively — a bad row shouldn't disable or absurdly extend it.
+    return max(MIN_SESSION_IDLE_TIMEOUT_MINUTES, min(MAX_SESSION_IDLE_TIMEOUT_MINUTES, value))
 
 
 def get_logout_on_close() -> bool:

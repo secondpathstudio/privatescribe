@@ -25,7 +25,7 @@ from app.json_provider import ISODateJSONProvider
 from app.paths import data_dir
 from app.routes import register_blueprints
 from app.security import sqlcipher
-from app.security.auth import enforce_password_change
+from app.security.auth import request_guard
 from app.security.secrets import ensure_jwt_secret, ensure_sqlcipher_key
 
 
@@ -40,7 +40,13 @@ def create_app() -> Flask:
 
     # Secrets — generated and persisted to backend/.env on first boot.
     app.config["JWT_SECRET_KEY"] = ensure_jwt_secret()
-    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
+    # Access tokens are long-lived because the server-side Session row — not
+    # the token's own expiry — governs how long a login lasts. The request
+    # guard validates the session (idle timeout, logout, deactivation) on
+    # every call, so a revoked session kills the token immediately regardless
+    # of this TTL. The generous TTL just keeps an actively-working user from
+    # being interrupted by a token expiring out from under them.
+    app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=7)
     sqlcipher_key = ensure_sqlcipher_key()
 
     # Encrypted SQLite via SQLCipher. The `creator` callable bypasses URL-based
@@ -90,10 +96,10 @@ def create_app() -> Flask:
     register_error_handlers(app)
     register_cli(app)
 
-    # App-wide guard: a user flagged force_password_change is locked out of
-    # every endpoint except password change + auth bookkeeping. Registered
-    # here, not per-route, so a new blueprint can't silently skip it.
-    app.before_request(enforce_password_change)
+    # App-wide request guard: validates the server-side session (logout, idle
+    # timeout), blocks deactivated accounts, and confines force_password_change
+    # users. Registered here, not per-route, so a new blueprint can't skip it.
+    app.before_request(request_guard)
 
     with app.app_context():
         db.create_all()

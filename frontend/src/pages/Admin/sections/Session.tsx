@@ -6,7 +6,7 @@ export default function SessionSection() {
     <>
       <SectionHeader
         title="Session"
-        description="Control how the desktop app handles credentials between launches."
+        description="Idle auto sign-out, and how the desktop app handles credentials between launches."
       />
       <SessionCard />
     </>

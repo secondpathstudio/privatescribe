@@ -5,6 +5,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, limiter
 from app.models import User
+from app.security import sessions
 from app.security.auth import require_admin
 from app.services import two_factor
 from app.services.audit import log_action
@@ -45,6 +46,7 @@ def get_all_users():
         "createdAt": user.created_at,
         "lastLogin": user.last_login,
         "twoFactorEnrolled": two_factor.is_enrolled(user),
+        "isActive": user.is_active,
     } for user in users]
 
     return jsonify(users_list)
@@ -97,6 +99,7 @@ def admin_create_user():
         "role": new_user.role,
         "createdAt": new_user.created_at,
         "lastLogin": new_user.last_login,
+        "isActive": new_user.is_active,
     }), 201
 
 
@@ -257,3 +260,111 @@ def admin_reset_2fa(user_id):
         "userId": target.id,
         "twoFactorEnrolled": False,
     }), 200
+
+
+@bp.route('/api/admin/users/<string:user_id>/deactivate', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+@limiter.limit("10 per minute")
+def admin_deactivate_user(user_id):
+    """Off-board a user: block future logins and revoke every live session so
+    access is cut immediately. Their notes/templates/participants are kept.
+    Requires the admin's own password as re-auth, like the other admin account
+    actions. Reversible via /activate."""
+    data = request.get_json(silent=True) or {}
+    admin_password = data.get('adminPassword')
+    if not isinstance(admin_password, str) or not admin_password:
+        return jsonify({"error": "adminPassword is required"}), 400
+
+    admin_id = get_jwt_identity()
+    if admin_id == user_id:
+        return jsonify({"error": "You can't deactivate your own account"}), 400
+
+    admin = User.query.get(admin_id)
+    if not admin or not check_password_hash(admin.password, admin_password):
+        log_action(
+            'admin.user_deactivate',
+            user_id=admin_id,
+            user_email=admin.email if admin else None,
+            resource_type='user',
+            resource_id=user_id,
+            status='failure',
+            extra={'reason': 'invalid_admin_password'},
+        )
+        db.session.commit()
+        return jsonify({"error": "Admin password is incorrect"}), 401
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    if not target.is_active:
+        return jsonify({"error": "User is already deactivated"}), 400
+    # Don't strand the install with no way back in.
+    if target.role == 'admin':
+        other_admins = User.query.filter(
+            User.role == 'admin', User.is_active.is_(True), User.id != target.id
+        ).count()
+        if other_admins == 0:
+            return jsonify({"error": "Can't deactivate the last active admin"}), 409
+
+    target.is_active = False
+    revoked = sessions.revoke_user_sessions(target.id, 'user_deactivated')
+    log_action(
+        'admin.user_deactivate',
+        user_id=admin.id,
+        user_email=admin.email,
+        resource_type='user',
+        resource_id=target.id,
+        extra={'target_email': target.email, 'sessions_revoked': revoked},
+    )
+    db.session.commit()
+    return jsonify({
+        "userId": target.id,
+        "isActive": False,
+        "sessionsRevoked": revoked,
+    }), 200
+
+
+@bp.route('/api/admin/users/<string:user_id>/activate', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+@limiter.limit("10 per minute")
+def admin_activate_user(user_id):
+    """Re-enable a previously deactivated user so they can sign in again.
+    Requires the admin's own password as re-auth."""
+    data = request.get_json(silent=True) or {}
+    admin_password = data.get('adminPassword')
+    if not isinstance(admin_password, str) or not admin_password:
+        return jsonify({"error": "adminPassword is required"}), 400
+
+    admin = User.query.get(get_jwt_identity())
+    if not admin or not check_password_hash(admin.password, admin_password):
+        log_action(
+            'admin.user_activate',
+            user_id=admin.id if admin else None,
+            user_email=admin.email if admin else None,
+            resource_type='user',
+            resource_id=user_id,
+            status='failure',
+            extra={'reason': 'invalid_admin_password'},
+        )
+        db.session.commit()
+        return jsonify({"error": "Admin password is incorrect"}), 401
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    if target.is_active:
+        return jsonify({"error": "User is already active"}), 400
+
+    target.is_active = True
+    log_action(
+        'admin.user_activate',
+        user_id=admin.id,
+        user_email=admin.email,
+        resource_type='user',
+        resource_id=target.id,
+        extra={'target_email': target.email},
+    )
+    db.session.commit()
+    return jsonify({"userId": target.id, "isActive": True}), 200
