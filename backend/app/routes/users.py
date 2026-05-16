@@ -4,7 +4,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, limiter
-from app.models import User
+from app.models import Role, User
 from app.security import sessions
 from app.security.auth import require_admin
 from app.services import two_factor
@@ -47,6 +47,7 @@ def get_all_users():
         "lastLogin": user.last_login,
         "twoFactorEnrolled": two_factor.is_enrolled(user),
         "isActive": user.is_active,
+        "roles": [{"id": r.id, "name": r.name} for r in user.roles],
     } for user in users]
 
     return jsonify(users_list)
@@ -100,6 +101,7 @@ def admin_create_user():
         "createdAt": new_user.created_at,
         "lastLogin": new_user.last_login,
         "isActive": new_user.is_active,
+        "roles": [],
     }), 201
 
 
@@ -368,3 +370,35 @@ def admin_activate_user(user_id):
     )
     db.session.commit()
     return jsonify({"userId": target.id, "isActive": True}), 200
+
+
+@bp.route('/api/admin/users/<string:user_id>/roles', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def admin_set_user_roles(user_id):
+    """Replace a user's role assignments with the given set of role ids.
+    Unknown ids are ignored. Roles scope which shared templates the user
+    sees — no password re-auth, unlike the credential-level admin actions."""
+    data = request.get_json(silent=True) or {}
+    role_ids = data.get('roleIds')
+    if not isinstance(role_ids, list):
+        return jsonify({"error": "roleIds must be a list"}), 400
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+
+    roles = Role.query.filter(Role.id.in_(role_ids)).all()
+    target.roles = roles
+    log_action(
+        'admin.user_roles_set',
+        user_id=get_jwt_identity(),
+        resource_type='user',
+        resource_id=target.id,
+        extra={'role_ids': [r.id for r in roles], 'role_names': [r.name for r in roles]},
+    )
+    db.session.commit()
+    return jsonify({
+        "userId": target.id,
+        "roles": [{"id": r.id, "name": r.name} for r in target.roles],
+    }), 200
