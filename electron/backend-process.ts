@@ -48,6 +48,13 @@ export async function startBackend(): Promise<BackendInfo> {
       console.error('[backend stderr]', chunk.toString());
     });
 
+    // spawn() failures (e.g. the binary is missing) surface here, not as a
+    // throw — without this a missing binary just looks like a 30s timeout.
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(new Error(`Backend process failed to start: ${err.message}`));
+    });
+
     child.on('exit', (code) => {
       clearTimeout(timer);
       reject(new Error(`Backend exited with code ${code} before announcing port`));

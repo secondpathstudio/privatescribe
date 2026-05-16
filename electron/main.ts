@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import { startBackend, stopBackend, type BackendInfo } from './backend-process';
 
@@ -160,7 +160,22 @@ app.whenReady().then(async () => {
     // Developer is expected to have `flask run` going on :5000.
     apiBase = 'http://127.0.0.1:5000';
   } else {
-    backend = await startBackend();
+    try {
+      backend = await startBackend();
+    } catch (err) {
+      // The bundled Python backend failed to launch. Without it the app is
+      // just an empty shell, so surface a clear error and quit rather than
+      // leaving a dead Dock icon with no window.
+      const detail = err instanceof Error ? err.message : String(err);
+      dialog.showErrorBox(
+        'PrivateScribe could not start',
+        'The PrivateScribe engine failed to start, so the app cannot run.\n\n' +
+          `Details: ${detail}\n\n` +
+          'Try reopening PrivateScribe. If this keeps happening, please contact support.',
+      );
+      app.quit();
+      return;
+    }
     apiBase = `http://127.0.0.1:${backend.port}`;
   }
 
