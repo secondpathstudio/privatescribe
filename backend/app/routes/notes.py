@@ -81,7 +81,13 @@ def create_note():
 
     note_date = datetime.utcnow()
     if 'noteDate' in data:
-        note_date = datetime.fromisoformat(data['noteDate'].replace("Z", ""))
+        raw_note_date = data['noteDate']
+        if not isinstance(raw_note_date, str):
+            return jsonify({"error": "noteDate must be an ISO 8601 date string"}), 400
+        try:
+            note_date = datetime.fromisoformat(raw_note_date.replace("Z", ""))
+        except ValueError:
+            return jsonify({"error": "noteDate must be a valid ISO 8601 date string"}), 400
 
     if not all(k in data for k in (
         'noteContentRaw',
@@ -110,18 +116,10 @@ def create_note():
             print('template not found / not available', template_id)
             return jsonify({"error": f"Template with ID {template_id} not found"}), 400
 
-    if not isinstance(data['participants'], list):
+    # participants is optional; when present it must be a list. Per-entry
+    # validation and owner-scoped id resolution happen below.
+    if 'participants' in data and not isinstance(data['participants'], list):
         return jsonify({"error": "participants must be a list"}), 400
-
-    try:
-        for participant in data['participants']:
-            if not isinstance(participant, dict):
-                return jsonify({"error": "Each participant must be an object"}), 400
-            if 'firstName' not in participant:
-                return jsonify({"error": "Each participant must have a firstName"}), 400
-    except Exception as e:
-        participants = []
-        print(f"Error accessing participants: {str(e)}")
 
     # Resolve transcript_group_id: re-transcribes inherit the source's group,
     # everything else gets a fresh UUID.
@@ -208,7 +206,8 @@ def create_note():
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow(),
         author_name=data['authorName'],
-        version=data['version'],
+        # version omitted — the Note model defaults it to 1. A new note always
+        # starts at version 1; update_note bumps it from there.
         template_id=template_id,
         is_deleted=False,
         is_deleted_timestamp=None,
