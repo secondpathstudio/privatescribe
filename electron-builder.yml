@@ -34,6 +34,11 @@ extraResources:
 
 mac:
   category: public.app-category.productivity
+  # Overrides Electron's generic default microphone-permission text — this is
+  # the description macOS shows in the permission prompt on first recording.
+  # extendInfo merges these keys into the generated Info.plist.
+  extendInfo:
+    NSMicrophoneUsageDescription: "PrivateScribe uses the microphone to record audio for transcription. All audio is processed locally on your device and never uploaded."
   icon: electron/assets/icon.icns
   identity: "Grant Nelson (C3G762929W)"
   hardenedRuntime: true
