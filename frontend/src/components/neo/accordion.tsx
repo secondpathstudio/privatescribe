@@ -23,7 +23,7 @@ const NeoAccordion = () => {
     },
     {
       question: "Are the original audio recordings private too?",
-      answer: "Yes. Every recording is encrypted on disk with the same 256-bit standard as the notes. You can play it back inside the note when the exact wording matters, and nothing about the audio is ever transmitted off the device."
+      answer: "Yes. If you choose to store them, every recording is encrypted on disk with the same 256-bit standard as the notes. You can play it back inside the note when the exact wording matters, and nothing about the audio is ever transmitted off the device. You can also choose to delete the recording immediately after transcription, after a set amount of time, or not keep it at all — the transcript is the only thing that needs to be stored for most use cases."
     },
     {
       question: "Can a team or practice use this together?",
