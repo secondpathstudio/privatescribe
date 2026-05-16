@@ -1,10 +1,27 @@
 // Import necessary modules and components
-import { useEffect, useState, useRef } from "react";
+import { useState, useRef } from "react";
 import CassetteSVG from "../neo/cassette";
 import { Circle, Pause, Save } from "lucide-react";
 import NeoButton from "../neo/neo-button";
 
-  
+// Maps a getUserMedia rejection to a clear, actionable message. getUserMedia
+// rejects with a DOMException whose `name` identifies the cause.
+function describeMicError(err: unknown): string {
+  const name = err instanceof DOMException ? err.name : "";
+  switch (name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "Microphone access was denied. Allow it for PrivateScribe in System Settings → Privacy & Security → Microphone, then try again.";
+    case "NotFoundError":
+      return "No microphone was found. Connect a microphone and try again.";
+    case "NotReadableError":
+      return "Your microphone could not be started — it may be in use by another app. Close other apps using it, then try again.";
+    default:
+      return "Could not access the microphone. Check your microphone connection and permissions, then try again.";
+  }
+}
+
+
   // Export the MicrophoneComponent function component
   export default function Microphone({
     onRecordingFinished,
@@ -29,9 +46,20 @@ import NeoButton from "../neo/neo-button";
   const isRecordingRef = useRef(false);
   const audioChunksRef = useRef<Blob[]>([]);
   const [paused, setPaused] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    setError(null);
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      // Most often the user denied the mic prompt, or access is turned off
+      // in System Settings — without this the click silently does nothing.
+      setError(describeMicError(err));
+      return;
+    }
 
     mediaRecorderRef.current = new MediaRecorder(stream, {
       mimeType: 'audio/webm' // Change this to 'audio/wav' if you want WAV format
@@ -152,6 +180,11 @@ import NeoButton from "../neo/neo-button";
               <Save />
             </NeoButton>
           </div>
+          )}
+          {error && (
+            <p role="alert" className="mt-3 text-center text-sm text-red-600">
+              {error}
+            </p>
           )}
         </div>
           {audioBlob && (
