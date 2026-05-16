@@ -32,14 +32,36 @@ One recording can produce many documents. Apply several templates to the same tr
 
 ## What it does today
 
-- **Whisper-based transcription** running locally — no audio leaves your machine
-- **Local LLM formatting** via Ollama (defaults to Llama 3.2, swap in any model you prefer)
-- **Encrypted at rest** — transcripts, generated documents, templates, participant records, and the original audio recordings are all stored encrypted on disk
-- **Customizable templates** — define the document structure once, apply it to any transcript
+**Capture and transcription**
+
+- **Whisper-based transcription** running locally — no audio leaves your machine. Pick the model size (`tiny` → `large-v3`) that fits your hardware.
+- **Real-time transcription** — see a live preview while you record, not just after you stop.
+- **Speaker diarization** — pyannote labels who said what, so conversations come out as a readable, attributed transcript.
+- **Confidence highlighting** — words Whisper was unsure about are flagged so you can review, edit, and approve a transcript before formatting.
+- **Custom vocabulary, abbreviations, and dictation commands** — bias transcription toward your domain terms, auto-expand short forms, and speak formatting commands like "new paragraph" or "period".
+
+**Formatting and documents**
+
+- **Local LLM formatting** via Ollama (defaults to Llama 3.2, swap in any model you prefer).
+- **Customizable templates** — simple Markdown templates or structured templates imported from the Studio. Define the document structure once, apply it to any transcript.
 - **One transcript, many documents** — apply multiple templates to the same recording and keep them linked as siblings of a single source. Refine a template, re-run it, get a new sibling without losing the old one.
-- **Participant and role management** — track who was in the conversation and have templates use that context
-- **Fully offline operation** after the initial model download
-- **MIT licensed** — fork it, audit it, modify it, ship it inside your own workflow
+- **Note workflow** — notes move draft → finalized → signed. Signed notes are immutable and extended only through append-only addenda.
+- **Document export** — download finished notes as PDF or DOCX (admins can disable export org-wide).
+- **Full-text search** across all of your notes.
+
+**Security and privacy**
+
+- **Encrypted at rest** — transcripts, generated documents, templates, participant records, and the original audio recordings are all stored encrypted on disk.
+- **Configurable audio storage** — admins choose whether recordings are kept at all and, if so, for how long before they're automatically purged.
+- **Two-factor authentication** — optional TOTP for every user; admins can require it org-wide and reset it.
+- **Audit logging** — security-relevant actions (logins, key access, deletions, admin changes) are recorded for review.
+
+**Everything else**
+
+- **Participant and role management** — track who was in the conversation and have templates use that context.
+- **Runs as a desktop app or in the browser** — a signed, notarized macOS build, or the standard web app.
+- **Fully offline operation** after the initial model download.
+- **MIT licensed** — fork it, audit it, modify it, ship it inside your own workflow.
 
 ---
 
@@ -90,9 +112,12 @@ Honest disclosure of what PrivateScribe protects against and what it doesn't:
 
 - **Backend:** Flask + SQLAlchemy + SQLite (SQLCipher)
 - **Frontend:** Vite + React + TypeScript
+- **Desktop app:** Electron (bundles the backend + frontend)
 - **Transcription:** Whisper (faster-whisper)
+- **Speaker diarization:** pyannote.audio
 - **LLM inference:** Ollama
-- **Auth:** JWT with admin-created accounts
+- **Auth:** JWT with admin-created accounts, optional TOTP two-factor
+- **Encryption:** SQLCipher (database) + AES-256-GCM (audio)
 
 ---
 
@@ -111,16 +136,19 @@ git clone https://github.com/secondpathstudio/privatescribe.git
 cd privatescribe
 ```
 
-**Backend:**
+**Backend** (from `backend/`):
 
 ```bash
+cd backend
 python -m venv venv
 source venv/bin/activate    # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 flask db upgrade
 ```
 
-**Frontend:**
+You also need SQLCipher installed on the host (`brew install sqlcipher` on macOS).
+
+**Frontend** (from `frontend/`):
 
 ```bash
 cd frontend
@@ -133,9 +161,11 @@ npm install
 ollama pull llama3.2
 ```
 
+**Optional — speaker diarization:** to label who said what, set `HF_TOKEN` in `backend/.env` (a Hugging Face access token, used once to download the pyannote model). Without it, transcription still works — it just won't separate speakers.
+
 ### Run
 
-Start the backend (from project root):
+Start the backend (from `backend/`):
 
 ```bash
 source venv/bin/activate
@@ -144,7 +174,7 @@ flask run
 
 The backend listens on `http://127.0.0.1:5000`. A unique JWT secret is generated on first run and saved to `backend/.env`.
 
-Create your admin user:
+Create your admin user — either run the CLI command, or open the app and complete the first-run setup screen:
 
 ```bash
 flask create-admin
@@ -159,6 +189,18 @@ npm run dev
 ```
 
 The dashboard opens at `http://127.0.0.1:3000`.
+
+### Desktop app
+
+PrivateScribe also runs as a standalone desktop app via Electron, which bundles the backend and frontend together so there are no servers to start by hand. From the repo root:
+
+```bash
+npm install
+npm run dev      # run the desktop app against the dev servers
+npm run dist     # build a signed, notarized installer
+```
+
+A signed, notarized macOS build is available today; Windows and Linux installers are on the roadmap.
 
 ---
 
@@ -182,10 +224,11 @@ PrivateScribe is general enough to handle any domain where structured documentat
 ## Long-term Roadmap
 
 - Named participant assignment to diarized speakers (auto-labeling "Dr. Smith" / "Client" from known participants)
-- Signed desktop installers (`.dmg`, `.exe`, `.AppImage`) for non-developer users
-- Optional Postgres backend for office-server deployments with multiple devices on a closed LAN
+- Windows and Linux desktop installers (`.exe`, `.AppImage`) — a signed macOS build ships today
+- On-prem server mode: one office server hosting the backend, Whisper, and Ollama for desktops, tablets, and phones on a closed LAN, with TLS by default
+- Phone-as-microphone — record on a phone, review and edit on the desktop
+- Guided backup & restore so losing `backend/.env` can't brick the database
 - Template gallery with community-contributed structures
-- Audit logging suitable for compliance review
 
 ---
 
