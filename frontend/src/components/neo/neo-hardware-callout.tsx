@@ -59,8 +59,7 @@ const NeoHardwareCallout = () => {
         </h3>
         <p className="text-base">
           PrivateScribe runs entirely on your machine — no cloud, no API keys, no
-          data leaving your network. That power comes from your own silicon.
-          Here's what runs it well.
+          data leaving your network. Here's what runs it well.
         </p>
       </div>
 
@@ -164,19 +163,18 @@ const NeoHardwareCallout = () => {
           </div>
           <p className="text-sm">
             For a clinic, firm, or small team: a Mac mini Pro in the supply
-            closet runs quietly, sips power, and serves the whole office over
-            your local network. Easy to physically isolate for air-gapped
-            setups.
+            closet runs quietly, sips power, and can serve the whole office over
+            your local network (centralized server with client apps coming soon!).
           </p>
         </div>
       </div>
 
       {/* Footnotes */}
       <p className="text-xs text-gray-500 text-center mt-6 max-w-3xl mx-auto leading-relaxed">
-        Tested with Whisper base + pyannote + Gemma 4B / Mistral 7B at Q4
+        Tested primarily with Whisper base + pyannote + Gemma 4B / Mistral 7B at Q4
         quantization. Intel Macs, older M1 8GB models, and the MacBook Neo
         (8GB) can run lighter configurations but aren't recommended for daily
-        clinical use. Windows and Linux support via llama.cpp.
+        clinical use.
       </p>
     </div>
   );
