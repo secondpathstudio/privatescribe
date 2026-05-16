@@ -26,6 +26,7 @@ WHISPER_MODEL = "whisper_model"
 AUDIO_STORAGE_ENABLED = "audio_storage_enabled"
 AUDIO_RETENTION_DAYS = "audio_retention_days"
 SESSION_IDLE_TIMEOUT_MINUTES = "session_idle_timeout_minutes"
+ONBOARDING_COMPLETED = "onboarding_completed"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -99,6 +100,11 @@ DEFAULT_DICTATION_MARKERS_ENABLED = True
 # populates a list. Stored JSON-encoded under their respective keys.
 DEFAULT_VOCABULARY_TERMS: list[str] = []
 DEFAULT_ABBREVIATIONS: dict[str, str] = {}
+
+
+# Set True once the first-run onboarding wizard has been completed. The
+# frontend reads this to stop routing a returning admin back into /welcome.
+DEFAULT_ONBOARDING_COMPLETED = False
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -209,6 +215,10 @@ def get_exports_enabled() -> bool:
 
 def get_dictation_markers_enabled() -> bool:
     return get_bool(DICTATION_MARKERS_ENABLED, DEFAULT_DICTATION_MARKERS_ENABLED)
+
+
+def get_onboarding_completed() -> bool:
+    return get_bool(ONBOARDING_COMPLETED, DEFAULT_ONBOARDING_COMPLETED)
 
 
 def get_admin_vocabulary_terms() -> list[str]:
