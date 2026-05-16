@@ -54,6 +54,9 @@ class User(db.Model):
     notes = db.relationship('Note', backref='user', lazy=True, cascade='all, delete-orphan')
     templates = db.relationship('Template', backref='user', lazy=True, cascade='all, delete-orphan')
     participants = db.relationship('Participant', backref='user', lazy=True, cascade='all, delete-orphan')
+    # Custom roles assigned to this user (many-to-many). Drives which shared
+    # templates they see — distinct from `role` above (the privilege flag).
+    roles = db.relationship('Role', secondary='user_roles', backref='users', lazy=True)
 
     def __repr__(self):
         return f"<User {self.email}>"

@@ -25,6 +25,9 @@ class Template(db.Model):
     is_deleted_timestamp = db.Column(db.DateTime, nullable=True)
 
     notes = db.relationship('Note', backref='template', lazy=True)
+    # Roles this template is shared with (many-to-many). A non-owner who holds
+    # one of these roles sees the template, read-only.
+    shared_roles = db.relationship('Role', secondary='template_roles', backref='templates', lazy=True)
 
     author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
 

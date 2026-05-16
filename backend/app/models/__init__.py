@@ -5,6 +5,7 @@ db.metadata, which db.create_all() and Flask-Migrate's autogenerate rely on.
 """
 from app.models.user import User
 from app.models.template import Template
+from app.models.role import Role, user_roles, template_roles
 from app.models.participant import Participant, note_participants, user_participants
 from app.models.note import Note
 from app.models.note_addendum import NoteAddendum
@@ -17,6 +18,9 @@ from app.models.session import Session
 __all__ = [
     "User",
     "Template",
+    "Role",
+    "user_roles",
+    "template_roles",
     "Participant",
     "note_participants",
     "user_participants",
