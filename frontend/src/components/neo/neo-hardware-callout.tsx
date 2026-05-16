@@ -12,7 +12,7 @@ const tiers: Tier[] = [
   {
     label: 'Minimum',
     name: 'Light use',
-    subtitle: 'Short transcripts, Gemma 4B only',
+    subtitle: 'Short transcripts, small models only',
     specs: [
       { label: 'Memory', value: '16 GB' },
       { label: 'Chip', value: 'M1 / M2 / M3 base' },
