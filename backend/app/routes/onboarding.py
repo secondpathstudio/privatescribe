@@ -9,6 +9,8 @@ from flask import Blueprint, jsonify, request
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+from app.extensions import db
+from app.models import User
 from app.security.auth import require_admin
 from app.services import settings as settings_service
 from app.services import starter_templates
@@ -50,6 +52,9 @@ def onboarding_complete():
 
     current_user = get_jwt_identity()
     created = starter_templates.seed_for_user(current_user, use_cases)
+    admin = User.query.get(current_user)
+    if admin is not None:
+        admin.has_onboarded = True
     log_action(
         "onboarding.complete",
         user_id=current_user,
@@ -61,3 +66,21 @@ def onboarding_complete():
         "completed": True,
         "templates": [{"id": t.id, "name": t.name} for t in created],
     }), 201
+
+
+@bp.route("/user-complete", methods=["POST"])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def onboarding_user_complete():
+    """Mark the current user as having finished onboarding.
+
+    Per-user — the lighter new-user intro calls this. Distinct from /complete,
+    which is admin-only and also seeds templates and sets the global flag.
+    """
+    user = User.query.get(get_jwt_identity())
+    if user is None:
+        return jsonify({"error": "User not found"}), 404
+    user.has_onboarded = True
+    log_action("onboarding.user_complete", user_id=user.id)
+    db.session.commit()
+    return jsonify({"hasOnboarded": True}), 200

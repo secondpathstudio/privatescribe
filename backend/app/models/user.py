@@ -21,6 +21,10 @@ class User(db.Model):
     # their notes/templates/participants are kept. Reversible from the admin
     # Users page.
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    # False until the user finishes first-run onboarding. New non-admin users
+    # are routed through a brief intro wizard on first login; admins complete
+    # the fuller setup wizard. Set true when either onboarding flow finishes.
+    has_onboarded = db.Column(db.Boolean, nullable=False, default=False)
     # TOTP-based 2FA. `totp_secret` is the base32-encoded shared secret stored
     # in the encrypted DB (never returned over the wire). `totp_enrolled_at`
     # is the source of truth for "is this user enrolled" — `totp_secret` may
