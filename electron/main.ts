@@ -37,6 +37,27 @@ const ICON_ICNS = path.join(ASSETS_DIR, 'icon.icns'); // used by electron-builde
 const ICON_PNG = path.join(ASSETS_DIR, 'icon.png'); // used at dev runtime for Dock
 
 let backend: BackendInfo | null = null;
+let mainWindow: BrowserWindow | null = null;
+
+// Single-instance lock: a second PrivateScribe would spawn a second backend
+// against the same encrypted database and data directory — lock contention at
+// best, and real corruption risk if both run a migration or key rotation at
+// once. If another instance already holds the lock, focus it and quit this
+// one. The whenReady() handler below also guards on this flag so a second
+// instance never starts a backend.
+const isPrimaryInstance = app.requestSingleInstanceLock();
+if (!isPrimaryInstance) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // Another launch was attempted — surface the window we already have.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
 
 function buildMenu(): void {
   // Custom application menu. Without an Edit menu the standard Cmd+C/V/X/A
@@ -130,6 +151,7 @@ async function createWindow(apiBase: string): Promise<void> {
       additionalArguments: [`--api-base=${apiBase}`],
     },
   });
+  mainWindow = win;
 
   if (isDev) {
     await win.loadURL('http://localhost:3000/#/login');
@@ -169,6 +191,10 @@ function handleBackendCrash(code: number | null, stderrTail: string): void {
 }
 
 app.whenReady().then(async () => {
+  // A second instance is already quitting (see the single-instance lock
+  // above) — never spawn a backend or open a window from it.
+  if (!isPrimaryInstance) return;
+
   // In dev the Dock icon comes from the Electron binary, so override at
   // runtime. PNG is more reliable than icns for nativeImage.createFromPath.
   // In packaged builds the icon is baked in by electron-builder.
