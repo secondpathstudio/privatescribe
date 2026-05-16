@@ -7,8 +7,8 @@ from app.extensions import db
 class Template(db.Model):
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     name = db.Column(db.String(50), nullable=False)
-    # 'simple'     — content is a Markdown skeleton with [bracketed instructions]
-    #                that Ollama fills in a single pass at note time.
+    # 'simple'     — content is a Markdown skeleton with {{instructions}} that
+    #                Ollama fills in a single pass at note time.
     # 'structured' — `structured` holds a typed Template tree (sections + fields
     #                + per-field strictness/prompts). Built with the external
     #                Expert template builder; content may be empty or hold a

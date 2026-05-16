@@ -1,9 +1,9 @@
 """Thin wrapper over the local Ollama HTTP API.
 
 list_installed_models() powers the template-builder dropdown.
-generate_markdown() is the contract for how templates are filled in: bracketed
-[instructions] inside the template are replaced with content extracted from the
-raw transcript; everything else is preserved literally. Editing the system
+generate_markdown() is the contract for how templates are filled in:
+{{instructions}} inside the template are replaced with content extracted from
+the raw transcript; everything else is preserved literally. Editing the system
 prompt here changes template behavior across the app.
 """
 import os
@@ -300,7 +300,7 @@ def _build_markdown_messages(template, raw_note: str, note_details: dict) -> lis
                 "2. If you feel there is not enough data to address the instruction, just include the instruction and a comment `I could not find enough data to answer this`.\n"
                 "3. Format all dates as MM/DD/YYYY.\n"
                 "4. Return the filled-in template **as plain text markdown**. No code fences, no extra commentary, no word “markdown”."
-                "5. Do not include any other text or explanation. Do not include the [] tags.\n"
+                "5. Do not include any other text or explanation. Do not include the {{}} instruction markers.\n"
                 "6. If the transcript is speaker-attributed — lines beginning with a speaker label followed by a colon, whether a generic label like `Speaker 1:` or a real name like `Dr. Jane Smith:` — treat each line as that speaker's contribution. Preserve speaker attribution, using whatever label the transcript provides, when an instruction asks for quotes, who said what, or per-speaker summaries.\n"
             ),
         },
