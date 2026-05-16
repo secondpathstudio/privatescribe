@@ -110,31 +110,37 @@ def transcribe():
             # with transcript_group_id=NULL and can be swept later; if
             # transcription fails the audio is still kept so the user can
             # retry without re-uploading.
+            #
+            # Gated by the admin audio-storage setting: when storage is off we
+            # skip the save entirely, audio_file_id stays None, and the note
+            # the user saves later has no playable recording. Transcription
+            # itself is unaffected — prepare_wav reads the upload directly.
             file.seek(0)
-            stored_filename, size_bytes = audio_storage.save_encrypted(file.stream)
-            audio_row = AudioFile(
-                author_id=current_user,
-                original_filename=(file.filename or 'recording.webm')[:512],
-                stored_filename=stored_filename,
-                mime_type=(file.mimetype or None),
-                size_bytes=size_bytes,
-            )
-            db.session.add(audio_row)
-            db.session.flush()
-            audio_file_id = audio_row.id
-            log_action(
-                'audio.transcribe',
-                user_id=current_user,
-                resource_type='audio_file',
-                resource_id=audio_file_id,
-                extra={
-                    'size_bytes': size_bytes,
-                    'mime_type': audio_row.mime_type,
-                    'diarize': diarize,
-                    'max_speakers': max_speakers,
-                },
-            )
-            db.session.commit()
+            if settings_service.get_audio_storage_enabled():
+                stored_filename, size_bytes = audio_storage.save_encrypted(file.stream)
+                audio_row = AudioFile(
+                    author_id=current_user,
+                    original_filename=(file.filename or 'recording.webm')[:512],
+                    stored_filename=stored_filename,
+                    mime_type=(file.mimetype or None),
+                    size_bytes=size_bytes,
+                )
+                db.session.add(audio_row)
+                db.session.flush()
+                audio_file_id = audio_row.id
+                log_action(
+                    'audio.transcribe',
+                    user_id=current_user,
+                    resource_type='audio_file',
+                    resource_id=audio_file_id,
+                    extra={
+                        'size_bytes': size_bytes,
+                        'mime_type': audio_row.mime_type,
+                        'diarize': diarize,
+                        'max_speakers': max_speakers,
+                    },
+                )
+                db.session.commit()
 
             # Bias Whisper toward the user's effective vocabulary list
             # (admin defaults + user additions). build_whisper_prompt returns

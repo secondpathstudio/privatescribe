@@ -33,6 +33,7 @@ import ModelsSection from './pages/Admin/sections/Models.tsx'
 import UploadLimitSection from './pages/Admin/sections/UploadLimit.tsx'
 import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
 import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
+import AudioStorageSection from './pages/Admin/sections/AudioStorage.tsx'
 import SessionSection from './pages/Admin/sections/Session.tsx'
 import TwoFactorSection from './pages/Admin/sections/TwoFactor.tsx'
 import ExportsSection from './pages/Admin/sections/Exports.tsx'
@@ -78,6 +79,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="upload-limit" element={<UploadLimitSection />} />
             <Route path="diarization" element={<DiarizationSection />} />
             <Route path="trash-retention" element={<TrashRetentionSection />} />
+            <Route path="audio-storage" element={<AudioStorageSection />} />
             <Route path="session" element={<SessionSection />} />
             <Route path="two-factor" element={<TwoFactorSection />} />
             <Route path="exports" element={<ExportsSection />} />

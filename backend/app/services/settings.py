@@ -23,6 +23,8 @@ DICTATION_MARKERS_ENABLED = "dictation_markers_enabled"
 VOCABULARY_TERMS = "vocabulary_terms"
 ABBREVIATIONS = "abbreviations"
 WHISPER_MODEL = "whisper_model"
+AUDIO_STORAGE_ENABLED = "audio_storage_enabled"
+AUDIO_RETENTION_DAYS = "audio_retention_days"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -49,6 +51,18 @@ MAX_TRASH_RETENTION_DAYS = 3650
 # retention window. When False (default), nothing is auto-deleted — items stay
 # in the trash until someone permanently deletes them by hand.
 DEFAULT_TRASH_AUTO_PURGE = False
+
+# Audio storage. When True (default), /api/transcribe encrypts and keeps the
+# original upload so the saved note has a playable recording. When False,
+# transcription still runs but nothing is persisted — the note is text-only.
+DEFAULT_AUDIO_STORAGE_ENABLED = True
+
+# Days a saved audio file is kept before `flask purge-audio` deletes it,
+# measured from its upload time. 0 = keep indefinitely (the purge job is a
+# no-op). Same ~10-year ceiling as trash retention.
+DEFAULT_AUDIO_RETENTION_DAYS = 0
+MIN_AUDIO_RETENTION_DAYS = 0
+MAX_AUDIO_RETENTION_DAYS = 3650
 
 # When True, the Electron shell clears stored auth tokens on app launch so
 # the user has to re-authenticate every time they reopen the app. Web
@@ -154,6 +168,16 @@ def get_trash_retention_days() -> int:
 
 def get_trash_auto_purge() -> bool:
     return get_bool(TRASH_AUTO_PURGE, DEFAULT_TRASH_AUTO_PURGE)
+
+
+def get_audio_storage_enabled() -> bool:
+    return get_bool(AUDIO_STORAGE_ENABLED, DEFAULT_AUDIO_STORAGE_ENABLED)
+
+
+def get_audio_retention_days() -> int:
+    value = get_int(AUDIO_RETENTION_DAYS, DEFAULT_AUDIO_RETENTION_DAYS)
+    # Clamp defensively — a bad row shouldn't make the window negative or absurd.
+    return max(MIN_AUDIO_RETENTION_DAYS, min(MAX_AUDIO_RETENTION_DAYS, value))
 
 
 def get_logout_on_close() -> bool:

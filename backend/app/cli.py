@@ -121,6 +121,52 @@ def purge_trash(dry_run, force):
     click.echo(f"Purged {len(notes)} note(s) and {len(templates)} template(s).")
 
 
+@click.command("purge-audio")
+@click.option("--dry-run", is_flag=True, help="Report what would be deleted without deleting anything.")
+@with_appcontext
+def purge_audio(dry_run):
+    """Permanently delete stored audio files past the retention window.
+
+    Honors the admin-configured `audio_retention_days` setting: an audio file
+    is eligible once it has been on disk that many days (measured from upload).
+    0 days means retention is disabled and nothing is deleted. The owning notes
+    keep their transcript text — only the playable recording is removed.
+    Intended to be run on a schedule (cron / systemd timer), alongside
+    `purge-trash`.
+    """
+    from app.services import audio_retention
+
+    retention_days = settings_service.get_audio_retention_days()
+    if retention_days <= 0:
+        click.echo(
+            "Audio retention is disabled (audio_retention_days = 0); nothing to do."
+        )
+        return
+
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    suffix = " [dry run]" if dry_run else ""
+    click.echo(
+        f"Purging audio uploaded on or before {cutoff.isoformat()} "
+        f"(retention: {retention_days} day(s)){suffix}."
+    )
+
+    rows = audio_retention.purge_expired(dry_run=dry_run)
+    click.echo(f"  eligible audio files: {len(rows)}")
+
+    if dry_run:
+        for r in rows:
+            click.echo(f"  would delete audio {r.id} (uploaded {r.created_at})")
+        click.echo("Dry run — no changes made.")
+        return
+
+    if not rows:
+        click.echo("Nothing eligible. Done.")
+        return
+
+    click.echo(f"Purged {len(rows)} audio file(s).")
+
+
 def register_cli(app):
     app.cli.add_command(create_admin)
     app.cli.add_command(purge_trash)
+    app.cli.add_command(purge_audio)

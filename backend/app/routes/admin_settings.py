@@ -11,7 +11,7 @@ from flask_jwt_extended import get_jwt_identity
 
 from app.extensions import db
 from app.security.auth import require_admin
-from app.services import diarization, settings as settings_service
+from app.services import audio_retention, diarization, settings as settings_service
 from app.services import whisper, whisper_manager
 from app.services.audit import log_action
 
@@ -42,6 +42,13 @@ def get_settings():
         "trash_retention_days_min": settings_service.MIN_TRASH_RETENTION_DAYS,
         "trash_retention_days_max": settings_service.MAX_TRASH_RETENTION_DAYS,
         "trash_auto_purge": settings_service.get_trash_auto_purge(),
+        # Audio storage: whether /api/transcribe keeps the encrypted recording,
+        # and how many days a kept recording survives before `flask purge-audio`
+        # deletes it (0 = keep indefinitely).
+        "audio_storage_enabled": settings_service.get_audio_storage_enabled(),
+        "audio_retention_days": settings_service.get_audio_retention_days(),
+        "audio_retention_days_min": settings_service.MIN_AUDIO_RETENTION_DAYS,
+        "audio_retention_days_max": settings_service.MAX_AUDIO_RETENTION_DAYS,
         # When true, the Electron shell forgets credentials on app close.
         "logout_on_close": settings_service.get_logout_on_close(),
         # When true, every user must pass a TOTP challenge after password auth.
@@ -163,6 +170,84 @@ def update_trash_retention():
     return jsonify({
         "trash_retention_days": settings_service.get_trash_retention_days(),
         "trash_auto_purge": settings_service.get_trash_auto_purge(),
+    })
+
+
+@bp.route('/audio-storage', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_audio_storage():
+    """Set audio-storage behavior, and optionally purge stored audio.
+
+    Body: {"storageEnabled": bool, "retentionDays": int, "purgeExisting": bool}.
+    All fields optional — only the ones present take effect.
+
+      storageEnabled — when false, /api/transcribe stops keeping the encrypted
+        recording (transcription still runs; the note is text-only).
+      retentionDays  — days a kept recording survives before `flask purge-audio`
+        deletes it, counted from upload. 0 = keep indefinitely.
+      purgeExisting  — when true, immediately deletes every stored audio file
+        and its row. Used when an admin turns storage off and chooses to wipe
+        prior audio; this is irreversible.
+
+    Takes effect immediately — the next /api/transcribe reads the fresh values.
+    """
+    data = request.get_json(silent=True) or {}
+    current_user = get_jwt_identity()
+
+    updates = []  # (key, old, new) tuples for the audit log
+
+    if 'storageEnabled' in data:
+        enabled = data['storageEnabled']
+        if not isinstance(enabled, bool):
+            return jsonify({"error": "storageEnabled must be a boolean"}), 400
+        previous = settings_service.get_audio_storage_enabled()
+        settings_service.set_value(
+            settings_service.AUDIO_STORAGE_ENABLED, enabled, updated_by=current_user
+        )
+        updates.append((settings_service.AUDIO_STORAGE_ENABLED, previous, enabled))
+
+    if 'retentionDays' in data:
+        try:
+            days = int(data['retentionDays'])
+        except (ValueError, TypeError):
+            return jsonify({"error": "retentionDays must be an integer (days)"}), 400
+        if days < settings_service.MIN_AUDIO_RETENTION_DAYS or days > settings_service.MAX_AUDIO_RETENTION_DAYS:
+            return jsonify({
+                "error": (
+                    f"retentionDays must be between {settings_service.MIN_AUDIO_RETENTION_DAYS} "
+                    f"and {settings_service.MAX_AUDIO_RETENTION_DAYS}"
+                ),
+            }), 400
+        previous = settings_service.get_audio_retention_days()
+        settings_service.set_value(
+            settings_service.AUDIO_RETENTION_DAYS, days, updated_by=current_user
+        )
+        updates.append((settings_service.AUDIO_RETENTION_DAYS, previous, days))
+
+    purged_count = None
+    if data.get('purgeExisting') is True:
+        purged_count = audio_retention.purge_all(user_id=current_user)
+
+    if not updates and purged_count is None:
+        return jsonify({
+            "error": "nothing to update — supply storageEnabled, retentionDays, and/or purgeExisting",
+        }), 400
+
+    for key, old, new in updates:
+        log_action(
+            'admin.settings_update',
+            user_id=current_user,
+            resource_type='setting',
+            resource_id=key,
+            extra={'old': old, 'new': new},
+        )
+    db.session.commit()
+
+    return jsonify({
+        "audio_storage_enabled": settings_service.get_audio_storage_enabled(),
+        "audio_retention_days": settings_service.get_audio_retention_days(),
+        "audio_purged_count": purged_count,
     })
 
 
