@@ -5,10 +5,10 @@ import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
 
-// The wizard walks a fresh admin through first-run setup. Welcome and the
-// use-case picker are wired so far; recovery-key backup, the Ollama check, and
-// the Whisper notice land in later commits, inserted between the two.
-const TOTAL_STEPS = 2;
+// The wizard walks a fresh admin through first-run setup. Welcome, recovery-key
+// backup, and the use-case picker are wired so far; the Ollama check and the
+// Whisper notice land in the next commit, inserted before the use-case step.
+const TOTAL_STEPS = 3;
 
 type CatalogUseCase = { id: string; label: string; templates: string[] };
 
@@ -36,6 +36,150 @@ function WelcomeStep({ onNext }: StepProps) {
           Get started
         </NeoButton>
       </div>
+    </div>
+  );
+}
+
+function RecoveryKeyStep({ onNext, onBack }: StepProps) {
+  const auth = useAuth();
+  const [password, setPassword] = useState("");
+  const [revealing, setRevealing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // null until the admin re-authenticates and the key is revealed.
+  const [backupKey, setBackupKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [acking, setAcking] = useState(false);
+
+  const reveal = async () => {
+    if (!password || revealing) return;
+    setRevealing(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/backup-key`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `Could not reveal the key (status ${res.status}).`);
+        return;
+      }
+      setBackupKey(data.backup_key);
+    } catch {
+      setError("Couldn't reach the server. Please try again.");
+    } finally {
+      setRevealing(false);
+    }
+  };
+
+  const copy = async () => {
+    if (!backupKey) return;
+    try {
+      await navigator.clipboard.writeText(backupKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API unavailable — the user can still select the key by hand.
+    }
+  };
+
+  // Acknowledge clears the persistent "back up your key" obligation. A failed
+  // call is non-fatal: the pending-backup banner stays on as the safety net.
+  const acknowledgeAndContinue = async () => {
+    setAcking(true);
+    try {
+      await fetch(`${API_BASE}/api/acknowledge-backup-key`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${auth.token}` },
+      });
+    } catch {
+      // ignore — see above
+    }
+    setAcking(false);
+    onNext();
+  };
+
+  return (
+    <div className="flex flex-col gap-4">
+      <h1 className="text-3xl font-black uppercase">Back up your recovery key</h1>
+      <p className="text-sm">
+        Your database is encrypted with a recovery key — it is the only thing
+        that can decrypt your data. If it is ever lost, your notes cannot be
+        recovered. Save it somewhere durable: a password manager or an
+        encrypted backup.
+      </p>
+
+      {backupKey === null ? (
+        <>
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="recovery-key-password"
+              className="text-xs font-black uppercase tracking-wider"
+            >
+              Confirm your password to view the key
+            </label>
+            <input
+              id="recovery-key-password"
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") reveal(); }}
+              className="w-full border-4 border-black bg-white p-3 font-bold text-black focus:outline-none"
+            />
+          </div>
+          {error && (
+            <p role="alert" className="text-sm font-bold text-red-600">{error}</p>
+          )}
+          <div className="flex items-center justify-between pt-2">
+            <NeoButton onClick={onBack} disabled={revealing}>
+              Back
+            </NeoButton>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onNext}
+                className="text-xs font-bold uppercase tracking-wider underline"
+              >
+                Skip for now
+              </button>
+              <NeoButton
+                onClick={reveal}
+                disabled={!password || revealing}
+                backgroundColor="#fd3777"
+                textColor="#ffffff"
+              >
+                {revealing ? "Revealing…" : "Reveal recovery key"}
+              </NeoButton>
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <pre className="select-all whitespace-pre-wrap break-all border-4 border-black bg-gray-100 p-3 font-mono text-sm text-black">
+            {backupKey}
+          </pre>
+          <p className="text-sm font-bold">
+            Save this key somewhere safe before continuing. You can view it
+            again later from Admin → Encryption.
+          </p>
+          <div className="flex items-center justify-between pt-2">
+            <NeoButton onClick={copy}>{copied ? "Copied!" : "Copy key"}</NeoButton>
+            <NeoButton
+              onClick={acknowledgeAndContinue}
+              disabled={acking}
+              backgroundColor="#fd3777"
+              textColor="#ffffff"
+            >
+              {acking ? "Saving…" : "I've saved it — continue"}
+            </NeoButton>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -179,7 +323,8 @@ export default function OnboardingWizard() {
     <div className="min-h-screen flex justify-center items-start px-4 py-10">
       <div className="w-full max-w-xl border-4 border-black bg-white p-8 shadow-[8px_8px_0px_0px_#000000]">
         {step === 0 && <WelcomeStep onNext={next} />}
-        {step === 1 && (
+        {step === 1 && <RecoveryKeyStep onNext={next} onBack={back} />}
+        {step === 2 && (
           <UseCaseStep
             selected={useCases}
             onToggle={toggleUseCase}
