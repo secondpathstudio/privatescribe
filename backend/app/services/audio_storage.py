@@ -19,6 +19,7 @@ chunk with is_final=0x01.
 """
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 import struct
@@ -28,6 +29,8 @@ from typing import BinaryIO, Iterator
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+logger = logging.getLogger(__name__)
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from app.security import sqlcipher
@@ -201,7 +204,7 @@ def delete_file(stored_filename: str) -> None:
     except OSError as e:
         # Logged but not raised — DB row deletion shouldn't be blocked by
         # filesystem state. An admin sweep can reconcile orphans.
-        print(f"audio_storage.delete_file({stored_filename}): {e}")
+        logger.error(f"audio_storage.delete_file({stored_filename}): {e}")
 
 
 def file_exists(stored_filename: str) -> bool:
@@ -351,7 +354,7 @@ def commit_reencryption(originals: list[Path]) -> None:
         try:
             os.replace(new_p, p)
         except OSError as e:
-            print(f"audio_storage.commit_reencryption: replace {new_p} -> {p} failed: {e}")
+            logger.error(f"audio_storage.commit_reencryption: replace {new_p} -> {p} failed: {e}")
             if first_error is None:
                 first_error = e
     if first_error is not None:
@@ -367,7 +370,7 @@ def rollback_reencryption(originals: list[Path]) -> None:
         try:
             new_p.unlink(missing_ok=True)
         except OSError as e:
-            print(f"audio_storage.rollback_reencryption: unlink {new_p} failed: {e}")
+            logger.error(f"audio_storage.rollback_reencryption: unlink {new_p} failed: {e}")
 
 
 def recover_pending_reencryption() -> int:
@@ -394,7 +397,7 @@ def recover_pending_reencryption() -> int:
             os.replace(path, target)
             swapped += 1
         except OSError as e:
-            print(f"audio_storage.recover_pending_reencryption: {path} -> {target} failed: {e}")
+            logger.error(f"audio_storage.recover_pending_reencryption: {path} -> {target} failed: {e}")
     if swapped:
-        print(f"audio_storage: recovered {swapped} pending re-encryption swap(s) on boot")
+        logger.info(f"audio_storage: recovered {swapped} pending re-encryption swap(s) on boot")
     return swapped

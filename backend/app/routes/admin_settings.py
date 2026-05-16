@@ -4,6 +4,7 @@ PUTs apply immediately to the running process so admins don't have to restart
 the backend after changing a limit.
 """
 import json
+import logging
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from flask_cors import cross_origin
@@ -14,6 +15,8 @@ from app.security.auth import require_admin
 from app.services import audio_retention, diarization, settings as settings_service
 from app.services import whisper, whisper_manager
 from app.services.audit import log_action
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("admin_settings", __name__, url_prefix="/api/admin/settings")
 
@@ -546,7 +549,7 @@ def update_diarization_device():
         # set_configured_device persisted the choice via settings_service above,
         # but the live move failed. Surface so the admin knows the next
         # transcription will retry on the new device from cold load.
-        print(f"Failed to apply diarization device {value!r}: {type(e).__name__}: {e}")
+        logger.error(f"Failed to apply diarization device {value!r}: {type(e).__name__}: {e}")
         return jsonify({
             "error": f"saved, but could not apply live: {e}",
             "diarization_device": value,
@@ -622,7 +625,7 @@ def whisper_install():
                     return
                 yield json.dumps(event) + "\n"
         except Exception as e:
-            print(f"Whisper install failure: {type(e).__name__}: {e}")
+            logger.error(f"Whisper install failure: {type(e).__name__}: {e}")
             yield json.dumps({
                 "status": "error",
                 "message": f"{type(e).__name__}: {e}",

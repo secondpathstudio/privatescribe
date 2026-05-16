@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from datetime import datetime
@@ -11,6 +12,8 @@ from app.models import AudioFile, Note, NoteAddendum, Participant, Template, Use
 from app.services import audio_storage, note_export, note_search
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
+
+logger = logging.getLogger(__name__)
 
 # Cap server-side search input. Long queries are almost always paste accidents
 # and will just slow FTS down; the UI debounces at ~250ms so this is a hard
@@ -77,7 +80,6 @@ bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 @jwt_required()
 def create_note():
     data = request.get_json(silent=True) or {}
-    print('creating note', data)
 
     note_date = datetime.utcnow()
     if 'noteDate' in data:
@@ -115,7 +117,6 @@ def create_note():
             id=template_id, author_id=current_user, is_deleted=False
         ).first()
         if not template:
-            print('template not found / not available', template_id)
             return jsonify({"error": f"Template with ID {template_id} not found"}), 400
 
     # participants is optional; when present it must be a list. Per-entry
@@ -183,11 +184,6 @@ def create_note():
             participants.append(participant)
 
     incoming_words = data.get('noteContentWords')
-    print(
-        f"[create_note] noteContentWords keys={list(data.keys())[:20]} "
-        f"type={type(incoming_words).__name__} "
-        f"len={len(incoming_words) if isinstance(incoming_words, list) else 'n/a'}"
-    )
     new_note = Note(
         note_content_raw=data['noteContentRaw'],
         note_content_markdown=data['noteContentMarkdown'],
@@ -217,8 +213,6 @@ def create_note():
         participants=participants,
         author_id=current_user,
     )
-
-    print('adding note', new_note)
 
     db.session.add(new_note)
     db.session.flush()
@@ -277,7 +271,6 @@ def get_note(id):
     if not note:
         return jsonify({"error": "Note not found"}), 404
 
-    print('getting note', note)
     log_action(
         'note.view',
         user_id=current_user,
@@ -297,7 +290,7 @@ def get_note(id):
             }
             participants.append(participant_info)
     except Exception as e:
-        print(f"Error accessing participants: {str(e)}")
+        logger.warning(f"Error accessing note participants: {e}")
         participants = []
 
     # Audio metadata so the frontend can render the player conditionally and
@@ -427,7 +420,7 @@ def get_note_audio(id):
             # The browser has already received a 200 + headers by this point,
             # so we can't switch to a JSON error. Log and let the body end
             # short; the <audio> element will surface a decode error.
-            print(f"audio decrypt failure for {audio_row.id}: {type(e).__name__}: {e}")
+            logger.error(f"audio decrypt failure for {audio_row.id}: {type(e).__name__}: {e}")
 
     return Response(generate(), mimetype=mime, headers=headers)
 
@@ -586,7 +579,7 @@ def update_note(id):
 
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating note: {str(e)}")
+        logger.error(f"Error updating note: {e}")
         return jsonify({"error": "Failed to update note"}), 500
 
 
@@ -634,7 +627,7 @@ def update_note_speakers(id):
         return jsonify({"id": note.id, "speakerLabels": note.speaker_labels})
     except Exception as e:
         db.session.rollback()
-        print(f"Error updating note speakers: {str(e)}")
+        logger.error(f"Error updating note speakers: {e}")
         return jsonify({"error": "Failed to update speaker labels"}), 500
 
 
@@ -810,7 +803,6 @@ def mark_note_as_deleted(id):
     if not note:
         return jsonify({"error": "Note not found"}), 404
 
-    print('marking note as deleted', note)
     #TODO add ability for admin to delete any note
 
     # Idempotent: only stamp the trash timer on the active -> deleted
@@ -855,8 +847,6 @@ def delete_note(id):
     blocked = settings_service.trash_purge_block_reason(note.is_deleted_timestamp, noun="note")
     if blocked:
         return jsonify({"error": blocked}), 409
-
-    print('permanently deleting note:', note)
 
     log_action(
         'note.delete_permanent',
@@ -1052,8 +1042,6 @@ def search_notes():
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_notes_for_user(user_id):
-    print("Getting notes for userId: " + user_id)
-
     current_user = get_jwt_identity()
     if current_user != user_id:
         return jsonify({"error": "Not authorized to access notes for this user"}), 403
@@ -1112,7 +1100,7 @@ def get_notes_for_user(user_id):
 
             notes_list.append(note_data)
     except Exception as e:
-        print(f"Error accessing participants: {str(e)}")
+        logger.warning(f"Error accessing note participants: {e}")
         notes_list = []
 
     return jsonify(notes_list)

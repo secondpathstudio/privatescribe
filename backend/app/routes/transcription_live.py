@@ -20,6 +20,7 @@ through /api/transcribe is what gets encrypted.
 """
 from __future__ import annotations
 
+import logging
 import os
 import tempfile
 import threading
@@ -37,6 +38,8 @@ from app.services.diarization import (
     merge_segments,
 )
 from app.services.whisper import transcribe_path
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("transcription_live", __name__)
 
@@ -207,14 +210,14 @@ def transcribe_live():
         try:
             wav_path, window_start_abs, total_duration = _decode_and_slice(sess.audio_path)
         except Exception as e:
-            print(f"Live decode failure: {type(e).__name__}: {e}")
+            logger.error(f"Live decode failure: {type(e).__name__}: {e}")
             return jsonify({"error": "decode_failed", "message": str(e)}), 500
 
         try:
             try:
                 _text, segs, _words = transcribe_path(wav_path)
             except Exception as e:
-                print(f"Live transcribe failure: {type(e).__name__}: {e}")
+                logger.error(f"Live transcribe failure: {type(e).__name__}: {e}")
                 return jsonify({"error": "transcription_failed", "message": str(e)}), 500
 
             # Shift whisper's window-relative segment times into absolute
@@ -235,7 +238,7 @@ def transcribe_live():
                         merged, sess.committed_segments, sess
                     )
                 except DiarizationUnavailable as e:
-                    print(f"Live diarization unavailable: {e}")
+                    logger.warning(f"Live diarization unavailable: {e}")
                     merged = [{
                         "speaker": None,
                         "start": s["start"],

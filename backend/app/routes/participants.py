@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
@@ -8,6 +9,8 @@ from app.extensions import db
 from app.models import Participant
 from app.services.audit import log_action
 
+logger = logging.getLogger(__name__)
+
 bp = Blueprint("participants", __name__, url_prefix="/api/participants")
 
 
@@ -16,7 +19,6 @@ bp = Blueprint("participants", __name__, url_prefix="/api/participants")
 @jwt_required()
 def create_participant():
     data = request.get_json(silent=True) or {}
-    print('creating participant', data)
 
     if not all(k in data for k in ('firstName',)):
         return jsonify({"error": "Missing required fields"}), 400
@@ -31,8 +33,6 @@ def create_participant():
         updated_at=datetime.utcnow(),
         author_id=current_user,
     )
-
-    print('adding template', new_participant)
 
     db.session.add(new_participant)
     db.session.flush()
@@ -62,8 +62,6 @@ def create_participant():
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_participants_for_user(user_id):
-    print("Getting participants")
-
     current_user = get_jwt_identity()
 
     if current_user != user_id:
@@ -71,7 +69,6 @@ def get_participants_for_user(user_id):
 
     participants = Participant.query.filter_by(author_id=user_id).all()
     if not participants:
-        print('no participants found for user', current_user)
         return jsonify([]), 200
 
     participant_list = []
@@ -88,7 +85,7 @@ def get_participants_for_user(user_id):
             }
             participant_list.append(participant_data)
     except Exception as e:
-        print(f"Error getting participants: {str(e)}")
+        logger.error(f"Error getting participants: {e}")
         participant_list = []
 
     return jsonify(participant_list)

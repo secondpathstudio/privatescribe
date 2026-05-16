@@ -173,8 +173,6 @@ def create_template():
         author_id=current_user,
     )
 
-    print('adding template', new_template)
-
     db.session.add(new_template)
     db.session.flush()
     log_action(
@@ -197,8 +195,6 @@ def create_template():
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_templates_for_user(user_id):
-    print("Getting templates for userId: " + user_id)
-
     current_user = get_jwt_identity()
     if current_user != user_id:
         return jsonify({"error": "Not authorized to access templates for this user"}), 403
@@ -210,7 +206,6 @@ def get_templates_for_user(user_id):
 
     templates = query.all()
     if not templates:
-        print('no templates found for user', current_user)
         return jsonify([]), 200
 
     return jsonify([_serialize_template(t) for t in templates])

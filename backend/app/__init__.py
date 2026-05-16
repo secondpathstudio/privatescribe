@@ -10,6 +10,7 @@ Creates a fully wired Flask app:
 - Pre-warms the pyannote diarization pipeline in a background thread so the
   first /api/transcribe call doesn't pay the ~5–10s cold-load cost.
 """
+import logging
 import os
 import threading
 from datetime import timedelta
@@ -27,6 +28,8 @@ from app.routes import register_blueprints
 from app.security import sqlcipher
 from app.security.auth import request_guard
 from app.security.secrets import ensure_jwt_secret, ensure_sqlcipher_key
+
+logger = logging.getLogger(__name__)
 
 
 def create_app() -> Flask:
@@ -134,7 +137,7 @@ def create_app() -> Flask:
                 from app.services.diarization import get_pipeline
                 get_pipeline()
             except Exception as e:
-                print(f"Diarization pre-warm failed (will retry on first request): {type(e).__name__}: {e}")
+                logger.warning(f"Diarization pre-warm failed (will retry on first request): {type(e).__name__}: {e}")
         threading.Thread(target=_prewarm, daemon=True, name="diarization-prewarm").start()
 
     return app

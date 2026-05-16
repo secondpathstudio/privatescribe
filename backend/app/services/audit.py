@@ -6,11 +6,12 @@ The helper pulls request-scoped context (IP, user agent) from Flask's
 present, so callers only need to pass the action and any action-specific
 details.
 
-Failures inside log_action are swallowed (with a print) and never propagate
+Failures inside log_action are swallowed (and logged) and never propagate
 back to the caller — an audit-table write failing should not 500 the
 underlying request, but it should be visible in the server log so it can
 be diagnosed.
 """
+import logging
 from typing import Any, Mapping
 
 from flask import has_request_context, request
@@ -18,6 +19,8 @@ from flask_jwt_extended import get_jwt_identity
 
 from app.extensions import db
 from app.models import AuditLog, User
+
+logger = logging.getLogger(__name__)
 
 
 # Max length of the User-Agent column. Browsers send 100-200 char UAs but a
@@ -120,7 +123,7 @@ def log_action(
             db.session.rollback()
         except Exception:
             pass
-        print(f"[audit] failed to log action={action!r}: {type(e).__name__}: {e}")
+        logger.error(f"[audit] failed to log action={action!r}: {type(e).__name__}: {e}")
 
 
 def diff_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str, dict[str, Any]]:

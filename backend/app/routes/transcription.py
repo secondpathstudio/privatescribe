@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
@@ -21,6 +22,8 @@ from app.services.diarization import (
     segments_to_text,
 )
 from app.services.whisper import prepare_wav, transcribe_path_streaming
+
+logger = logging.getLogger(__name__)
 
 bp = Blueprint("transcription", __name__)
 
@@ -214,7 +217,7 @@ def transcribe():
                 # transcript and surfaces the message. We also include the
                 # word list here so the confidence-highlighting view still
                 # works on the fallback.
-                print(f"Diarization unavailable: {e}")
+                logger.warning(f"Diarization unavailable: {e}")
                 yield json.dumps({
                     "stage": "error",
                     "error": "diarization_unavailable",
@@ -234,7 +237,7 @@ def transcribe():
                 "audio_file_id": audio_file_id,
             }) + "\n"
         except Exception as e:
-            print(f"Transcription failure: {type(e).__name__}: {e}")
+            logger.error(f"Transcription failure: {type(e).__name__}: {e}")
             yield json.dumps({
                 "stage": "error",
                 "error": "transcription_failed",
@@ -259,7 +262,7 @@ def list_ollama_models():
     try:
         models = ollama_client.list_installed_models()
     except Exception as e:
-        print(f"Ollama list failure: {type(e).__name__}: {e}")
+        logger.error(f"Ollama list failure: {type(e).__name__}: {e}")
         return jsonify({
             "error": "Could not reach Ollama. Make sure `ollama serve` is running.",
             "models": [],
@@ -352,7 +355,7 @@ def get_markdown():
     try:
         installed = ollama_client.is_model_installed(model_name)
     except Exception as e:
-        print(f"Ollama unreachable during preflight: {type(e).__name__}: {e}")
+        logger.warning(f"Ollama unreachable during preflight: {type(e).__name__}: {e}")
         return jsonify({
             "error": "AI formatting unavailable. Make sure Ollama is running.",
             "raw_note": raw_note,
@@ -394,7 +397,7 @@ def get_markdown():
         except Exception as e:
             # Mid-stream failure (Ollama disconnected, timeout, etc). The
             # status code is already 200, so we surface the error inline.
-            print(f"Ollama stream failure: {type(e).__name__}: {e}")
+            logger.error(f"Ollama stream failure: {type(e).__name__}: {e}")
             yield json.dumps({
                 "stage": "error",
                 "message": (
@@ -485,7 +488,7 @@ def run_structured():
                 ),
             }), 422
     except Exception as e:
-        print(f"Ollama unreachable during preflight: {type(e).__name__}: {e}")
+        logger.warning(f"Ollama unreachable during preflight: {type(e).__name__}: {e}")
         return jsonify({
             "error": "AI formatting unavailable. Make sure Ollama is running.",
         }), 503
@@ -553,7 +556,7 @@ def run_structured():
                 yield json.dumps(wire_event) + "\n"
 
         except Exception as e:
-            print(f"Structured run failure: {type(e).__name__}: {e}")
+            logger.error(f"Structured run failure: {type(e).__name__}: {e}")
             yield json.dumps({"stage": "error", "message": str(e)}) + "\n"
 
     return Response(generate(), mimetype="application/x-ndjson")
@@ -594,7 +597,7 @@ def pull_ollama_model():
                 yield json.dumps(progress) + "\n"
             yield json.dumps({"status": "success", "done": True}) + "\n"
         except Exception as e:
-            print(f"Ollama pull failure: {type(e).__name__}: {e}")
+            logger.error(f"Ollama pull failure: {type(e).__name__}: {e}")
             yield json.dumps({"error": str(e), "done": True}) + "\n"
 
     return Response(generate(), mimetype="application/x-ndjson")

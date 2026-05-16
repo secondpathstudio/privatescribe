@@ -18,10 +18,13 @@ to CPU. Admins can override at runtime via /api/admin/settings/diarization-devic
 on change the cached pipeline is moved to the new device with `pipeline.to()`
 so subsequent calls use it without a full reload.
 """
+import logging
 import os
 import re
 import threading
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # In-memory state. Mutated by configure_device() / get_pipeline(). Holding the
 # lock around mutations keeps concurrent /api/transcribe and admin-PUT calls
@@ -111,7 +114,7 @@ def set_configured_device(name: str) -> str:
 
         _pipeline.to(torch.device(target))
         _effective_device = target
-        print(f"Diarization pipeline moved to device: {target}")
+        logger.info(f"Diarization pipeline moved to device: {target}")
         return target
 
 
@@ -170,7 +173,7 @@ def get_pipeline():
                 pipeline.to(torch.device(target))
             except Exception as e:
                 if target != "cpu":
-                    print(
+                    logger.warning(
                         f"Diarization pipeline failed to load on {target}: {type(e).__name__}: {e}. "
                         f"Falling back to CPU."
                     )
@@ -181,7 +184,7 @@ def get_pipeline():
 
         _effective_device = target
         _pipeline = pipeline
-        print(f"Diarization pipeline loaded on device: {target}")
+        logger.info(f"Diarization pipeline loaded on device: {target}")
         return _pipeline
 
 
