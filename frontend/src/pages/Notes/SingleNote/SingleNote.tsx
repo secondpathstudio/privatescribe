@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { toast } from "sonner";
 import { Breadcrumbs } from '@/components/ui/breadcrumb'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { useEffect, useState } from 'react'
@@ -143,7 +144,7 @@ useEffect(() => {
           const data = await response.json();
           if (data?.error) msg = data.error;
         } catch { /* not JSON */ }
-        alert(msg);
+        toast.error(msg);
         return;
       }
       const disposition = response.headers.get('Content-Disposition') || '';
@@ -160,7 +161,7 @@ useEffect(() => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('export error', err);
-      alert('Export failed. Check the console for details.');
+      toast.error('Export failed. Check the console for details.');
     } finally {
       setExporting(null);
     }

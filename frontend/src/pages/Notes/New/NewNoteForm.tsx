@@ -1,5 +1,6 @@
 import { API_BASE } from "@/lib/api";
 import { flagOllamaDown } from "@/lib/ollama";
+import { toast } from "sonner";
 import React, { FormEvent, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { format } from 'date-fns'
@@ -180,7 +181,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             }
         } catch (error) {
             console.log('Error submitting note: ', error)
-            alert('Error submitting note. Please try again.');
+            toast.error('Error submitting note. Please try again.');
         }
         setSavingNote(false);
     }
@@ -422,7 +423,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         // Belt-and-suspenders: even if the disabled buttons are bypassed, refuse
         // to spend minutes on whisper+diarization without a template to format against.
         if (!form.getValues('noteTemplate')) {
-            alert('Please select a template before recording or uploading audio.');
+            toast.error('Please select a template before recording or uploading audio.');
             return;
         }
 
@@ -460,7 +461,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // the body as a stream.
             if (response.status === 413) {
                 const errBody = await response.json().catch(() => ({}));
-                alert(errBody.message || 'That file is too large to upload.');
+                toast.error(errBody.message || 'That file is too large to upload.');
                 setStage(null);
                 return;
             }
@@ -527,7 +528,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // keep going to the formatting step (matches old 422 behavior).
             if (finalEvent.stage === 'error' && finalEvent.error === 'diarization_unavailable') {
                 console.warn('Diarization unavailable, falling back to flat transcript:', finalEvent.message);
-                alert(
+                toast.error(
                     `Speaker identification is unavailable: ${finalEvent.message || 'pipeline not configured'}\n\n` +
                     `Continuing with a single-speaker transcript. Uncheck "Identify speakers" to skip this warning.`
                 );
@@ -551,7 +552,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             console.log('Transcription Result:', finalEvent);
 
             if (finalEvent.raw_note === '') {
-                alert('Transcription unable to identify speech. Please try again.');
+                toast.error('Transcription unable to identify speech. Please try again.');
                 setStage(null);
                 return;
             }
@@ -569,7 +570,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             await getMarkdown(finalEvent.raw_note);
         } catch (error: any) {
             console.error('Upload failed:', error);
-            alert(`Upload failed: ${error.message}`);
+            toast.error(`Upload failed: ${error.message}`);
             setStage(null);
         }
     }
@@ -608,7 +609,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     form.setValue('noteContentMarkdown', rawNote);
                     mdxEditorRef.current?.setMarkdown(rawNote);
                     setMarkdown(rawNote);
-                    alert(errBody.message || `Model '${errBody.model}' isn't installed.`);
+                    toast.error(errBody.message || `Model '${errBody.model}' isn't installed.`);
                     return;
                 }
                 throw new Error(errBody.error || `Server error: ${res.status}`);
@@ -699,11 +700,11 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             }
 
             if (errorMessage) {
-                alert(`Structured run failed: ${errorMessage}`);
+                toast.error(`Structured run failed: ${errorMessage}`);
                 return;
             }
             if (finalMarkdown === null) {
-                alert('Structured run ended without a final markdown payload.');
+                toast.error('Structured run ended without a final markdown payload.');
                 return;
             }
 
@@ -717,7 +718,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 throw e;
             }
             console.error('Structured formatting failed:', e);
-            alert(`Formatting failed: ${e.message}`);
+            toast.error(`Formatting failed: ${e.message}`);
         }
     };
 
@@ -780,7 +781,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 // tells the operator which model is missing.
                 if (response.status === 422 && errorData.error === 'model_not_installed') {
                     fallBackToRawTranscript(errorData.raw_note || rawNote);
-                    alert(errorData.message || `The model '${errorData.model}' isn't installed. An admin needs to pull it before this template can be used.`);
+                    toast.error(errorData.message || `The model '${errorData.model}' isn't installed. An admin needs to pull it before this template can be used.`);
                     return;
                 }
                 if (response.status === 503) {
@@ -789,7 +790,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     // user can edit/save manually instead of losing the recording.
                     flagOllamaDown();
                     fallBackToRawTranscript(errorData.raw_note || rawNote);
-                    alert(errorData.error || 'AI formatting unavailable. Showing the raw transcript so you can edit and save manually.');
+                    toast.error(errorData.error || 'AI formatting unavailable. Showing the raw transcript so you can edit and save manually.');
                     return; // don't auto-save; let the user review
                 }
                 throw new Error(errorData.error || `Server error: ${response.status}`);
@@ -847,7 +848,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 setStreamingPreview('');
                 flagOllamaDown();
                 fallBackToRawTranscript(rawNote);
-                alert(streamError);
+                toast.error(streamError);
                 return;
             }
             if (finalMarkdown === null) {
@@ -872,10 +873,10 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 // for hand-editing, same as the 503 path. (Note the backend
                 // request keeps running to completion; we just stop waiting.)
                 fallBackToRawTranscript(rawNote);
-                alert('Formatting cancelled. Showing the raw transcript so you can edit and save it manually.');
+                toast('Formatting cancelled. Showing the raw transcript so you can edit and save it manually.');
             } else {
                 console.error('Failed to get markdown:', error);
-                alert(`Formatting failed: ${error.message}`);
+                toast.error(`Formatting failed: ${error.message}`);
             }
         } finally {
             formattingAbortRef.current = null;

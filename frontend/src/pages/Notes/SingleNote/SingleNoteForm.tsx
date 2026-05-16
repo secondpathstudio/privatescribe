@@ -1,5 +1,6 @@
 import { API_BASE } from "@/lib/api";
 import { flagOllamaDown } from "@/lib/ollama";
+import { toast } from "sonner";
 import React, { FormEvent, ReactEventHandler, useEffect } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { format } from 'date-fns'
@@ -181,7 +182,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             const data = await res.json();
             setApprovedAt(data.approvedAt);
         } catch (e: any) {
-            alert(e.message ?? 'Could not approve note.');
+            toast.error(e.message ?? 'Could not approve note.');
         }
         setSavingNote(false);
     };
@@ -232,7 +233,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 console.log('form data after reset: ', form.getValues());
             }
         } catch (error) {
-            alert('Error submitting note. Please try again.');
+            toast.error('Error submitting note. Please try again.');
             console.log('Error submitting note: ', error)
         }
         setSavingNote(false);
@@ -297,7 +298,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             setSignedAt(data.signedAt ?? null);
             if (data.approvedAt) setApprovedAt(data.approvedAt);
         } catch (e: any) {
-            alert(e.message ?? 'Could not change note status.');
+            toast.error(e.message ?? 'Could not change note status.');
         }
         setSavingNote(false);
     };
@@ -323,7 +324,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             setAddenda((prev) => [...prev, created]);
             setAddendumDraft('');
         } catch (e: any) {
-            alert(e.message ?? 'Could not add addendum.');
+            toast.error(e.message ?? 'Could not add addendum.');
         }
         setAddingAddendum(false);
     };
@@ -344,11 +345,11 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 } else {
                     //note deleted
                     //redirect to notes page
-                    alert('Note deleted successfully');
+                    toast.success('Note deleted successfully');
                     navigation('/notes');
                 }
             } catch (error) {
-                alert('Error deleting note. Please try again.');
+                toast.error('Error deleting note. Please try again.');
                 console.log('Error deleting note: ', error)
             }
         }
@@ -437,11 +438,11 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 } else {
                     //note restored
                     //redirect to notes page
-                    alert('Note restored successfully');
+                    toast.success('Note restored successfully');
                     navigation('/notes');
                 }
             } catch (error) {
-                alert('Error restoring note. Please try again.');
+                toast.error('Error restoring note. Please try again.');
                 console.log('Error restoring note: ', error)
             }
         }
@@ -552,7 +553,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             const newNote = await saveResponse.json();
             navigation(`/notes/${newNote.id}`);
         } catch (e: any) {
-            alert(`Re-transcribe failed: ${e.message}`);
+            toast.error(`Re-transcribe failed: ${e.message}`);
         } finally {
             setRetranscribing(false);
         }
@@ -572,13 +573,13 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 if (!response.ok) {
                     // 409 = note not in trash yet, or still inside the org's
                     // retention window. The server message explains which.
-                    alert(data.error || `Could not delete note (status ${response.status}).`);
+                    toast.error(data.error || `Could not delete note (status ${response.status}).`);
                     return;
                 }
-                alert(data.message || 'Note permanently deleted.');
+                toast.success(data.message || 'Note permanently deleted.');
                 navigation('/notes');
             } catch (error) {
-                alert('Error deleting note permanently. Please try again.');
+                toast.error('Error deleting note permanently. Please try again.');
                 console.log('Error deleting note permanently: ', error)
             }
         }
