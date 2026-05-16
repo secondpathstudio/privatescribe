@@ -1,5 +1,6 @@
 import React, { useState, FormEvent, ChangeEvent, FocusEvent } from 'react';
 import NeoButton from './neo-button';
+import { toast } from 'sonner';
 
 interface FormData {
   name: string;
@@ -145,7 +146,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) => {
       // EmailJS returns plain text "OK" on success, not JSON
       const result = await response.text();
 
-      alert('Thank you for your message, we will get back to you soon!');
+      toast.success('Thank you for your message, we will get back to you soon!');
       setIsSubmitting(false);
       // Reset form data and errors
       setFormData({
@@ -158,7 +159,7 @@ const ContactModal: React.FC<ContactModalProps> = ({ isOpen, onClose }) => {
       
     } catch (error: unknown) {
       console.error('Error sending email:', error);
-      alert('Sorry, there was an error sending your message. Please try again.');
+      toast.error('Sorry, there was an error sending your message. Please try again.');
       setIsSubmitting(false);
     }
   };

@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { toast } from "sonner";
 import UsersTable from "@/components/users-table";
 import { useEffect, useState } from "react";
 
@@ -12,7 +13,7 @@ export default function Users() {
       setUsers(data);
     } catch (error) {
       console.error("Error:", error);
-      alert("Network error. Try again.");
+      toast.error("Network error. Try again.");
     }
   }
 
