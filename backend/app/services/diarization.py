@@ -19,6 +19,7 @@ on change the cached pipeline is moved to the new device with `pipeline.to()`
 so subsequent calls use it without a full reload.
 """
 import os
+import re
 import threading
 from typing import Optional
 
@@ -280,3 +281,31 @@ def merge_segments(whisper_segments: list[dict], diar_turns: list[dict]) -> list
 def segments_to_text(merged_segments: list[dict]) -> str:
     """Render merged speaker segments as `Speaker 1: ...\\nSpeaker 2: ...` for storage and display."""
     return "\n".join(f"{seg['speaker']}: {seg['text']}" for seg in merged_segments)
+
+
+def relabel_speakers(text: Optional[str], speaker_labels: Optional[dict]) -> Optional[str]:
+    """Rewrite raw "Speaker N" labels in `text` with their assigned names.
+
+    `speaker_labels` is the Note.speaker_labels overlay produced by the manual
+    speaker-naming UI: {"Speaker 1": {"participantId": ..., "name": "Dr. Smith"},
+    ...}. Whole-word matching means it rewrites both the line prefixes that
+    segments_to_text() emits ("Speaker 1: ...") and any inline "Speaker 1"
+    mentions in LLM-formatted output. Returns `text` unchanged when there are
+    no labels — callers can pass the value straight through.
+
+    Used so that the LLM formatting pass and the PDF/DOCX exports speak the
+    participants' real names rather than the anonymous diarization labels.
+    """
+    if not text or not speaker_labels:
+        return text
+    # Replace longer labels first so "Speaker 1" can't shadow "Speaker 10".
+    # The \b after the label already blocks that overlap, but ordering keeps
+    # the behavior obvious and robust if the label format ever changes.
+    for raw in sorted(speaker_labels, key=len, reverse=True):
+        entry = speaker_labels.get(raw) or {}
+        name = (entry.get('name') or '').strip()
+        if not name:
+            continue
+        # Function replacement so backslashes/group refs in `name` are literal.
+        text = re.sub(rf"\b{re.escape(raw)}\b", lambda _m, n=name: n, text)
+    return text

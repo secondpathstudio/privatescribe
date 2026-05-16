@@ -38,6 +38,37 @@ def _clean_name(raw) -> str | None:
     return s[:NOTE_NAME_MAX_LEN]
 
 
+def _clean_speaker_labels(raw, segments, author_id):
+    """Validate an incoming speakerLabels map against a note's diarized segments.
+
+    Returns a normalized dict, or None when there's nothing usable. Keys that
+    don't appear in `segments` are dropped (guards against stale labels after
+    a re-transcribe); entries with a blank name are dropped (an unset dropdown
+    falls back to the raw "Speaker N"). A participantId is kept only when it
+    resolves to a contact owned by `author_id` — otherwise the entry survives
+    as a free-text name with participantId=None.
+    """
+    if not isinstance(raw, dict):
+        return None
+    valid_speakers = {
+        s['speaker'] for s in (segments or []) if isinstance(s, dict) and 'speaker' in s
+    }
+    cleaned = {}
+    for speaker, val in raw.items():
+        if speaker not in valid_speakers or not isinstance(val, dict):
+            continue
+        name = val.get('name')
+        name = name.strip() if isinstance(name, str) else ''
+        if not name:
+            continue
+        pid = val.get('participantId')
+        if pid is not None:
+            if not Participant.query.filter_by(id=pid, author_id=author_id).first():
+                pid = None
+        cleaned[speaker] = {"participantId": pid, "name": name[:NOTE_NAME_MAX_LEN]}
+    return cleaned or None
+
+
 bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 
 
@@ -160,6 +191,12 @@ def create_note():
         note_content_raw=data['noteContentRaw'],
         note_content_markdown=data['noteContentMarkdown'],
         note_content_segments=data.get('noteContentSegments'),
+        # Usually None at creation — speakers are typically named later, once
+        # the diarized transcript is reviewed — but accepted here for clients
+        # that label inline before the first save.
+        speaker_labels=_clean_speaker_labels(
+            data.get('speakerLabels'), data.get('noteContentSegments'), current_user
+        ),
         # Per-word Whisper probabilities flow in from the new-note flow's
         # transcription stream. Optional — older clients and pasted-text
         # notes won't supply it.
@@ -217,6 +254,7 @@ def create_note():
         "noteContentRaw": new_note.note_content_raw,
         "noteContentMarkdown": new_note.note_content_markdown,
         "noteContentSegments": new_note.note_content_segments,
+        "speakerLabels": new_note.speaker_labels,
         "noteContentWords": new_note.note_content_words,
         "approvedAt": new_note.approved_at,
         "status": new_note.status,
@@ -279,6 +317,7 @@ def get_note(id):
         "noteContentRaw": note.note_content_raw,
         "noteContentMarkdown": note.note_content_markdown,
         "noteContentSegments": note.note_content_segments,
+        "speakerLabels": note.speaker_labels,
         "noteContentWords": note.note_content_words,
         "approvedAt": note.approved_at,
         "status": note.status,
@@ -545,6 +584,54 @@ def update_note(id):
         db.session.rollback()
         print(f"Error updating note: {str(e)}")
         return jsonify({"error": "Failed to update note"}), 500
+
+
+@bp.route('/<string:id>/speakers', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def update_note_speakers(id):
+    """Assign identities to the diarized speakers of a note.
+
+    Speaker identification is part of transcript review, so the map is
+    editable only while the raw transcript is — once the note is approved
+    (approved_at set) it locks alongside the raw text. Kept separate from
+    the main update endpoint: this is a labeling layer, not note content,
+    so it doesn't bump `version` or round-trip the whole note.
+    """
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    if note.approved_at is not None:
+        return jsonify({
+            "error": "Speaker labels are locked because this note has been approved.",
+        }), 409
+
+    data = request.get_json(silent=True) or {}
+    if 'speakerLabels' in data and data['speakerLabels'] is not None \
+            and not isinstance(data['speakerLabels'], dict):
+        return jsonify({"error": "speakerLabels must be an object"}), 400
+
+    note.speaker_labels = _clean_speaker_labels(
+        data.get('speakerLabels'), note.note_content_segments, current_user
+    )
+    note.updated_at = datetime.utcnow()
+
+    try:
+        log_action(
+            'note.update_speakers',
+            user_id=current_user,
+            resource_type='note',
+            resource_id=note.id,
+            extra={'speakers': sorted((note.speaker_labels or {}).keys())},
+        )
+        db.session.commit()
+        return jsonify({"id": note.id, "speakerLabels": note.speaker_labels})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error updating note speakers: {str(e)}")
+        return jsonify({"error": "Failed to update speaker labels"}), 500
 
 
 @bp.route('/<string:id>/approve', methods=['PUT'])

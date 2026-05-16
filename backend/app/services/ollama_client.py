@@ -301,7 +301,7 @@ def _build_markdown_messages(template, raw_note: str, note_details: dict) -> lis
                 "3. Format all dates as MM/DD/YYYY.\n"
                 "4. Return the filled-in template **as plain text markdown**. No code fences, no extra commentary, no word “markdown”."
                 "5. Do not include any other text or explanation. Do not include the [] tags.\n"
-                "6. If the transcript contains lines starting with `Speaker N:` (e.g. `Speaker 1:`, `Speaker 2:`), treat each line as that speaker's contribution. Preserve speaker attribution when an instruction asks for quotes, who said what, or per-speaker summaries.\n"
+                "6. If the transcript is speaker-attributed — lines beginning with a speaker label followed by a colon, whether a generic label like `Speaker 1:` or a real name like `Dr. Jane Smith:` — treat each line as that speaker's contribution. Preserve speaker attribution, using whatever label the transcript provides, when an instruction asks for quotes, who said what, or per-speaker summaries.\n"
             ),
         },
         {

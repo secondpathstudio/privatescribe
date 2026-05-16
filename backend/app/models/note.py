@@ -24,6 +24,17 @@ class Note(db.Model):
     # user edits the raw text since the frontend uses a forward-greedy match
     # that tolerates substitutions and reordering.
     note_content_words = db.Column(db.JSON, nullable=True)
+    # Manual speaker->identity mapping, layered over note_content_segments.
+    # Keys are the "Speaker N" labels merge_segments() produced; values carry
+    # the assigned identity. participantId links to a Participant row when the
+    # speaker is a saved contact, or is None for a free-text name (a speaker
+    # identified after the fact, with no contact on file). name is always set
+    # — a denormalized snapshot so the label survives a participant rename or
+    # delete, since the note is a point-in-time record. None for un-diarized
+    # or unlabeled notes. Editable until the note is approved, then locked
+    # alongside the raw transcript:
+    #   {"Speaker 1": {"participantId": "<uuid>"|null, "name": "Dr. Jane Smith"}}
+    speaker_labels = db.Column(db.JSON, nullable=True)
     # Approval timestamp. Null while the note is in draft (raw transcript
     # editable, highlights visible). Set when the user clicks Approve, at
     # which point the raw transcript becomes immutable forever — the regular

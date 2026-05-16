@@ -17,6 +17,7 @@ from app.services.diarization import (
     DiarizationUnavailable,
     diarize_path,
     merge_segments,
+    relabel_speakers,
     segments_to_text,
 )
 from app.services.whisper import prepare_wav, transcribe_path_streaming
@@ -311,6 +312,11 @@ def get_markdown():
         return jsonify({"error": "No JSON data provided"}), 400
 
     raw_note = request_data.get('raw_note')
+    # Rewrite "Speaker N" to the named participants before the LLM sees the
+    # transcript, so the formatted note refers to people by name. No-op when
+    # the client sends no labels (e.g. the first-pass format at note creation,
+    # before speakers have been identified).
+    raw_note = relabel_speakers(raw_note, request_data.get('speaker_labels'))
     note_details = request_data.get('note_details', {})
 
     if not all(k in note_details for k in ('note_date', 'participants')):
@@ -442,6 +448,8 @@ def run_structured():
     """
     body = request.get_json(silent=True) or {}
     raw_note = body.get('raw_note')
+    # Same speaker-name rewrite as /getMarkdown — see the note there.
+    raw_note = relabel_speakers(raw_note, body.get('speaker_labels'))
     template_id = body.get('template_id')
     note_details = body.get('note_details') or {}
 

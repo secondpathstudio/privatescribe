@@ -186,7 +186,10 @@ def _per_field_system_prompt(field: dict, level_name: str) -> str:
         "field, in plain text, then stop. Do NOT include: a preamble (\"The HPI is...\", "
         "\"Based on the transcript...\"), the field label, restated context from the "
         "transcript, commentary, explanation, code fences, or wrapping quotes (unless "
-        "the value itself is a quote). Output exactly one answer."
+        "the value itself is a quote). Output exactly one answer. "
+        "If the transcript is speaker-attributed — lines beginning with a speaker label "
+        "and a colon, whether a generic label like `Speaker 1:` or a real name like "
+        "`Dr. Jane Smith:` — use those labels to tell who said what."
     )
     type_hint = {
         'text': "Return a single short line.",

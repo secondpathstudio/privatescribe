@@ -20,7 +20,7 @@ import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 import NoteAudioPlayer, { type NoteAudioPlayerHandle } from '@/components/recording/note-audio-player'
-import DiarizedTranscript from '@/components/recording/diarized-transcript'
+import DiarizedTranscript, { type SpeakerLabels } from '@/components/recording/diarized-transcript'
 import { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
 import EditableConfidenceText from '@/components/transcription/EditableConfidenceText'
 
@@ -63,7 +63,42 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     // Per-word Whisper probabilities from the persisted note. May be null on
     // legacy rows or notes whose audio source didn't go through Whisper.
     const whisperWords: WordInfo[] = note?.noteContentWords ?? [];
+    // Speaker -> identity assignments for the diarized transcript. Mirrored
+    // locally so labels update without a reload after each assignment. Editing
+    // is allowed only until the note is approved (the raw transcript lock).
+    const [speakerLabels, setSpeakerLabels] = React.useState<SpeakerLabels>(
+        note?.speakerLabels ?? {},
+    );
     const navigation = useNavigate();
+
+    const assignSpeaker = async (
+        rawSpeaker: string,
+        value: { participantId: string | null; name: string } | null,
+    ) => {
+        const prev = speakerLabels;
+        const next = { ...prev };
+        if (value) next[rawSpeaker] = value;
+        else delete next[rawSpeaker];
+        setSpeakerLabels(next); // optimistic
+        try {
+            const res = await fetch(`${API_BASE}/api/notes/${note.id}/speakers`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify({ speakerLabels: next }),
+            });
+            if (!res.ok) throw new Error(`speakers PUT failed: ${res.status}`);
+            // Re-sync from the server's cleaned map — it drops stale or
+            // unresolvable entries, so this is the source of truth.
+            const data = await res.json();
+            setSpeakerLabels(data.speakerLabels ?? {});
+        } catch (e) {
+            console.log('Failed to save speaker labels:', e);
+            setSpeakerLabels(prev); // roll back the optimistic update
+        }
+    };
 
     const form = useForm({
         defaultValues: {
@@ -426,6 +461,9 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 },
                 body: JSON.stringify({
                     raw_note: note.noteContentRaw,
+                    // Backend rewrites "Speaker N" to the assigned names before
+                    // the LLM sees the transcript.
+                    speaker_labels: speakerLabels,
                     note_details: {
                         note_date: note.noteDate,
                         template_id: retranscribeTemplateId,
@@ -791,6 +829,10 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                         <FormLabel>Raw Transcription</FormLabel>
                         <DiarizedTranscript
                             segments={note.noteContentSegments}
+                            speakerLabels={speakerLabels}
+                            participants={Array.isArray(note?.participants) ? note.participants : []}
+                            editable={approvedAt === null}
+                            onAssign={assignSpeaker}
                             onSeek={note?.hasAudio ? (s) => audioPlayerRef.current?.seek(s) : undefined}
                         />
                     </div>

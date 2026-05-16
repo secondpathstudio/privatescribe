@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Optional
 
 from docx import Document
 from reportlab.lib.pagesizes import letter
+
+from app.services.diarization import relabel_speakers
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
@@ -195,7 +197,10 @@ def render_pdf(note: "Note", *, template_name: Optional[str] = None) -> bytes:
     story.append(HRFlowable(width="100%", thickness=1, color="#000000"))
     story.append(Spacer(1, 12))
 
-    for blk in _parse_blocks(note.note_content_markdown or ""):
+    # Rewrite anonymous "Speaker N" labels to the named participants the user
+    # assigned, so the exported document reads in real names.
+    markdown = relabel_speakers(note.note_content_markdown or "", note.speaker_labels)
+    for blk in _parse_blocks(markdown or ""):
         if blk.kind.startswith("h"):
             level = int(blk.kind[1])
             story.append(Paragraph(_inline_to_rl(blk.text), head[level]))
@@ -242,7 +247,8 @@ def render_docx(note: "Note", *, template_name: Optional[str] = None) -> bytes:
     # Blank line + visual separation before the body.
     document.add_paragraph()
 
-    for blk in _parse_blocks(note.note_content_markdown or ""):
+    markdown = relabel_speakers(note.note_content_markdown or "", note.speaker_labels)
+    for blk in _parse_blocks(markdown or ""):
         if blk.kind.startswith("h"):
             level = int(blk.kind[1])
             # python-docx supports headings 1-9; we already cap at 4.
