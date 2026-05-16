@@ -1,6 +1,11 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage, shell } from 'electron';
 import * as path from 'path';
-import { startBackend, stopBackend, type BackendInfo } from './backend-process';
+import {
+  onBackendCrash,
+  startBackend,
+  stopBackend,
+  type BackendInfo,
+} from './backend-process';
 
 // Set early so app.getName() and macOS menus pick this up instead of "Electron".
 // In a packaged build this comes from CFBundleName in Info.plist (driven by
@@ -139,6 +144,30 @@ async function createWindow(apiBase: string): Promise<void> {
   }
 }
 
+function handleBackendCrash(code: number | null, stderrTail: string): void {
+  // The Python backend exited on its own after a clean start — every API
+  // call from the renderer will now fail. Tell the user plainly and offer a
+  // restart rather than leaving them with a silently broken window.
+  const tail = stderrTail.trim();
+  const detail =
+    `The PrivateScribe engine stopped unexpectedly (exit code ${code ?? 'unknown'}).\n\n` +
+    'The app needs to restart to keep working.' +
+    (tail ? `\n\nLast log output:\n${tail.slice(-1500)}` : '');
+  const choice = dialog.showMessageBoxSync({
+    type: 'error',
+    title: 'PrivateScribe stopped working',
+    message: 'The PrivateScribe engine stopped unexpectedly.',
+    detail,
+    buttons: ['Restart', 'Quit'],
+    defaultId: 0,
+    cancelId: 1,
+  });
+  if (choice === 0) {
+    app.relaunch();
+  }
+  app.quit();
+}
+
 app.whenReady().then(async () => {
   // In dev the Dock icon comes from the Electron binary, so override at
   // runtime. PNG is more reliable than icns for nativeImage.createFromPath.
@@ -176,6 +205,9 @@ app.whenReady().then(async () => {
       app.quit();
       return;
     }
+    // Backend started cleanly — watch it for an unexpected exit so a
+    // mid-session crash surfaces a dialog instead of a silently broken UI.
+    onBackendCrash(backend, handleBackendCrash);
     apiBase = `http://127.0.0.1:${backend.port}`;
   }
 

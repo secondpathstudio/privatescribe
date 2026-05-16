@@ -10,6 +10,15 @@ export interface BackendInfo {
 const PORT_LINE = /PRIVATESCRIBE_PORT=(\d+)/;
 const STARTUP_TIMEOUT_MS = 30_000;
 
+// Set true once we intentionally stop the backend (app quitting) so the crash
+// watcher can tell a clean shutdown apart from an unexpected exit.
+let stopping = false;
+
+// Rolling tail of the backend's stderr, kept so a crash dialog can show the
+// last thing it printed — usually a Python traceback. Capped to stay small.
+const STDERR_TAIL_MAX = 4000;
+let stderrTail = '';
+
 export async function startBackend(): Promise<BackendInfo> {
   // In a packaged app the PyInstaller binary lives at
   // <Resources>/backend/privatescribe-backend. process.resourcesPath is the
@@ -45,7 +54,9 @@ export async function startBackend(): Promise<BackendInfo> {
     });
 
     child.stderr?.on('data', (chunk: Buffer) => {
-      console.error('[backend stderr]', chunk.toString());
+      const text = chunk.toString();
+      stderrTail = (stderrTail + text).slice(-STDERR_TAIL_MAX);
+      console.error('[backend stderr]', text);
     });
 
     // spawn() failures (e.g. the binary is missing) surface here, not as a
@@ -64,7 +75,23 @@ export async function startBackend(): Promise<BackendInfo> {
   return { process: child, port };
 }
 
+/**
+ * Watch an already-started backend for an *unexpected* exit. The callback
+ * fires at most once, and never for the exit caused by stopBackend() during a
+ * normal app quit. `stderrTail` is the last few KB the backend logged.
+ */
+export function onBackendCrash(
+  info: BackendInfo,
+  callback: (code: number | null, stderrTail: string) => void,
+): void {
+  info.process.once('exit', (code) => {
+    if (stopping) return;
+    callback(code, stderrTail);
+  });
+}
+
 export function stopBackend(info: BackendInfo): void {
+  stopping = true;
   if (!info.process.killed) {
     info.process.kill();
   }
