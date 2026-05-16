@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { toast } from "sonner";
 import React, { FormEvent, useEffect } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -109,7 +110,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                 });
             }
         } catch (error) {
-            alert('Error submitting template. Please try again.');
+            toast.error('Error submitting template. Please try again.');
             console.log('Error submitting template: ', error)
         }
         setUpdating(false);
@@ -138,7 +139,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                 
                 if (data.message) {
                     setUpdating(false);
-                    alert(data.message + ' - Redirecting to templates page');
+                    toast.success(data.message);
 
                     //redirect to templates page
                     navigate('/templates');
@@ -148,7 +149,7 @@ const SingleTemplateForm = ({ template }: Props) => {
 
             }
         } catch (error) {
-            alert('Error deleting template. Please try again.');
+            toast.error('Error deleting template. Please try again.');
             console.log('Error deleting template: ', error)
             setUpdating(false);
         }
@@ -171,14 +172,14 @@ const SingleTemplateForm = ({ template }: Props) => {
                 // 409 = template not in trash yet, or still inside the org's
                 // retention window. The server message explains which.
                 setUpdating(false);
-                alert(data.error || `Could not delete template (status ${response.status}).`);
+                toast.error(data.error || `Could not delete template (status ${response.status}).`);
                 return;
             }
             setUpdating(false);
-            alert((data.message || 'Template permanently deleted.') + ' - Redirecting to templates page');
+            toast.success(data.message || 'Template permanently deleted.');
             navigate('/templates');
         } catch (error) {
-            alert('Error permanently deleting template. Please try again.');
+            toast.error('Error permanently deleting template. Please try again.');
             console.log('Error permanently deleting template: ', error);
             setUpdating(false);
         }
@@ -207,7 +208,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                 
                 if (data.message) {
                     setUpdating(false);
-                    alert(data.message + ' - Redirecting to templates page');
+                    toast.success(data.message);
                     
                     //redirect to notes page
                     navigate('/templates');
@@ -217,7 +218,7 @@ const SingleTemplateForm = ({ template }: Props) => {
 
             }
         } catch (error) {
-            alert('Error restoring template. Please try again.');
+            toast.error('Error restoring template. Please try again.');
             console.log('Error restoring template: ', error)
             setUpdating(false);
         }

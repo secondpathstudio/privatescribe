@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { toast } from "sonner";
 import React, { FormEvent, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -82,7 +83,7 @@ const NewTemplateForm = () => {
                 navigate(`/templates`);
             }
         } catch (error) {
-            alert('Error creating template. Please try again.');
+            toast.error('Error creating template. Please try again.');
             console.log('Error creating template: ', error)
         }
         setSavingTemplate(false);

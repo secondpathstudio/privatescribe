@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { toast } from "sonner";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Trash2 } from "lucide-react";
@@ -89,10 +90,10 @@ const StudioTemplateView = ({ template }: Props) => {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || `status ${res.status}`);
-            alert((data.message || 'Template moved to trash.') + ' - Redirecting to templates page');
+            toast.success(data.message || 'Template moved to trash.');
             navigate('/templates');
         } catch (err: any) {
-            alert('Error deleting template. Please try again.');
+            toast.error('Error deleting template. Please try again.');
             console.log('Error deleting template:', err);
             setBusy(false);
         }
@@ -110,10 +111,10 @@ const StudioTemplateView = ({ template }: Props) => {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || `status ${res.status}`);
-            alert((data.message || 'Template restored.') + ' - Redirecting to templates page');
+            toast.success(data.message || 'Template restored.');
             navigate('/templates');
         } catch (err: any) {
-            alert('Error restoring template. Please try again.');
+            toast.error('Error restoring template. Please try again.');
             console.log('Error restoring template:', err);
             setBusy(false);
         }
@@ -131,14 +132,14 @@ const StudioTemplateView = ({ template }: Props) => {
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
-                alert(data.error || `Could not delete template (status ${res.status}).`);
+                toast.error(data.error || `Could not delete template (status ${res.status}).`);
                 setBusy(false);
                 return;
             }
-            alert((data.message || 'Template permanently deleted.') + ' - Redirecting to templates page');
+            toast.success(data.message || 'Template permanently deleted.');
             navigate('/templates');
         } catch (err: any) {
-            alert('Error permanently deleting template. Please try again.');
+            toast.error('Error permanently deleting template. Please try again.');
             console.log('Error permanently deleting template:', err);
             setBusy(false);
         }
