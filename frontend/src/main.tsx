@@ -42,6 +42,7 @@ import TranscriptionSection from './pages/Admin/sections/Transcription.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 import Og from './pages/Og/Og.tsx'
 import OnboardingWizard from './pages/Onboarding/OnboardingWizard.tsx'
+import UserOnboarding from './pages/Onboarding/UserOnboarding.tsx'
 import OllamaGate from './components/OllamaGate.tsx'
 import { Toaster } from './components/ui/sonner.tsx'
 
@@ -54,6 +55,7 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         <Route path="/og" element={<Og />} />
         <Route path="/welcome" element={<RequireAdmin><OnboardingWizard /></RequireAdmin>} />
+        <Route path="/getting-started" element={<RequireAuth><UserOnboarding /></RequireAuth>} />
         <Route element={<RootLayout />}>
           <Route path="/" element={<App />} />
           

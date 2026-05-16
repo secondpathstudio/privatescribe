@@ -36,6 +36,9 @@ interface User {
   // Admin-configured idle timeout in minutes (0 = disabled). The IdleLogout
   // component signs the user out after this long with no user input.
   idleTimeoutMinutes?: number;
+  // False until the user finishes first-run onboarding. Drives post-login
+  // routing — a new non-admin user is sent to the /getting-started intro.
+  hasOnboarded?: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

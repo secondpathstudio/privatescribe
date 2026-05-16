@@ -31,9 +31,14 @@ export default function Login() {
   // Client-side redirect — preserves in-memory state (notably the pending
   // backup-key modal) instead of doing a full page reload that wipes it.
   if (auth.token) {
-    // A just-created admin (needsSetup is still true on this screen) goes
-    // through the onboarding wizard first; everyone else lands on their notes.
-    return <Navigate to={needsSetup ? "/welcome" : "/notes"} replace />;
+    // A just-created admin (needsSetup still true here) goes through the full
+    // setup wizard; a new non-admin user gets the lighter intro; everyone
+    // else lands on their notes.
+    if (needsSetup) return <Navigate to="/welcome" replace />;
+    if (auth.user && auth.user.role !== "admin" && !auth.user.hasOnboarded) {
+      return <Navigate to="/getting-started" replace />;
+    }
+    return <Navigate to="/notes" replace />;
   }
 
   // Brief blank while we check setup state. Fast (one localhost roundtrip).
