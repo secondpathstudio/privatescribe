@@ -89,14 +89,16 @@ def create_note():
         except ValueError:
             return jsonify({"error": "noteDate must be a valid ISO 8601 date string"}), 400
 
-    if not all(k in data for k in (
-        'noteContentRaw',
-        'noteContentMarkdown',
-        'authorName',
-        'noteDate',
-    )):
-        print('missing required fields', data)
-        return jsonify({"error": "Missing required fields"}), 400
+    # All four fields are required. noteContentRaw / noteContentMarkdown /
+    # authorName back NOT NULL string columns — a present-but-null value would
+    # otherwise reach the model as None and fail with a 500 IntegrityError, so
+    # require an actual string here. noteDate's value is validated above; this
+    # only confirms the key is present.
+    for field in ('noteContentRaw', 'noteContentMarkdown', 'authorName'):
+        if not isinstance(data.get(field), str):
+            return jsonify({"error": f"{field} is required and must be a string"}), 400
+    if 'noteDate' not in data:
+        return jsonify({"error": "noteDate is required"}), 400
 
     current_user = get_jwt_identity()
 
