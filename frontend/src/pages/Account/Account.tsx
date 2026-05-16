@@ -171,27 +171,31 @@ export default function Account() {
         </form>
       </section>
 
-      <TwoFactorSection />
+      {/* A forced password change locks every backend endpoint except the
+          change-password call, so render only that form until it's done. */}
+      {!forced && <TwoFactorSection />}
 
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-xl font-black">Transcription overlays</h2>
-          <p className="text-sm text-muted-foreground">
-            Your personal additions on top of any admin-wide defaults. These
-            apply to every recording you transcribe.
-          </p>
-        </div>
-        <VocabularyEditor
-          endpoint="/api/user/vocabulary"
-          title="My vocabulary"
-          description="Domain terms Whisper should expect to hear. Useful for drug names, frequent patient names, or jargon Whisper tends to mangle."
-        />
-        <AbbreviationsEditor
-          endpoint="/api/user/abbreviations"
-          title="My abbreviations"
-          description="Short forms that should be expanded in your transcripts after Whisper finishes."
-        />
-      </section>
+      {!forced && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-xl font-black">Transcription overlays</h2>
+            <p className="text-sm text-muted-foreground">
+              Your personal additions on top of any admin-wide defaults. These
+              apply to every recording you transcribe.
+            </p>
+          </div>
+          <VocabularyEditor
+            endpoint="/api/user/vocabulary"
+            title="My vocabulary"
+            description="Domain terms Whisper should expect to hear. Useful for drug names, frequent patient names, or jargon Whisper tends to mangle."
+          />
+          <AbbreviationsEditor
+            endpoint="/api/user/abbreviations"
+            title="My abbreviations"
+            description="Short forms that should be expanded in your transcripts after Whisper finishes."
+          />
+        </section>
+      )}
     </div>
   );
 }

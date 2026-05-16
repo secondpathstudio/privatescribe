@@ -25,6 +25,7 @@ from app.json_provider import ISODateJSONProvider
 from app.paths import data_dir
 from app.routes import register_blueprints
 from app.security import sqlcipher
+from app.security.auth import enforce_password_change
 from app.security.secrets import ensure_jwt_secret, ensure_sqlcipher_key
 
 
@@ -88,6 +89,11 @@ def create_app() -> Flask:
     register_blueprints(app)
     register_error_handlers(app)
     register_cli(app)
+
+    # App-wide guard: a user flagged force_password_change is locked out of
+    # every endpoint except password change + auth bookkeeping. Registered
+    # here, not per-route, so a new blueprint can't silently skip it.
+    app.before_request(enforce_password_change)
 
     with app.app_context():
         db.create_all()
