@@ -58,8 +58,8 @@ const Roadmap = () => {
       status: "in-progress",
       items: [
         { text: "Standalone desktop app", completed: true },
-        { text: "PrivateScribe Studio — design richer templates for more detailed, customizable notes", completed: false },
         { text: "Named participant assignment to diarized speakers", completed: false },
+        { text: "PrivateScribe Studio — design richer templates for more detailed, customizable notes", completed: false },
       ],
       gradient: "linear-gradient(135deg, #ff9900, #ffff00)",
       icon: <Rocket className="w-8 h-8" />
