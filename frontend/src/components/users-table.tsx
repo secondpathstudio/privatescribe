@@ -18,6 +18,7 @@ interface User {
   twoFactorEnrolled?: boolean;
   isActive?: boolean;
   roles?: { id: string; name: string }[];
+  organization?: { id: string; name: string } | null;
 }
 
 const formatLocal = (value?: string) => {
@@ -99,6 +100,7 @@ export default function UsersTable({ users }: { users: User[] }) {
             <TableHead>Status</TableHead>
             <TableHead>2FA</TableHead>
             <TableHead>Roles</TableHead>
+            <TableHead>Organization</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -155,6 +157,13 @@ export default function UsersTable({ users }: { users: User[] }) {
                       </span>
                     )}
                   </button>
+                </TableCell>
+                <TableCell>
+                  {user.organization?.name ? (
+                    <span className="text-sm">{user.organization.name}</span>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {isSelf ? (

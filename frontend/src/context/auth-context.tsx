@@ -15,6 +15,9 @@ interface User {
   firstName: string;
   lastName: string;
   role: string;
+  // The organization this user belongs to (one org per install today).
+  // Set by the admin at first-run; inherited by every user.
+  organization?: { id: string; name: string } | null;
   lastLogin: string;
   forcePasswordChange?: boolean;
   // True when this admin needs to view + back up the encryption key.

@@ -32,6 +32,10 @@ def _user_payload(user) -> dict:
         "firstName": user.first_name,
         "lastName": user.last_name,
         "role": user.role,
+        "organization": (
+            {"id": user.organization.id, "name": user.organization.name}
+            if user.organization else None
+        ),
         "lastLogin": user.last_login,
         "forcePasswordChange": user.force_password_change,
         "hasOnboarded": user.has_onboarded,

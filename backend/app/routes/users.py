@@ -4,7 +4,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, limiter
-from app.models import Role, User
+from app.models import Organization, Role, User
 from app.security import sessions
 from app.security.auth import require_admin
 from app.services import two_factor
@@ -48,6 +48,10 @@ def get_all_users():
         "twoFactorEnrolled": two_factor.is_enrolled(user),
         "isActive": user.is_active,
         "roles": [{"id": r.id, "name": r.name} for r in user.roles],
+        "organization": (
+            {"id": user.organization.id, "name": user.organization.name}
+            if user.organization else None
+        ),
     } for user in users]
 
     return jsonify(users_list)
@@ -70,6 +74,9 @@ def admin_create_user():
     if User.query.filter_by(email=data['email']).first():
         return jsonify({"error": "User email already exists"}), 400
 
+    # New users inherit the install's organization (one org per install).
+    org = Organization.query.first()
+
     new_user = User(
         first_name=data['firstName'],
         last_name=data['lastName'],
@@ -77,6 +84,7 @@ def admin_create_user():
         role=role,
         password=generate_password_hash(data['password'], method='pbkdf2:sha256'),
         last_login=None,
+        organization_id=org.id if org else None,
     )
     db.session.add(new_user)
     db.session.flush()
@@ -102,6 +110,9 @@ def admin_create_user():
         "lastLogin": new_user.last_login,
         "isActive": new_user.is_active,
         "roles": [],
+        "organization": (
+            {"id": org.id, "name": org.name} if org else None
+        ),
     }), 201
 
 
