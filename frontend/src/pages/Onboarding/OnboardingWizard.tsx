@@ -367,23 +367,31 @@ type ModelPickerStepProps = StepProps & {
 
 type PickerPhase = "loading" | "ready" | "down";
 
-// When the engine is down we don't assume the user has Ollama and rush to
-// install it. Instead we ask: "ask" presents the yes/no question, "have-it"
-// tells an existing user to start Ollama, "install" walks a new user through
-// downloading it.
-type DownStep = "ask" | "have-it" | "install";
+// When the engine is down we don't assume the user has Ollama, and we never
+// start the bundled runtime behind their back. Instead we ask: "ask" presents
+// the yes/no question, "have-it" waits for an existing user to start their own
+// Ollama, "bundled" starts PrivateScribe's built-in engine on demand.
+type DownStep = "ask" | "have-it" | "bundled";
 
-// Step 4 of the wizard: pick the local language model. The chosen model is
-// downloaded here (streamed `ollama pull` with a progress bar) and reported up
-// so the wizard can persist it as the app-wide default. When the engine is
-// down — the bundled runtime hasn't come up, or this is a non-bundled
-// install — we branch on whether the user already has Ollama before offering
-// to install it.
+// Progress of the on-demand bundled-engine launch within the "bundled" step.
+type BundledState = "starting" | "failed";
+
+// Step 4 of the wizard: get a local AI engine running, then pick the language
+// model. The chosen model is downloaded here (streamed `ollama pull` with a
+// progress bar) and reported up so the wizard can persist it as the app-wide
+// default. When the engine is down we ask whether the user already has Ollama:
+// if so, we wait for them to start it; if not, we start PrivateScribe's
+// bundled runtime on demand — never automatically, so a user who already runs
+// Ollama is never saddled with a second engine.
 function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStepProps) {
   const auth = useAuth();
   const [phase, setPhase] = useState<PickerPhase>("loading");
   // Which "engine down" screen to show. Only meaningful while phase === "down".
   const [downStep, setDownStep] = useState<DownStep>("ask");
+  // Progress of the bundled-engine launch. Only meaningful in the "bundled"
+  // down-step.
+  const [bundledState, setBundledState] = useState<BundledState>("starting");
+  const [bundledError, setBundledError] = useState<string | null>(null);
   // Normalized tags of models already present in Ollama.
   const [installed, setInstalled] = useState<Set<string>>(new Set());
   const [pulling, setPulling] = useState(false);
@@ -391,34 +399,94 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
   const [pullError, setPullError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Load the installed-model list so each card can show "installed" vs a
-  // download size. A 503 / network failure means the local engine isn't up.
-  const loadInstalled = useCallback(async () => {
-    setPhase("loading");
+  // The Electron-only Ollama bridge. Undefined in a plain browser, where there
+  // is no bundled runtime to start.
+  const ollamaApi =
+    typeof window !== "undefined" ? window.electron?.ollama : undefined;
+
+  // Probe the engine and load the installed-model list. Returns whether the
+  // engine answered; on success it flips the phase to "ready". It never sets
+  // phase to "loading" or "down" itself, so it can double as a no-flicker
+  // auto-poll while we wait for an engine to come up.
+  const refreshModels = useCallback(async (): Promise<boolean> => {
     try {
       const res = await fetch(`${API_BASE}/api/ollama/models`, {
         headers: { Authorization: `Bearer ${auth.token}` },
       });
-      if (!res.ok) {
-        setPhase("down");
-        return;
-      }
+      if (!res.ok) return false;
       const data = await res.json();
       const models: { name: string }[] = data.models || [];
       setInstalled(new Set(models.map((m) => normalizeTag(m.name))));
       setPhase("ready");
+      return true;
     } catch {
-      setPhase("down");
+      return false;
     }
   }, [auth.token]);
 
+  // First probe on mount: engine up → "ready", otherwise → "down" so we can
+  // ask the user how they want to proceed.
   useEffect(() => {
-    loadInstalled();
-  }, [loadInstalled]);
+    let cancelled = false;
+    (async () => {
+      const ok = await refreshModels();
+      if (!cancelled && !ok) setPhase("down");
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshModels]);
+
+  // While waiting for an engine — the user's own Ollama, or the bundled one —
+  // poll until it answers; refreshModels() then flips the phase to "ready".
+  useEffect(() => {
+    if (phase !== "down") return;
+    const waiting =
+      downStep === "have-it" ||
+      (downStep === "bundled" && bundledState === "starting");
+    if (!waiting) return;
+    const id = setInterval(() => {
+      void refreshModels();
+    }, 2500);
+    return () => clearInterval(id);
+  }, [phase, downStep, bundledState, refreshModels]);
 
   // Abort an in-flight pull if the user leaves the step. Ollama resumes a
   // partial download on the next pull, so this costs nothing.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // "Yes, I have Ollama" — remember the choice and wait for the user to start
+  // their own Ollama; the poll above advances to the picker once it answers.
+  const chooseSystem = () => {
+    void ollamaApi?.setMode("system");
+    setDownStep("have-it");
+  };
+
+  // "No, I don't have Ollama" / the escape hatch — start PrivateScribe's
+  // bundled engine on demand. The IPC call resolves once the runtime answers
+  // (or fails), so we get a definitive result to drive the UI.
+  const startBundledEngine = useCallback(async () => {
+    setDownStep("bundled");
+    setBundledState("starting");
+    setBundledError(null);
+    if (!ollamaApi) {
+      // Plain browser build: there is no bundled runtime to start. Fall back
+      // to walking the user through a manual Ollama install.
+      setBundledState("failed");
+      return;
+    }
+    const result = await ollamaApi.startBundled();
+    if (result.ok) {
+      // Confirm through the backend, then drop into the model picker.
+      if (!(await refreshModels())) {
+        setBundledState("failed");
+        setBundledError("The engine started but isn't responding yet.");
+      }
+    } else {
+      setBundledState("failed");
+      setBundledError(result.error || "The built-in engine couldn't start.");
+    }
+  }, [ollamaApi, refreshModels]);
 
   const selectedIsInstalled = installed.has(normalizeTag(selected));
   const selectedModel =
@@ -505,35 +573,36 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
       {phase === "down" && downStep === "ask" && (
         <div className="flex flex-col gap-3">
           <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
-            <p className="font-bold">The local AI engine isn't running.</p>
+            <p className="font-bold">The local AI engine isn't running yet.</p>
             <p className="mt-1">
-              PrivateScribe uses Ollama — a small, free program — to run AI
-              models privately on this device. Do you already have Ollama
-              installed?
+              PrivateScribe needs a local AI engine — Ollama — to turn
+              transcripts into formatted notes. It ships with its own built-in
+              copy, but if you already run Ollama yourself we'll use that one
+              instead. Do you already have Ollama installed?
             </p>
           </div>
           <button
             type="button"
-            onClick={() => setDownStep("have-it")}
+            onClick={chooseSystem}
             className="border-4 border-black bg-white p-4 text-left text-black transition-colors hover:bg-gray-100"
           >
             <div className="font-black uppercase tracking-wide">
-              Yes, I have Ollama
+              Yes, I already have Ollama
             </div>
             <div className="mt-1 text-xs">
-              I've installed it before — I just need to start it.
+              Use my existing Ollama — I just need to start it.
             </div>
           </button>
           <button
             type="button"
-            onClick={() => setDownStep("install")}
+            onClick={() => void startBundledEngine()}
             className="border-4 border-black bg-white p-4 text-left text-black transition-colors hover:bg-gray-100"
           >
             <div className="font-black uppercase tracking-wide">
-              No, I need to install it
+              No — use the built-in engine
             </div>
             <div className="mt-1 text-xs">
-              Walk me through downloading and installing Ollama.
+              Start PrivateScribe's own AI engine. Nothing else to install.
             </div>
           </button>
         </div>
@@ -557,52 +626,114 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
             stop working.
           </p>
           <p>
-            Once Ollama is running, click <strong>Re-check</strong> below.
+            PrivateScribe is watching for it — this page continues on its own
+            as soon as Ollama is up.
           </p>
-          <button
-            type="button"
-            onClick={() => setDownStep("ask")}
-            className="self-start pt-1 text-xs font-bold uppercase tracking-wider underline"
-          >
-            ← Back
-          </button>
+          <div className="flex flex-wrap items-center gap-4 pt-1">
+            <button
+              type="button"
+              onClick={() => setDownStep("ask")}
+              className="text-xs font-bold uppercase tracking-wider underline"
+            >
+              ← Back
+            </button>
+            <button
+              type="button"
+              onClick={() => void startBundledEngine()}
+              className="text-xs font-bold uppercase tracking-wider underline"
+            >
+              Use the built-in engine instead
+            </button>
+          </div>
         </div>
       )}
 
-      {phase === "down" && downStep === "install" && (
-        <div className="flex flex-col gap-2 border-4 border-black bg-yellow-100 p-4 text-sm">
-          <p className="font-black uppercase tracking-wide">Install Ollama</p>
-          <ol className="ml-5 list-decimal space-y-1">
-            <li>
-              Go to{" "}
-              <a
-                href="https://ollama.com/download"
-                target="_blank"
-                rel="noreferrer"
-                className="font-bold underline"
+      {phase === "down" &&
+        downStep === "bundled" &&
+        bundledState === "starting" && (
+          <div className="flex flex-col gap-2 border-4 border-black bg-yellow-100 p-4 text-sm">
+            <p className="animate-pulse font-black uppercase tracking-wide">
+              Starting the built-in AI engine…
+            </p>
+            <p>
+              PrivateScribe is starting its own local AI engine. The first
+              launch can take a moment — this page continues on its own once
+              it's ready.
+            </p>
+          </div>
+        )}
+
+      {phase === "down" &&
+        downStep === "bundled" &&
+        bundledState === "failed" &&
+        ollamaApi && (
+          <div className="flex flex-col gap-2 border-4 border-black bg-red-100 p-4 text-sm">
+            <p className="font-black uppercase tracking-wide">
+              The built-in engine didn't start
+            </p>
+            {bundledError && (
+              <p className="whitespace-pre-wrap break-words font-mono text-xs">
+                {bundledError}
+              </p>
+            )}
+            <p>You can try again, or start your own Ollama instead.</p>
+            <div className="flex flex-wrap items-center gap-4 pt-1">
+              <button
+                type="button"
+                onClick={() => void startBundledEngine()}
+                className="text-xs font-bold uppercase tracking-wider underline"
               >
-                ollama.com/download
-              </a>{" "}
-              and download Ollama for your system.
-            </li>
-            <li>Open the downloaded file and follow the installer.</li>
-            <li>
-              Launch Ollama. It runs quietly in the background — keep it
-              running whenever you use PrivateScribe.
-            </li>
-            <li>
-              Come back here and click <strong>Re-check</strong>.
-            </li>
-          </ol>
-          <button
-            type="button"
-            onClick={() => setDownStep("ask")}
-            className="self-start pt-1 text-xs font-bold uppercase tracking-wider underline"
-          >
-            ← Back
-          </button>
-        </div>
-      )}
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={() => setDownStep("ask")}
+                className="text-xs font-bold uppercase tracking-wider underline"
+              >
+                ← Back
+              </button>
+            </div>
+          </div>
+        )}
+
+      {/* Plain browser build — no bundled runtime; walk a manual install. */}
+      {phase === "down" &&
+        downStep === "bundled" &&
+        bundledState === "failed" &&
+        !ollamaApi && (
+          <div className="flex flex-col gap-2 border-4 border-black bg-yellow-100 p-4 text-sm">
+            <p className="font-black uppercase tracking-wide">Install Ollama</p>
+            <ol className="ml-5 list-decimal space-y-1">
+              <li>
+                Go to{" "}
+                <a
+                  href="https://ollama.com/download"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline"
+                >
+                  ollama.com/download
+                </a>{" "}
+                and download Ollama for your system.
+              </li>
+              <li>Open the downloaded file and follow the installer.</li>
+              <li>
+                Launch Ollama. It runs quietly in the background — keep it
+                running whenever you use PrivateScribe.
+              </li>
+              <li>
+                Come back here and click <strong>Re-check</strong>.
+              </li>
+            </ol>
+            <button
+              type="button"
+              onClick={() => setDownStep("ask")}
+              className="self-start pt-1 text-xs font-bold uppercase tracking-wider underline"
+            >
+              ← Back
+            </button>
+          </div>
+        )}
 
       {phase === "ready" && (
         <div className="flex flex-col gap-3">
@@ -679,7 +810,11 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
             >
               Continue anyway
             </button>
-            <NeoButton onClick={loadInstalled} backgroundColor="#fd3777" textColor="#ffffff">
+            <NeoButton
+              onClick={() => void refreshModels()}
+              backgroundColor="#fd3777"
+              textColor="#ffffff"
+            >
               Re-check
             </NeoButton>
           </div>
