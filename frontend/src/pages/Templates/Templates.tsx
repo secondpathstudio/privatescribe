@@ -19,6 +19,7 @@ type TemplateRow = {
     version: number;
     createdAt: string;
     updatedAt: string;
+    authorId: string;
     isDeleted: boolean;
     isDeletedTimestamp: string | null;
 };
@@ -107,6 +108,14 @@ const Templates = () => {
                             <Trash2 size={14} />
                         </span>
                     )}
+                    {row.original.authorId !== auth.user?.id && (
+                        <span
+                            className='inline-flex shrink-0 border-2 border-black bg-gray-200 px-1.5 py-px text-[9px] font-extrabold uppercase tracking-wider'
+                            title='Shared with you by an admin'
+                        >
+                            Shared
+                        </span>
+                    )}
                 </span>
             ),
             meta: {
@@ -157,7 +166,7 @@ const Templates = () => {
             sortingFn: (a, b) => new Date(a.original.updatedAt).getTime() - new Date(b.original.updatedAt).getTime(),
             cell: ({ row }) => <span>{formatDateTime(row.original.updatedAt)}</span>,
         },
-    ], [llmOptions]);
+    ], [llmOptions, auth.user?.id]);
 
     // Only react to drags that actually carry a file. The browser uses the same
     // dragover event for in-page text selection, link drags, etc.; we don't

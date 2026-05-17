@@ -41,10 +41,11 @@ const SingleTemplateForm = ({ template }: Props) => {
     const [sharedRoles, setSharedRoles] = React.useState<{ id: string; name: string }[]>(
         template?.sharedRoles ?? [],
     );
-    const canShare =
-        auth.user?.role === 'admin' &&
-        template?.authorId === auth.user?.id &&
-        !template?.isDeleted;
+    // A template shared in via a role is owned by someone else — show it
+    // read-only; only the owner can edit, delete, or re-share it.
+    const isOwner = template?.authorId === auth.user?.id;
+    const readOnly = !isOwner;
+    const canShare = auth.user?.role === 'admin' && isOwner && !template?.isDeleted;
     const navigate = useNavigate();
 
     const form = useForm({
@@ -238,6 +239,12 @@ const SingleTemplateForm = ({ template }: Props) => {
   return (
     <Form {...form}>
     <form onSubmit={(e) => handleUpdateTemplate(e, form)}>
+        {readOnly && (
+            <div className="mb-4 border-2 border-black bg-yellow-100 p-3 text-sm">
+                This template is shared with you — it's read-only. Only its
+                owner can change it.
+            </div>
+        )}
         <div className="flex flex-col">
             <fieldset className="flex justify-between items-center gap-2">
                 <FormField
@@ -247,7 +254,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                         <FormItem>
                             <FormLabel>Template Name</FormLabel>
                             <FormControl>
-                                <Input {...field} />
+                                <Input {...field} disabled={readOnly} />
                             </FormControl>
                             <FormMessage />
                         </FormItem>
@@ -266,7 +273,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                                         form.setValue('llmModel', value, { shouldDirty: true, shouldValidate: true });
                                     }}
                                     value={field.value}
-                                    disabled={models.length === 0}
+                                    disabled={readOnly || models.length === 0}
                                 >
                                     <SelectTrigger className='z-10 bg-white min-w-[200px]'>
                                         <SelectValue placeholder={models.length === 0 ? (modelsError || "Loading models...") : "Select a model"} />
@@ -328,6 +335,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                                             )
                                         })
                                     ]}
+                                    readOnly={readOnly}
                                     editorRef={mdxEditorRef}
                                     markdown={field.value}
                                     onChange={(value) => {
@@ -360,7 +368,7 @@ const SingleTemplateForm = ({ template }: Props) => {
                 <p className="text-primary">Saving note...</p>
             </div>
         )}
-        {!updating && (
+        {!updating && !readOnly && (
         <div className='flex justify-between items-center gap-4 mt-4'>
             <NeoButton 
                 type="submit"
