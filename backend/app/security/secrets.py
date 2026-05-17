@@ -1,6 +1,6 @@
-"""Secrets bootstrapping: JWT secret and SQLCipher key.
+"""Secrets bootstrapping: JWT secret, SQLCipher key, and audit-log HMAC key.
 
-Both are auto-generated on first boot and persisted to .env.
+All three are auto-generated on first boot and persisted to .env.
 The .env file is chmod 600 so the keys aren't world-readable.
 
 The .env location is resolved lazily via app.paths.env_path() so that
@@ -58,6 +58,34 @@ def ensure_sqlcipher_key() -> str:
         print("  Save it somewhere durable (password manager, encrypted backup).")
         print("  Lose both the key and this .env file and your data is unrecoverable.")
         print(f"{bar}\n")
+    _chmod_env_quietly()
+    return key
+
+
+def ensure_audit_hmac_key() -> str:
+    """Generate/persist the key that signs the audit-log hash chain.
+
+    This key is deliberately SEPARATE from SQLCIPHER_KEY. An application
+    admin can obtain the SQLCipher key through the key-export route and so
+    could open the DB and rewrite audit rows — but the chain's per-row HMAC
+    is keyed by this value, which is never returned by any API. Without it
+    a tampered row cannot be re-signed, so the edit is detectable by
+    `flask verify-audit-log`.
+
+    Losing this key does not affect the database itself; it only means the
+    existing chain can no longer be verified. Back it up alongside the
+    SQLCipher key.
+    """
+    path = env_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch(exist_ok=True)
+    load_dotenv(path)
+    key = os.getenv("AUDIT_HMAC_KEY")
+    if not key:
+        key = secrets.token_hex(32)
+        set_key(str(path), "AUDIT_HMAC_KEY", key)
+        os.environ["AUDIT_HMAC_KEY"] = key
+        print(f"[init] Generated new AUDIT_HMAC_KEY and wrote to {path}")
     _chmod_env_quietly()
     return key
 

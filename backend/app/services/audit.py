@@ -11,11 +11,17 @@ back to the caller — an audit-table write failing should not 500 the
 underlying request, but it should be visible in the server log so it can
 be diagnosed.
 """
+import hashlib
+import hmac
+import json
 import logging
+import uuid
+from datetime import datetime
 from typing import Any, Mapping
 
 from flask import has_request_context, request
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import func, text
 
 from app.extensions import db
 from app.models import AuditLog, User
@@ -27,6 +33,106 @@ logger = logging.getLogger(__name__)
 # malicious client can send much more — truncate so a giant header can't
 # bloat the table.
 _USER_AGENT_MAX = 512
+
+
+# --- Tamper-evidence: HMAC hash chain -------------------------------------
+#
+# Every audit row is linked to the one before it: entry_hash = HMAC(key,
+# prev_hash || canonical(row)). Editing or deleting a row makes the chain
+# stop verifying. The key is AUDIT_HMAC_KEY — distinct from the SQLCipher
+# DB key and never exposed by any API — so an admin who can open the DB
+# still cannot forge a valid hash.
+
+# prev_hash of the very first chained row. 64 zero hex chars so it's the
+# same width as a real SHA-256 digest.
+_GENESIS = "0" * 64
+
+# Tables that are append-only and get UPDATE/DELETE-blocking DB triggers.
+_AUDIT_TABLES = ("audit_log", "key_export_log")
+
+# Installed once at startup by configure(). When None the chain is disabled
+# and rows are written unchained — log_action still works.
+_hmac_key: str | None = None
+
+
+def configure(hmac_key: str | None) -> None:
+    """Install the audit-log HMAC key. Called once from create_app()."""
+    global _hmac_key
+    _hmac_key = hmac_key or None
+
+
+def _chain_fields(entry: AuditLog) -> dict[str, Any]:
+    """The subset of an audit row that its entry_hash commits to.
+
+    Excludes prev_hash (mixed in separately) and entry_hash (the output).
+    Every field here is immutable once the row is written, so the hash is
+    stable for the life of the row.
+    """
+    return {
+        "seq": entry.seq,
+        "id": entry.id,
+        "user_id": entry.user_id,
+        "user_email": entry.user_email,
+        "user_role": entry.user_role,
+        "action": entry.action,
+        "resource_type": entry.resource_type,
+        "resource_id": entry.resource_id,
+        "status": entry.status,
+        "ip_address": entry.ip_address,
+        "user_agent": entry.user_agent,
+        "extra_data": entry.extra_data,
+        "created_at": entry.created_at.isoformat() if entry.created_at else None,
+    }
+
+
+def _entry_hash(prev_hash: str, fields: Mapping[str, Any]) -> str:
+    """HMAC-SHA256 over prev_hash joined with the canonical row encoding."""
+    canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"), default=str)
+    msg = f"{prev_hash}\n{canonical}".encode("utf-8")
+    return hmac.new(_hmac_key.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def _chain_entry(entry: AuditLog, extra_data: dict[str, Any]) -> None:
+    """Assign seq + prev_hash to a new row and flag any detected break.
+
+    Does NOT set entry_hash: the caller finalizes extra_data first (this
+    function may add a 'chain_broken' marker to it) and then hashes the
+    completed row. A no-op when the chain is disabled.
+    """
+    if not _hmac_key:
+        return
+
+    max_seq = db.session.query(func.max(AuditLog.seq)).scalar() or 0
+    entry.seq = max_seq + 1
+
+    last = (
+        AuditLog.query
+        .filter(AuditLog.entry_hash.isnot(None))
+        .order_by(AuditLog.seq.desc())
+        .first()
+    )
+    if last is None:
+        entry.prev_hash = _GENESIS
+        return
+
+    entry.prev_hash = last.entry_hash
+
+    # Cheap integrity check on the immediate predecessor: recompute its hash
+    # and compare. A mismatch means that row was edited after it was written.
+    # Policy is continue-and-mark — we still record this row, chained off the
+    # (possibly tampered) stored hash, but flag the break inline so it's
+    # visible without a full `flask verify-audit-log` sweep.
+    recomputed = _entry_hash(last.prev_hash or _GENESIS, _chain_fields(last))
+    if not hmac.compare_digest(recomputed, last.entry_hash or ""):
+        logger.error(
+            f"[audit] hash-chain break: predecessor seq={last.seq} id={last.id} "
+            f"fails verification; flagging new row seq={entry.seq}"
+        )
+        extra_data["chain_broken"] = {
+            "predecessor_seq": last.seq,
+            "predecessor_id": last.id,
+            "detected_at_seq": entry.seq,
+        }
 
 
 def _resolve_actor(
@@ -109,7 +215,13 @@ def log_action(
             # of the app uses string UUIDs but some legacy integer IDs sneak in.
             rid = str(resource_id) if resource_id is not None else None
 
+            extra_data = dict(extra) if extra else {}
+
+            # id and created_at are set explicitly (not left to column
+            # defaults, which apply only at flush) so both are known before
+            # the row is hashed.
             entry = AuditLog(
+                id=str(uuid.uuid4()),
                 user_id=user_id,
                 user_email=user_email,
                 user_role=user_role,
@@ -119,8 +231,19 @@ def log_action(
                 status=status,
                 ip_address=ip,
                 user_agent=ua,
-                extra_data=dict(extra) if extra else None,
+                created_at=datetime.utcnow(),
             )
+
+            # Assign seq/prev_hash and let _chain_entry append a chain_broken
+            # marker to extra_data if the predecessor fails verification.
+            _chain_entry(entry, extra_data)
+            entry.extra_data = extra_data or None
+
+            # Hash last, over the now-final row (including any chain_broken
+            # marker just added to extra_data).
+            if _hmac_key:
+                entry.entry_hash = _entry_hash(entry.prev_hash, _chain_fields(entry))
+
             db.session.add(entry)
     except Exception as e:
         # Audit logging must never break the underlying request, so swallow
@@ -145,3 +268,86 @@ def diff_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str
         if before.get(key) != after.get(key):
             diff[key] = {"old": before.get(key), "new": after.get(key)}
     return diff
+
+
+def verify_chain() -> dict[str, Any]:
+    """Walk the audit-log hash chain and report any tampering.
+
+    Returns {ok, total, chained, legacy, issues}. `ok` is False when the
+    HMAC key is missing or any issue is found. Backs `flask verify-audit-log`.
+
+    Three classes of tampering are caught:
+      - content edit  — a row's recomputed entry_hash no longer matches
+      - row deletion  — a gap in the seq sequence, or a prev_hash that no
+                        longer chains to the preceding row
+      - row insertion — same prev_hash break, from the other direction
+    """
+    if not _hmac_key:
+        return {
+            "ok": False, "total": 0, "chained": 0, "legacy": 0,
+            "issues": ["AUDIT_HMAC_KEY is not configured — chain cannot be verified"],
+        }
+
+    rows = (
+        AuditLog.query
+        .filter(AuditLog.seq.isnot(None))
+        .order_by(AuditLog.seq.asc())
+        .all()
+    )
+    issues: list[str] = []
+    chained = [r for r in rows if r.entry_hash is not None]
+    legacy = [r for r in rows if r.entry_hash is None]
+
+    # seq contiguity — a gap means a row was deleted.
+    seqs = [r.seq for r in rows]
+    for prev, cur in zip(seqs, seqs[1:]):
+        if cur != prev + 1:
+            issues.append(
+                f"seq gap between {prev} and {cur} — {cur - prev - 1} row(s) deleted"
+            )
+
+    # Hash chain — recompute each row and confirm it links to its predecessor.
+    expected_prev = _GENESIS
+    for r in chained:
+        recomputed = _entry_hash(r.prev_hash or _GENESIS, _chain_fields(r))
+        if not hmac.compare_digest(recomputed, r.entry_hash or ""):
+            issues.append(
+                f"row seq={r.seq} id={r.id}: content tampered (entry_hash mismatch)"
+            )
+        if (r.prev_hash or "") != expected_prev:
+            issues.append(
+                f"row seq={r.seq} id={r.id}: prev_hash does not chain to the "
+                f"preceding row (insertion/deletion)"
+            )
+        expected_prev = r.entry_hash
+
+    return {
+        "ok": not issues,
+        "total": len(rows),
+        "chained": len(chained),
+        "legacy": len(legacy),
+        "issues": issues,
+    }
+
+
+def ensure_audit_triggers() -> None:
+    """Install DB triggers rejecting UPDATE/DELETE on the append-only tables.
+
+    Defense-in-depth: application code only ever INSERTs into audit_log and
+    key_export_log, so these triggers never fire in normal use — they stop
+    accidental or casual tampering (an ORM bug, a stray UPDATE in a console).
+    They are not a hard control: anyone with the raw SQLCipher key can DROP
+    them, which is why the HMAC chain is the primary safeguard.
+
+    Idempotent (CREATE TRIGGER IF NOT EXISTS); called from create_app() so a
+    fresh DB coming up via db.create_all() is covered too.
+    """
+    for table in _AUDIT_TABLES:
+        for op_kind in ("UPDATE", "DELETE"):
+            name = f"{table}_no_{op_kind.lower()}"
+            db.session.execute(text(
+                f"CREATE TRIGGER IF NOT EXISTS {name} "
+                f"BEFORE {op_kind} ON {table} "
+                f"BEGIN SELECT RAISE(ABORT, '{table} is append-only'); END"
+            ))
+    db.session.commit()

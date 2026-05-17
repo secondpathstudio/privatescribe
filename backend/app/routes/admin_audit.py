@@ -123,6 +123,8 @@ def list_audit_log():
         "entries": [
             {
                 "id": r.id,
+                "seq": r.seq,
+                "entryHash": r.entry_hash,
                 "userId": r.user_id,
                 "userEmail": r.user_email,
                 "userRole": r.user_role,

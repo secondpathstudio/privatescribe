@@ -27,7 +27,11 @@ from app.paths import data_dir
 from app.routes import register_blueprints
 from app.security import sqlcipher
 from app.security.auth import request_guard
-from app.security.secrets import ensure_jwt_secret, ensure_sqlcipher_key
+from app.security.secrets import (
+    ensure_audit_hmac_key,
+    ensure_jwt_secret,
+    ensure_sqlcipher_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +55,11 @@ def create_app() -> Flask:
     # being interrupted by a token expiring out from under them.
     app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=7)
     sqlcipher_key = ensure_sqlcipher_key()
+
+    # Install the audit-log HMAC key (separate from the DB key) so log_action
+    # can sign the tamper-evidence hash chain. See app/services/audit.py.
+    from app.services import audit as audit_service
+    audit_service.configure(ensure_audit_hmac_key())
 
     # Encrypted SQLite via SQLCipher. The `creator` callable bypasses URL-based
     # connecting so every pooled connection is opened with PRAGMA key set as
@@ -116,6 +125,10 @@ def create_app() -> Flask:
         # so db.create_all() doesn't create it. Migrations do, but fresh
         # boots that skip Alembic still need it — DDL is idempotent.
         note_search.ensure_fts_table()
+        # Likewise the append-only triggers on the audit tables: SQLAlchemy
+        # metadata can't express them, so install them here for fresh boots.
+        # The migration creates the same triggers — both paths are idempotent.
+        audit_service.ensure_audit_triggers()
         # Load the admin-configured upload cap from the DB so MAX_CONTENT_LENGTH
         # reflects whatever was set in the previous session. Per-request PUTs
         # to /api/admin/settings/upload-limit-mb update this live.

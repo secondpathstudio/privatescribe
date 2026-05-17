@@ -166,7 +166,37 @@ def purge_audio(dry_run):
     click.echo(f"Purged {len(rows)} audio file(s).")
 
 
+@click.command("verify-audit-log")
+@with_appcontext
+def verify_audit_log():
+    """Walk the audit-log hash chain and report any tampering.
+
+    Exits non-zero if the chain fails to verify, so it can run as a scheduled
+    integrity check (cron / systemd timer) alongside purge-trash/purge-audio.
+    """
+    from app.services.audit import verify_chain
+
+    result = verify_chain()
+    click.echo(
+        f"Audit log: {result['total']} row(s) — "
+        f"{result['chained']} chained, {result['legacy']} legacy (pre-chain)."
+    )
+    if result["ok"]:
+        click.echo(click.style(
+            "OK — hash chain verified, no tampering detected.", fg="green"
+        ))
+        return
+
+    click.echo(click.style(
+        f"FAILED — {len(result['issues'])} issue(s) detected:", fg="red"
+    ))
+    for issue in result["issues"]:
+        click.echo(f"  - {issue}")
+    raise SystemExit(1)
+
+
 def register_cli(app):
     app.cli.add_command(create_admin)
     app.cli.add_command(purge_trash)
     app.cli.add_command(purge_audio)
+    app.cli.add_command(verify_audit_log)

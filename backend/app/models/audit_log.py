@@ -5,7 +5,13 @@ admins can answer "who did what, when, from where?" — including failed
 logins where no user row exists yet.
 
 Rows are never updated or deleted from application code; admins inspect
-via /api/admin/audit-log.
+via /api/admin/audit-log. DB triggers (see app.services.audit) also reject
+UPDATE/DELETE at the database layer.
+
+Tamper-evidence: each row carries `seq`, `prev_hash`, and `entry_hash`,
+forming an HMAC hash chain (keyed by AUDIT_HMAC_KEY). Editing or deleting
+a row breaks the chain and is detectable via `flask verify-audit-log`.
+The chain logic lives in app.services.audit.
 """
 import uuid
 from datetime import datetime
@@ -47,6 +53,20 @@ class AuditLog(db.Model):
     extra_data = db.Column(db.JSON, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    # --- Tamper-evidence: HMAC hash chain ---
+    # seq: strictly increasing chain position. Rows that predate the chain
+    # are backfilled with a seq (so ordering is stable) but keep prev_hash
+    # and entry_hash NULL — they are "legacy, unchained" and cannot be
+    # protected retroactively.
+    seq = db.Column(db.Integer, nullable=True, unique=True, index=True)
+    # prev_hash: the entry_hash of the previous chained row (or a fixed
+    # genesis sentinel for the first chained row). entry_hash: HMAC-SHA256
+    # over this row's content joined with prev_hash, keyed by AUDIT_HMAC_KEY.
+    # Because that key is never exposed by any API, an admin holding only the
+    # DB key cannot recompute a valid entry_hash after editing a row.
+    prev_hash = db.Column(db.String(64), nullable=True)
+    entry_hash = db.Column(db.String(64), nullable=True)
 
     def __repr__(self):
         return f"<AuditLog {self.action} user={self.user_email} at={self.created_at}>"
