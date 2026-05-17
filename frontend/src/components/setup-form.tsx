@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/auth-context";
@@ -121,9 +122,8 @@ export default function SetupForm({ onDone }: SetupFormProps) {
             </div>
             <div>
               <Label htmlFor="password" className="font-black">PASSWORD</Label>
-              <Input
+              <PasswordInput
                 id="password"
-                type="password"
                 autoComplete="new-password"
                 {...register("password")}
               />
@@ -133,9 +133,8 @@ export default function SetupForm({ onDone }: SetupFormProps) {
             </div>
             <div>
               <Label htmlFor="passwordConfirm" className="font-black">CONFIRM PASSWORD</Label>
-              <Input
+              <PasswordInput
                 id="passwordConfirm"
-                type="password"
                 autoComplete="new-password"
                 {...register("passwordConfirm")}
               />

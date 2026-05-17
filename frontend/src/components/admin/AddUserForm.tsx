@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
 import { useAuth } from "@/context/auth-context";
@@ -95,12 +96,12 @@ export default function AddUserForm({ onSuccess, onCancel }: Props) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" autoComplete="new-password" {...register("password")} />
+          <PasswordInput id="password" autoComplete="new-password" {...register("password")} />
           {errors.password && <p className="text-red-500 text-sm">{errors.password.message as string}</p>}
         </div>
         <div>
           <Label htmlFor="confirmPassword">Confirm Password</Label>
-          <Input id="confirmPassword" type="password" autoComplete="new-password" {...register("confirmPassword")} />
+          <PasswordInput id="confirmPassword" autoComplete="new-password" {...register("confirmPassword")} />
           {errors.confirmPassword && <p className="text-red-500 text-sm">{errors.confirmPassword.message as string}</p>}
         </div>
       </div>
