@@ -16,6 +16,7 @@ import hmac
 import json
 import logging
 import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -25,6 +26,7 @@ from sqlalchemy import func, text
 
 from app.extensions import db
 from app.models import AuditLog, User
+from app.services import settings as settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +104,14 @@ def _chain_entry(entry: AuditLog, extra_data: dict[str, Any]) -> None:
     if not _hmac_key:
         return
 
-    max_seq = db.session.query(func.max(AuditLog.seq)).scalar() or 0
-    entry.seq = max_seq + 1
+    # A retention purge can archive-and-delete the chain's oldest rows; the
+    # watermark holds the last archived row's seq + entry_hash so numbering
+    # and linkage continue uninterrupted even when the table is now empty.
+    watermark = settings_service.get_audit_archive_watermark() or {}
+    wm_seq = watermark.get("seq") or 0
+
+    db_max_seq = db.session.query(func.max(AuditLog.seq)).scalar() or 0
+    entry.seq = max(db_max_seq, wm_seq) + 1
 
     last = (
         AuditLog.query
@@ -112,7 +120,10 @@ def _chain_entry(entry: AuditLog, extra_data: dict[str, Any]) -> None:
         .first()
     )
     if last is None:
-        entry.prev_hash = _GENESIS
+        # No chained row left in the table — either the chain hasn't started
+        # or every chained row has been archived away. Link off the watermark
+        # hash when one exists, else the genesis sentinel.
+        entry.prev_hash = watermark.get("entry_hash") or _GENESIS
         return
 
     entry.prev_hash = last.entry_hash
@@ -273,20 +284,28 @@ def diff_fields(before: Mapping[str, Any], after: Mapping[str, Any]) -> dict[str
 def verify_chain() -> dict[str, Any]:
     """Walk the audit-log hash chain and report any tampering.
 
-    Returns {ok, total, chained, legacy, issues}. `ok` is False when the
-    HMAC key is missing or any issue is found. Backs `flask verify-audit-log`.
+    Returns {ok, total, chained, legacy, archived, issues}. `ok` is False when
+    the HMAC key is missing or any issue is found. Backs `flask
+    verify-audit-log`.
 
     Three classes of tampering are caught:
       - content edit  — a row's recomputed entry_hash no longer matches
       - row deletion  — a gap in the seq sequence, or a prev_hash that no
                         longer chains to the preceding row
       - row insertion — same prev_hash break, from the other direction
+
+    Rows trimmed by a retention purge are NOT treated as deletions: the
+    archival watermark records the last archived seq + entry_hash, so the
+    live trail is expected to resume one past it and chain off that hash.
+    The archived rows themselves live in the JSON archive files.
     """
     if not _hmac_key:
         return {
-            "ok": False, "total": 0, "chained": 0, "legacy": 0,
+            "ok": False, "total": 0, "chained": 0, "legacy": 0, "archived": 0,
             "issues": ["AUDIT_HMAC_KEY is not configured — chain cannot be verified"],
         }
+
+    watermark = settings_service.get_audit_archive_watermark() or {}
 
     rows = (
         AuditLog.query
@@ -306,8 +325,18 @@ def verify_chain() -> dict[str, Any]:
                 f"seq gap between {prev} and {cur} — {cur - prev - 1} row(s) deleted"
             )
 
+    # The live trail must resume exactly one past the archival watermark.
+    # A larger gap means rows vanished between the archive and the table.
+    wm_seq = watermark.get("seq")
+    if isinstance(wm_seq, int) and rows and rows[0].seq != wm_seq + 1:
+        issues.append(
+            f"seq gap after archival watermark {wm_seq} — live trail starts "
+            f"at {rows[0].seq}, {rows[0].seq - wm_seq - 1} row(s) missing"
+        )
+
     # Hash chain — recompute each row and confirm it links to its predecessor.
-    expected_prev = _GENESIS
+    # The first live row chains off the watermark hash when a purge has run.
+    expected_prev = watermark.get("entry_hash") or _GENESIS
     for r in chained:
         recomputed = _entry_hash(r.prev_hash or _GENESIS, _chain_fields(r))
         if not hmac.compare_digest(recomputed, r.entry_hash or ""):
@@ -326,8 +355,35 @@ def verify_chain() -> dict[str, Any]:
         "total": len(rows),
         "chained": len(chained),
         "legacy": len(legacy),
+        "archived": watermark.get("total_archived") or 0,
         "issues": issues,
     }
+
+
+@contextmanager
+def audit_delete_window():
+    """Temporarily lift the DELETE guard on the audit_log table.
+
+    audit_log carries a BEFORE DELETE trigger that aborts every delete (see
+    ensure_audit_triggers). Retention archival is the one sanctioned path that
+    removes rows — and only after writing them to a JSON archive file — so it
+    drops the trigger for the duration of the delete and restores it
+    immediately after, even on error.
+
+    Callers MUST flush the deletes inside the `with` block: once the block
+    exits the trigger is back, and any DELETE issued later (e.g. at commit)
+    would abort. The trigger DROP/CREATE ride in the caller's transaction, so
+    a rollback restores the original guarded state.
+    """
+    db.session.execute(text("DROP TRIGGER IF EXISTS audit_log_no_delete"))
+    try:
+        yield
+    finally:
+        db.session.execute(text(
+            "CREATE TRIGGER IF NOT EXISTS audit_log_no_delete "
+            "BEFORE DELETE ON audit_log "
+            "BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END"
+        ))
 
 
 def ensure_audit_triggers() -> None:

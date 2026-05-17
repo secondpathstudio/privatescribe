@@ -174,6 +174,68 @@ def purge_audio(dry_run):
     click.echo(f"Purged {len(rows)} audio file(s).")
 
 
+@click.command("purge-audit-log")
+@click.option("--dry-run", is_flag=True, help="Report what would be archived without changing anything.")
+@click.option("--force", is_flag=True, help="Run even if the 'audit auto purge' setting is off.")
+@with_appcontext
+def purge_audit_log(dry_run, force):
+    """Archive then permanently delete audit-log rows past the retention window.
+
+    Audit rows are append-only and tamper-evident, so they are never silently
+    dropped: eligible rows are written to a JSON archive file under the data
+    directory's audit-archives/ folder *before* they are deleted, and a
+    watermark keeps the remaining hash chain verifiable.
+
+    Honors the admin-configured settings: nothing happens unless
+    `audit_auto_purge` is enabled (override with --force) and
+    `audit_retention_days` is greater than 0 (0 = keep the trail forever).
+    Intended to be run on a schedule (cron / systemd timer), alongside
+    `purge-trash` and `purge-audio`.
+    """
+    from app.services import audit_retention
+
+    retention_days = settings_service.get_audit_retention_days()
+    if retention_days <= 0:
+        click.echo(
+            "Audit-log retention is disabled (audit_retention_days = 0); nothing to do."
+        )
+        return
+
+    if not settings_service.get_audit_auto_purge() and not force:
+        click.echo(
+            "Audit-log auto-purge is disabled (audit_auto_purge = false); nothing to do. "
+            "Re-run with --force to purge anyway."
+        )
+        return
+
+    summary = audit_retention.archive_and_purge(dry_run=dry_run)
+
+    suffix = " [dry run]" if dry_run else ""
+    click.echo(
+        f"Purging audit rows created on or before {summary['cutoff']} "
+        f"(retention: {retention_days} day(s)){suffix}."
+    )
+    click.echo(f"  eligible rows: {summary['eligible_count']}")
+    if summary.get("non_contiguous_skipped"):
+        click.echo(
+            f"  note: {summary['non_contiguous_skipped']} older row(s) skipped — "
+            f"only a contiguous prefix of the hash chain can be purged."
+        )
+
+    if summary["eligible_count"] == 0:
+        click.echo("Nothing eligible. Done.")
+        return
+
+    lo, hi = summary["seq_range"]
+    if dry_run:
+        click.echo(f"  would archive seq {lo}-{hi}, then delete those {summary['eligible_count']} row(s).")
+        click.echo("Dry run — no changes made.")
+        return
+
+    click.echo(f"  archived seq {lo}-{hi} to {summary['archive_file']}")
+    click.echo(f"Purged {summary['eligible_count']} audit row(s).")
+
+
 @click.command("verify-audit-log")
 @with_appcontext
 def verify_audit_log():
@@ -185,9 +247,12 @@ def verify_audit_log():
     from app.services.audit import verify_chain
 
     result = verify_chain()
+    archived = result.get('archived', 0)
+    archived_note = f", {archived} archived" if archived else ""
     click.echo(
-        f"Audit log: {result['total']} row(s) — "
-        f"{result['chained']} chained, {result['legacy']} legacy (pre-chain)."
+        f"Audit log: {result['total']} row(s) in table — "
+        f"{result['chained']} chained, {result['legacy']} legacy (pre-chain)"
+        f"{archived_note}."
     )
     if result["ok"]:
         click.echo(click.style(
@@ -207,4 +272,5 @@ def register_cli(app):
     app.cli.add_command(create_admin)
     app.cli.add_command(purge_trash)
     app.cli.add_command(purge_audio)
+    app.cli.add_command(purge_audit_log)
     app.cli.add_command(verify_audit_log)

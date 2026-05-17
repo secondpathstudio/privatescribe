@@ -29,6 +29,9 @@ SESSION_IDLE_TIMEOUT_MINUTES = "session_idle_timeout_minutes"
 ONBOARDING_COMPLETED = "onboarding_completed"
 LLM_MODEL = "llm_model"
 PASSWORD_POLICY = "password_policy"
+AUDIT_RETENTION_DAYS = "audit_retention_days"
+AUDIT_AUTO_PURGE = "audit_auto_purge"
+AUDIT_ARCHIVE_WATERMARK = "audit_archive_watermark"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -123,6 +126,25 @@ DEFAULT_ONBOARDING_COMPLETED = False
 # multi-user / professional posture. See app/security/password_policy.py.
 DEFAULT_PASSWORD_POLICY = "standard"
 VALID_PASSWORD_POLICIES = ("standard", "strict")
+
+
+# Audit-log retention. Audit rows are append-only and tamper-evident (an HMAC
+# hash chain), so they are never silently dropped: `flask purge-audit-log`
+# first writes the expired rows to a JSON archive file, then deletes them,
+# leaving a watermark so the remaining chain still verifies. The window is
+# measured from each row's created_at. The 7-year (2555-day) default sits
+# comfortably above the HIPAA §164.316(b)(2) six-year documentation floor;
+# 0 disables purging entirely — the full trail is kept forever. The ~10-year
+# ceiling matches the trash/audio retention caps.
+DEFAULT_AUDIT_RETENTION_DAYS = 2555
+MIN_AUDIT_RETENTION_DAYS = 0
+MAX_AUDIT_RETENTION_DAYS = 3650
+
+# When True, `flask purge-audit-log` archives-and-deletes audit rows past the
+# retention window. When False (default), the purge job is a no-op unless run
+# with --force — so the audit trail is never trimmed without an explicit
+# opt-in, mirroring trash_auto_purge.
+DEFAULT_AUDIT_AUTO_PURGE = False
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -250,6 +272,35 @@ def get_password_policy() -> str:
     is missing or holds an unrecognized value."""
     value = get_str(PASSWORD_POLICY, DEFAULT_PASSWORD_POLICY)
     return value if value in VALID_PASSWORD_POLICIES else DEFAULT_PASSWORD_POLICY
+
+
+def get_audit_retention_days() -> int:
+    value = get_int(AUDIT_RETENTION_DAYS, DEFAULT_AUDIT_RETENTION_DAYS)
+    # Clamp defensively — a bad row shouldn't make the window negative or absurd.
+    return max(MIN_AUDIT_RETENTION_DAYS, min(MAX_AUDIT_RETENTION_DAYS, value))
+
+
+def get_audit_auto_purge() -> bool:
+    return get_bool(AUDIT_AUTO_PURGE, DEFAULT_AUDIT_AUTO_PURGE)
+
+
+def get_audit_archive_watermark() -> Optional[dict]:
+    """The audit-log archival watermark, or None if nothing has been purged.
+
+    A dict: {seq, entry_hash, archived_at, total_archived, last_archive_file}.
+    `seq`/`entry_hash` are the highest archived row's chain position and hash —
+    the remaining live chain links off `entry_hash`, and a new audit row picks
+    up numbering at `seq` + 1 even when the table has been emptied. Written by
+    app.services.audit_retention; read by the chain logic in app.services.audit.
+    """
+    raw = _get_raw(AUDIT_ARCHIVE_WATERMARK)
+    if raw is None:
+        return None
+    try:
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else None
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None
 
 
 def get_admin_vocabulary_terms() -> list[str]:

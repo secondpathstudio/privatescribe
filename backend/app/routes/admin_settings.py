@@ -79,6 +79,16 @@ def get_settings():
         # password blocklist + character-class rules.
         "password_policy": settings_service.get_password_policy(),
         "password_policy_options": list(settings_service.VALID_PASSWORD_POLICIES),
+        # Audit-log retention: how many days an audit row is kept before
+        # `flask purge-audit-log` archives it to a JSON file and deletes it
+        # (0 = keep the full trail forever). audit_auto_purge gates whether
+        # the scheduled job actually runs. audit_archive_watermark is read-only
+        # status — the last archival point, or null if nothing's been purged.
+        "audit_retention_days": settings_service.get_audit_retention_days(),
+        "audit_retention_days_min": settings_service.MIN_AUDIT_RETENTION_DAYS,
+        "audit_retention_days_max": settings_service.MAX_AUDIT_RETENTION_DAYS,
+        "audit_auto_purge": settings_service.get_audit_auto_purge(),
+        "audit_archive_watermark": settings_service.get_audit_archive_watermark(),
     })
 
 
@@ -183,6 +193,77 @@ def update_trash_retention():
     return jsonify({
         "trash_retention_days": settings_service.get_trash_retention_days(),
         "trash_auto_purge": settings_service.get_trash_auto_purge(),
+    })
+
+
+@bp.route('/audit-retention', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_audit_retention():
+    """Set the audit-log retention window and the auto-purge toggle.
+
+    Body: {"retentionDays": int, "autoPurge": bool}. Both fields optional —
+    only the ones present are updated. retentionDays is how many days an audit
+    row is kept (counted from its created_at) before `flask purge-audit-log`
+    archives it to a JSON file and deletes it; 0 disables purging entirely, so
+    the full trail is kept forever. autoPurge controls whether the scheduled
+    purge job actually runs — when false nothing is archived/deleted unless the
+    job is invoked with --force.
+
+    Nothing is purged by this request; it only updates the policy the purge
+    job reads. Takes effect immediately — the next `flask purge-audit-log` run
+    reads the fresh values.
+    """
+    data = request.get_json(silent=True) or {}
+    current_user = get_jwt_identity()
+
+    updates = []  # (key, old, new) tuples for the audit log
+
+    if 'retentionDays' in data:
+        try:
+            days = int(data['retentionDays'])
+        except (ValueError, TypeError):
+            return jsonify({"error": "retentionDays must be an integer (days)"}), 400
+        if (days < settings_service.MIN_AUDIT_RETENTION_DAYS
+                or days > settings_service.MAX_AUDIT_RETENTION_DAYS):
+            return jsonify({
+                "error": (
+                    f"retentionDays must be between {settings_service.MIN_AUDIT_RETENTION_DAYS} "
+                    f"and {settings_service.MAX_AUDIT_RETENTION_DAYS}"
+                ),
+            }), 400
+        previous = settings_service.get_audit_retention_days()
+        settings_service.set_value(
+            settings_service.AUDIT_RETENTION_DAYS, days, updated_by=current_user
+        )
+        updates.append((settings_service.AUDIT_RETENTION_DAYS, previous, days))
+
+    if 'autoPurge' in data:
+        auto = data['autoPurge']
+        if not isinstance(auto, bool):
+            return jsonify({"error": "autoPurge must be a boolean"}), 400
+        previous = settings_service.get_audit_auto_purge()
+        settings_service.set_value(
+            settings_service.AUDIT_AUTO_PURGE, auto, updated_by=current_user
+        )
+        updates.append((settings_service.AUDIT_AUTO_PURGE, previous, auto))
+
+    if not updates:
+        return jsonify({"error": "nothing to update — supply retentionDays and/or autoPurge"}), 400
+
+    for key, old, new in updates:
+        log_action(
+            'admin.settings_update',
+            user_id=current_user,
+            resource_type='setting',
+            resource_id=key,
+            extra={'old': old, 'new': new},
+        )
+    db.session.commit()
+
+    return jsonify({
+        "audit_retention_days": settings_service.get_audit_retention_days(),
+        "audit_auto_purge": settings_service.get_audit_auto_purge(),
     })
 
 
