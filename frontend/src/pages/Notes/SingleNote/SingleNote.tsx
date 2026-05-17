@@ -7,6 +7,7 @@ import SingleNoteForm from './SingleNoteForm'
 import { useParams } from 'react-router'
 import { useAuth } from '@/context/auth-context'
 import NeoButton from '@/components/neo/neo-button'
+import ExportWarningModal from '@/components/neo/export-warning-modal'
 
 
 const SingleNote = () => {
@@ -129,7 +130,15 @@ useEffect(() => {
     : 'Note';
 
   const [exporting, setExporting] = useState<'pdf' | 'docx' | null>(null);
-  const handleExport = async (fmt: 'pdf' | 'docx') => {
+  // Format awaiting the unencrypted-PHI acknowledgement before the download runs.
+  const [pendingExport, setPendingExport] = useState<'pdf' | 'docx' | null>(null);
+
+  const requestExport = (fmt: 'pdf' | 'docx') => {
+    if (!note?.id || exporting) return;
+    setPendingExport(fmt);
+  };
+
+  const runExport = async (fmt: 'pdf' | 'docx') => {
     if (!note?.id || exporting) return;
     setExporting(fmt);
     try {
@@ -185,18 +194,27 @@ useEffect(() => {
           {auth.user?.exportsEnabled && note && (
             <div className='flex items-center gap-2'>
               <NeoButton
-                onClick={() => handleExport('pdf')}
+                onClick={() => requestExport('pdf')}
                 disabled={!!exporting}
                 label={exporting === 'pdf' ? 'Preparing…' : '⬇ PDF'}
               />
               <NeoButton
-                onClick={() => handleExport('docx')}
+                onClick={() => requestExport('docx')}
                 disabled={!!exporting}
                 label={exporting === 'docx' ? 'Preparing…' : '⬇ DOCX'}
               />
             </div>
           )}
         </div>
+        <ExportWarningModal
+          format={pendingExport}
+          onClose={() => setPendingExport(null)}
+          onConfirm={() => {
+            const fmt = pendingExport;
+            setPendingExport(null);
+            if (fmt) runExport(fmt);
+          }}
+        />
         <Card className='mt-5'>
           <CardHeader>
             <CardTitle>
