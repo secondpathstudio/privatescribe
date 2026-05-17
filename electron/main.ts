@@ -6,6 +6,7 @@ import {
   stopBackend,
   type BackendInfo,
 } from './backend-process';
+import { resolveOllama, stopOllama, type OllamaInfo } from './ollama-process';
 import { initAutoUpdater } from './updater';
 
 // Set early so app.getName() and macOS menus pick this up instead of "Electron".
@@ -38,6 +39,7 @@ const ICON_ICNS = path.join(ASSETS_DIR, 'icon.icns'); // used by electron-builde
 const ICON_PNG = path.join(ASSETS_DIR, 'icon.png'); // used at dev runtime for Dock
 
 let backend: BackendInfo | null = null;
+let ollama: OllamaInfo | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 // Single-instance lock: a second PrivateScribe would spawn a second backend
@@ -216,8 +218,14 @@ app.whenReady().then(async () => {
     // Developer is expected to have `flask run` going on :5000.
     apiBase = 'http://127.0.0.1:5000';
   } else {
+    // Resolve Ollama before the backend: the backend reads OLLAMA_HOST at
+    // spawn time, so it must be known first. resolveOllama() reuses a running
+    // system Ollama or starts the bundled one; it never throws and never
+    // blocks on readiness (OllamaGate polls), so it cannot stall startup.
+    ollama = await resolveOllama();
+
     try {
-      backend = await startBackend();
+      backend = await startBackend(ollama.host);
     } catch (err) {
       // The bundled Python backend failed to launch. Without it the app is
       // just an empty shell, so surface a clear error and quit rather than
@@ -259,5 +267,9 @@ app.on('before-quit', () => {
   if (backend) {
     stopBackend(backend);
     backend = null;
+  }
+  if (ollama) {
+    stopOllama(ollama);
+    ollama = null;
   }
 });

@@ -19,7 +19,7 @@ let stopping = false;
 const STDERR_TAIL_MAX = 4000;
 let stderrTail = '';
 
-export async function startBackend(): Promise<BackendInfo> {
+export async function startBackend(ollamaHost: string): Promise<BackendInfo> {
   // In a packaged app the PyInstaller binary lives at
   // <Resources>/backend/privatescribe-backend. process.resourcesPath is the
   // .app's Contents/Resources/ on macOS.
@@ -34,6 +34,9 @@ export async function startBackend(): Promise<BackendInfo> {
     env: {
       ...process.env,
       PRIVATESCRIBE_DATA_DIR: dataDir,
+      // The Ollama main.ts resolved for us — a reused system instance or the
+      // bundled runtime. The backend's ollama client reads OLLAMA_HOST.
+      OLLAMA_HOST: ollamaHost,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
