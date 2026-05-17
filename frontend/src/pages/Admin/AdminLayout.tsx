@@ -22,7 +22,7 @@ const NAV: NavGroup[] = [
     heading: "Data & Security",
     items: [
       { to: "/admin/encryption", label: "Encryption" },
-      { to: "/admin/templates", label: "Templates" },
+      // { to: "/admin/templates", label: "Templates" },
       { to: "/admin/trash-retention", label: "Trash & Retention" },
       { to: "/admin/audio-storage", label: "Audio Storage" },
       { to: "/admin/exports", label: "Document Exports" },
