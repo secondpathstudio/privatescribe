@@ -12,7 +12,7 @@ from datetime import date, datetime
 
 import ollama
 
-DEFAULT_OLLAMA_MODEL = "llama3.2"
+DEFAULT_OLLAMA_MODEL = "gemma3:4b"
 
 # How long to wait on a single `ollama.chat` round-trip before giving up. On
 # slow hardware a large transcript can otherwise hang the request forever and

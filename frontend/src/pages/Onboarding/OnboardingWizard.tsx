@@ -304,12 +304,19 @@ type PickerModel = {
 
 const PICKER_MODELS: PickerModel[] = [
   {
+    tag: "gemma3:4b",
+    label: "Gemma 3",
+    params: "4B",
+    approxGb: 3.3,
+    blurb: "Google's compact model — careful, tidy output.",
+    recommended: true,
+  },
+  {
     tag: "llama3.2",
     label: "Llama 3.2",
     params: "3B",
     approxGb: 2.0,
-    blurb: "Fast and well-rounded. The recommended starting point.",
-    recommended: true,
+    blurb: "Fast and well-rounded — the smallest download here.",
   },
   {
     tag: "qwen3:4b",
@@ -319,11 +326,11 @@ const PICKER_MODELS: PickerModel[] = [
     blurb: "Strong instruction-following — a capable all-rounder.",
   },
   {
-    tag: "gemma3:4b",
-    label: "Gemma 3",
-    params: "4B",
-    approxGb: 3.3,
-    blurb: "Google's compact model — careful, tidy output.",
+    tag: "phi4-mini",
+    label: "Phi-4 Mini",
+    params: "3.8B",
+    approxGb: 2.5,
+    blurb: "Microsoft's compact model — efficient, with solid reasoning.",
   },
   {
     tag: "mistral",
@@ -709,7 +716,7 @@ export default function OnboardingWizard() {
   // The model chosen in the picker step — sent to /complete as the app-wide
   // default. Pre-set to the recommended model so a skipped picker still sends
   // a sensible value.
-  const [defaultModel, setDefaultModel] = useState("llama3.2");
+  const [defaultModel, setDefaultModel] = useState("gemma3:4b");
   const [finishing, setFinishing] = useState(false);
   // null = onboarding status not yet known.
   const [completed, setCompleted] = useState<boolean | null>(null);

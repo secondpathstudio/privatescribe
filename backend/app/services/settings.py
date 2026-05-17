@@ -45,7 +45,7 @@ DEFAULT_WHISPER_MODEL = "base"
 # Mirrors ollama_client.DEFAULT_OLLAMA_MODEL; the onboarding wizard writes the
 # user's picked model here so the templates it seeds (which leave llm_model
 # null) format with the model the user actually downloaded.
-DEFAULT_LLM_MODEL = "llama3.2"
+DEFAULT_LLM_MODEL = "gemma3:4b"
 
 # Trash retention. A soft-deleted note/template must sit in the trash at least
 # this many days before it can be permanently deleted — manually or by the
