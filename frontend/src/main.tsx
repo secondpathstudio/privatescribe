@@ -59,7 +59,10 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/welcome" element={<RequireAdmin><OnboardingWizard /></RequireAdmin>} />
         <Route path="/getting-started" element={<RequireAuth><UserOnboarding /></RequireAuth>} />
         <Route element={<RootLayout />}>
-          <Route path="/" element={<App />} />
+          {/* The marketing homepage is web-only. The desktop app has no use
+              for it — boot straight to /login, which routes on to setup,
+              onboarding, or notes as appropriate. */}
+          <Route path="/" element={window.electron ? <Navigate to="/login" replace /> : <App />} />
           
           <Route element={<RequireAuth><UserLayout /></RequireAuth>}>
             <Route path="notes">

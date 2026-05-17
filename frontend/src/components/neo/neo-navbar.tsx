@@ -1,6 +1,6 @@
 import PrivateScribeLogo from './private-scribe-logo'
 import AuthButtons from '../auth-buttons'
-import { useLocation } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import NeoAnchorButton from './neo-a-button'
 import { GithubIcon } from 'lucide-react'
 
@@ -13,16 +13,18 @@ const NeoNavbar = (props: Props) => {
     <nav className="bg-white border-b-4 border-black p-4 md:px-6">
         <div className="container mx-auto flex justify-between items-center">
           <div className="font-black text-3xl">
-            <a href="/">
+            {/* <Link>, not <a href>: the desktop app runs under HashRouter
+                (file:// URLs), where a plain anchor lands on a blank page. */}
+            <Link to="/">
               <PrivateScribeLogo />
-            </a>
+            </Link>
           </div>
           {location.pathname === '/' && (
             <div className="hidden md:flex space-x-6">
               <a href="#features" className="font-black hover:text-[#fd3777]">Features</a>
               <a href="#pricing" className="font-black hover:text-[#fd3777]">Pricing</a>
               <a href="#faq" className="font-black hover:text-[#fd3777]">FAQ</a>
-              <a href="/roadmap" className="font-black hover:text-[#fd3777]">Roadmap</a>
+              <Link to="/roadmap" className="font-black hover:text-[#fd3777]">Roadmap</Link>
             </div>
           )}
           {(window.electron || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
