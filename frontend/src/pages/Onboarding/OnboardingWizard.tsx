@@ -49,68 +49,79 @@ function RecoveryKeyIntroStep({ onNext, onBack }: StepProps) {
   return (
     <div className="flex flex-col gap-4">
       <h1 className="text-3xl font-black uppercase">What's a recovery key?</h1>
-      <p className="text-sm">
-        The next step asks you to save your <strong>recovery key</strong> — a
-        long string of letters and numbers that looks something like this:
-      </p>
 
-      <div className="border-4 border-black bg-gray-100 p-3">
-        <pre className="select-none whitespace-pre-wrap break-all font-mono text-sm text-gray-400">
-          7f3a9c2e1b8d4f6a0c5e9b2d7a1f8c3e6b4d9a2f0e7c5b1d…
-        </pre>
-        <p className="mt-1 text-xs font-black uppercase tracking-wider text-gray-500">
-          Example only — not your real key
-        </p>
-      </div>
-
-      <p className="text-sm">
-        Never seen anything like that? That's completely normal, and you don't
-        need to understand it. Think of it as the{" "}
-        <strong>spare key to your house</strong> — you don't study how it's
-        cut, you just keep it somewhere safe in case you're ever locked out.
-      </p>
-      <p className="text-sm">
-        PrivateScribe keeps all of your notes on this device and encrypted.
-        This key is the one thing that can unlock them if you move to a new
-        computer or restore from a backup. No one else — not even us — has a
-        copy, so it's worth keeping, but it isn't something to worry about day
-        to day.
-      </p>
-
-      <div className="flex flex-col gap-2">
-        <p className="text-xs font-black uppercase tracking-wider">
-          Where to keep it
-        </p>
-        <div className="flex items-start gap-3 border-4 border-black bg-white p-3">
-          <KeyRound className="mt-0.5 h-5 w-5 shrink-0" />
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Left: what the key is */}
+        <div className="flex flex-col gap-4">
           <p className="text-sm">
-            <strong>In a password manager</strong> — apps like 1Password,
-            Bitwarden, or your built-in iCloud Keychain. Best choice if you
-            already use one.
+            The next step asks you to save your{" "}
+            <strong>recovery key</strong> — a long string of letters and
+            numbers that looks something like this:
+          </p>
+
+          <div className="border-4 border-black bg-gray-100 p-3">
+            <pre className="select-none whitespace-pre-wrap break-all font-mono text-sm text-gray-400">
+              7f3a9c2e1b8d4f6a0c5e9b2d7a1f8c3e6b4d9a2f0e7c5b1d…
+            </pre>
+            <p className="mt-1 text-xs font-black uppercase tracking-wider text-gray-500">
+              Example only — not your real key
+            </p>
+          </div>
+
+          <p className="text-sm">
+            Never seen anything like that? That's completely normal, and you
+            don't need to understand it. Think of it as the{" "}
+            <strong>spare key to your house</strong> — you don't study how
+            it's cut, you just keep it somewhere safe in case you're ever
+            locked out.
+          </p>
+          <p className="text-sm">
+            PrivateScribe keeps all of your notes on this device and
+            encrypted. This key is the one thing that can unlock them if you
+            move to a new computer or restore from a backup. No one else — not
+            even us — has a copy, so it's worth keeping, but it isn't
+            something to worry about day to day.
           </p>
         </div>
-        <div className="flex items-start gap-3 border-4 border-black bg-white p-3">
-          <NotebookPen className="mt-0.5 h-5 w-5 shrink-0" />
-          <p className="text-sm">
-            <strong>Written on paper</strong> — kept somewhere physically safe,
-            like with your passport or other important documents.
-          </p>
-        </div>
-        <div className="flex items-start gap-3 border-4 border-black bg-red-100 p-3">
-          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0" />
-          <p className="text-sm">
-            <strong>Avoid:</strong> a plain email to yourself, or an
-            unprotected file on your desktop.
-          </p>
-        </div>
-      </div>
 
-      <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
-        <p className="font-black uppercase tracking-wide">On the next screen</p>
-        <p className="mt-1">
-          You'll reveal your key and save a copy in one of the places above.
-          That's the whole job.
-        </p>
+        {/* Right: where to keep it */}
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-black uppercase tracking-wider">
+            Where to keep it
+          </p>
+          <div className="flex items-start gap-3 border-4 border-black bg-white p-3">
+            <KeyRound className="mt-0.5 h-5 w-5 shrink-0" />
+            <p className="text-sm">
+              <strong>In a password manager</strong> — apps like 1Password,
+              Bitwarden, or your built-in iCloud Keychain. Best choice if you
+              already use one.
+            </p>
+          </div>
+          <div className="flex items-start gap-3 border-4 border-black bg-white p-3">
+            <NotebookPen className="mt-0.5 h-5 w-5 shrink-0" />
+            <p className="text-sm">
+              <strong>Written on paper</strong> — kept somewhere physically
+              safe, like with your passport or other important documents.
+            </p>
+          </div>
+          <div className="flex items-start gap-3 border-4 border-black bg-red-100 p-3">
+            <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0" />
+            <p className="text-sm">
+              <strong>Avoid:</strong> a plain email to yourself, or an
+              unprotected file on your desktop.
+            </p>
+          </div>
+
+          <div className="mt-2 border-4 border-black bg-yellow-100 p-4 text-sm">
+            <p className="font-black uppercase tracking-wide">
+              On the next screen
+            </p>
+            <p className="mt-1">
+              You'll reveal your key and save a copy in one of the places
+              above. That's the whole job.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="flex items-center justify-between pt-2">
@@ -562,7 +573,11 @@ export default function OnboardingWizard() {
 
   return (
     <div className="min-h-screen flex justify-center items-start px-4 py-10">
-      <div className="w-full max-w-xl border-4 border-black bg-white p-8 shadow-[8px_8px_0px_0px_#000000]">
+      <div
+        className={`w-full border-4 border-black bg-white p-8 shadow-[8px_8px_0px_0px_#000000] ${
+          step === 1 ? "max-w-3xl" : "max-w-xl"
+        }`}
+      >
         {step === 0 && <WelcomeStep onNext={next} />}
         {step === 1 && <RecoveryKeyIntroStep onNext={next} onBack={back} />}
         {step === 2 && <RecoveryKeyStep onNext={next} onBack={back} />}
