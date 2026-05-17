@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import {
   onBackendCrash,
@@ -6,7 +6,13 @@ import {
   stopBackend,
   type BackendInfo,
 } from './backend-process';
-import { resolveOllama, stopOllama, type OllamaInfo } from './ollama-process';
+import {
+  getOllamaMode,
+  resolveOllama,
+  setOllamaMode,
+  startBundledOllama,
+  stopOllama,
+} from './ollama-process';
 import { initAutoUpdater } from './updater';
 
 // Set early so app.getName() and macOS menus pick this up instead of "Electron".
@@ -39,8 +45,26 @@ const ICON_ICNS = path.join(ASSETS_DIR, 'icon.icns'); // used by electron-builde
 const ICON_PNG = path.join(ASSETS_DIR, 'icon.png'); // used at dev runtime for Dock
 
 let backend: BackendInfo | null = null;
-let ollama: OllamaInfo | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Wire up the renderer-facing Ollama IPC. The onboarding wizard and OllamaGate
+ * call these to start the bundled runtime on demand (never automatically) and
+ * to remember the user's engine choice. Registered once, before the window
+ * opens, so an invoke can never race the handler.
+ */
+function registerOllamaIpc(): void {
+  // Onboarding "I don't have Ollama" / OllamaGate escape hatch. Spawns the
+  // bundled runtime, persists "bundled", and resolves once it answers (or
+  // fails) so the renderer can show a real result.
+  ipcMain.handle('ollama:start-bundled', () => startBundledOllama());
+  // Onboarding "I have my own Ollama" — remember the choice; start nothing.
+  ipcMain.handle('ollama:set-mode', (_event, mode: unknown) => {
+    if (mode === 'bundled' || mode === 'system') setOllamaMode(mode);
+    return { ok: true };
+  });
+  ipcMain.handle('ollama:get-mode', () => getOllamaMode());
+}
 
 // Single-instance lock: a second PrivateScribe would spawn a second backend
 // against the same encrypted database and data directory — lock contention at
@@ -211,6 +235,7 @@ app.whenReady().then(async () => {
   }
 
   buildMenu();
+  registerOllamaIpc();
 
   let apiBase: string;
 
@@ -220,12 +245,14 @@ app.whenReady().then(async () => {
   } else {
     // Resolve Ollama before the backend: the backend reads OLLAMA_HOST at
     // spawn time, so it must be known first. resolveOllama() reuses a running
-    // system Ollama or starts the bundled one; it never throws and never
-    // blocks on readiness (OllamaGate polls), so it cannot stall startup.
-    ollama = await resolveOllama();
+    // system Ollama, starts the bundled runtime if that was the user's
+    // remembered choice, or starts nothing on a fresh install (onboarding
+    // decides). It never throws and never blocks on readiness, and always
+    // returns the fixed host the backend should target.
+    const ollamaHost = await resolveOllama();
 
     try {
-      backend = await startBackend(ollama.host);
+      backend = await startBackend(ollamaHost);
     } catch (err) {
       // The bundled Python backend failed to launch. Without it the app is
       // just an empty shell, so surface a clear error and quit rather than
@@ -268,8 +295,6 @@ app.on('before-quit', () => {
     stopBackend(backend);
     backend = null;
   }
-  if (ollama) {
-    stopOllama(ollama);
-    ollama = null;
-  }
+  // No-op unless we started the bundled runtime ourselves.
+  stopOllama();
 });

@@ -3,59 +3,62 @@
  *
  * PrivateScribe bundles the Ollama runtime (see scripts/fetch-ollama.mjs and
  * extraResources in electron-builder.yml) so a fresh install needs no separate
- * Ollama setup. But many users — developers especially — already run Ollama.
- * Starting a second daemon next to theirs would waste resources and fight over
- * the port, so this module does detect-or-spawn:
+ * Ollama setup. But many users — developers especially — already run Ollama,
+ * and starting a second daemon next to theirs wastes resources. So the bundled
+ * runtime is *never* started automatically on a fresh install: the first-run
+ * onboarding wizard asks the user whether they already have Ollama, and only
+ * starts the bundled runtime if they say they don't (via startBundledOllama(),
+ * driven by an IPC call from the renderer).
  *
- *   - If something already serves the Ollama API on the default
- *     127.0.0.1:11434, reuse it untouched. We never manage a process we did
- *     not start, and never stop the user's own Ollama.
- *   - Otherwise spawn the bundled `ollama serve` on a private free port, so a
- *     user's Ollama starting up later cannot collide with it.
+ * The choice is remembered in a small JSON file under userData (getOllamaMode /
+ * setOllamaMode). On every later launch resolveOllama() reads it:
  *
- * Either way the resolved host is handed to the backend as OLLAMA_HOST (see
- * backend-process.ts); the backend's ollama client already reads that env var.
+ *   - If something already serves the Ollama API on 127.0.0.1:11434, reuse it
+ *     untouched. We never manage a process we did not start.
+ *   - Else if mode is "bundled", start the bundled runtime.
+ *   - Else (mode "system", or unset on first run) start nothing — onboarding
+ *     or OllamaGate will prompt the user.
+ *
+ * The bundled runtime binds the standard 127.0.0.1:11434, exactly where a
+ * system Ollama serves. That means the backend's OLLAMA_HOST is always the
+ * same host no matter which engine wins, so the bundled runtime can come up
+ * after the backend has already started without any reconfiguration.
  *
  * Ollama is *optional* — the app still edits notes and templates without it,
  * and OllamaGate in the renderer surfaces a "down" state — so nothing here may
  * throw or block startup. A bundled-runtime crash is logged and retried a few
  * times rather than escalated to a dialog.
  *
- * Dev runs (`npm run dev`) never reach this module: main.ts resolves Ollama
- * only in the packaged branch, and a developer runs their own Ollama just as
- * they run their own `flask run` backend.
+ * Dev runs (`npm run dev`) never reach resolveOllama(): main.ts resolves Ollama
+ * only in the packaged branch. The IPC-driven startBundledOllama() still works
+ * in dev (it falls back to the build-resources/ staging dir).
  */
 import { spawn, type ChildProcess } from 'child_process';
-import { createServer, type AddressInfo } from 'net';
+import { app } from 'electron';
+import * as fs from 'fs';
 import * as path from 'path';
 
-export interface OllamaInfo {
-  /** host:port the backend should target as OLLAMA_HOST. */
-  host: string;
-  /**
-   * The bundled `ollama serve` process we spawned, or null when we resolved to
-   * a system Ollama. stopOllama() only ever kills a non-null process.
-   */
-  process: ChildProcess | null;
-}
+/** Which AI engine the user opted into during onboarding. */
+export type OllamaMode = 'bundled' | 'system';
 
-// Ollama's registered default. A system install serves here; the bundled
-// runtime deliberately does not, to stay clear of it.
-const DEFAULT_OLLAMA_HOST = '127.0.0.1:11434';
+// The fixed host the backend always targets as OLLAMA_HOST. A system Ollama
+// serves here by default; the bundled runtime is told to bind here too, so the
+// backend never has to be reconfigured when the engine changes.
+const OLLAMA_HOST = '127.0.0.1:11434';
 
 // Probe budget for "is an Ollama already running here?". A free port refuses
 // the connection instantly; this ceiling only bites if something accepts the
 // socket but never answers.
 const PROBE_TIMEOUT_MS = 1500;
 
-// How long to keep probing the bundled runtime for a readiness log line.
-// Purely diagnostic — readiness is never awaited.
-const READY_TIMEOUT_MS = 20_000;
+// How long startBundledOllama() waits for the freshly spawned runtime to
+// answer before reporting a failure to the caller, and how long the
+// fire-and-forget readiness logger keeps polling.
+const READY_TIMEOUT_MS = 30_000;
 const READY_POLL_MS = 500;
 
-// A bundled runtime that exits on its own is restarted on the *same* port (so
-// the backend's already-built ollama client stays valid), up to this many
-// times before we let it stay down.
+// A bundled runtime that exits on its own is restarted, up to this many times
+// before we let it stay down.
 const MAX_RESTARTS = 3;
 const RESTART_DELAY_MS = 1500;
 
@@ -67,17 +70,57 @@ const OUTPUT_TAIL_MAX = 4000;
 let stopping = false;
 let restarts = 0;
 let outputTail = '';
+// The bundled `ollama serve` child, or null when we never started one.
+let bundledProc: ChildProcess | null = null;
+// Last spawn()-level failure (missing/non-executable binary). spawn() reports
+// these on the 'error' event rather than throwing, so we stash it here for
+// startBundledOllama()'s readiness loop to surface.
+let lastSpawnError: string | null = null;
 
 const delay = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-/** True when an Ollama API server answers at `host` within the probe budget. */
-async function isOllamaUp(host: string): Promise<boolean> {
+// ---------------------------------------------------------------------------
+// Persisted engine choice
+// ---------------------------------------------------------------------------
+
+/** Path to the JSON file that remembers the user's onboarding engine choice. */
+function configPath(): string {
+  return path.join(app.getPath('userData'), 'ollama-config.json');
+}
+
+/** The remembered engine mode, or null if onboarding has not chosen one yet. */
+export function getOllamaMode(): OllamaMode | null {
+  try {
+    const mode = JSON.parse(fs.readFileSync(configPath(), 'utf8'))?.mode;
+    return mode === 'bundled' || mode === 'system' ? mode : null;
+  } catch {
+    // No file yet (first run), or unreadable — treat as "not chosen".
+    return null;
+  }
+}
+
+/** Remember the user's engine choice so later launches know what to start. */
+export function setOllamaMode(mode: OllamaMode): void {
+  try {
+    fs.writeFileSync(configPath(), JSON.stringify({ mode }), 'utf8');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[ollama] could not persist engine mode: ${msg}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Process management
+// ---------------------------------------------------------------------------
+
+/** True when an Ollama API server answers at OLLAMA_HOST within the budget. */
+async function isOllamaUp(): Promise<boolean> {
   try {
     // /api/version is Ollama-specific: a 200 here proves both that something
     // is listening and that it is actually Ollama — not an unrelated service
     // that happens to hold the port.
-    const res = await fetch(`http://${host}/api/version`, {
+    const res = await fetch(`http://${OLLAMA_HOST}/api/version`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     return res.ok;
@@ -86,32 +129,31 @@ async function isOllamaUp(host: string): Promise<boolean> {
   }
 }
 
-/** Ask the OS for an unused TCP port on the loopback interface. */
-function pickFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.once('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as AddressInfo;
-      srv.close(() => resolve(port));
-    });
-  });
+/** Absolute path to the bundled `ollama` binary, packaged or in a dev tree. */
+function bundledBinaryPath(): string {
+  // Packaged: extraResources puts the runtime under Resources/ollama-runtime/
+  // (see electron-builder.yml). Dev: scripts/fetch-ollama.mjs stages it at
+  // <repo>/build-resources/ollama/ — __dirname is <repo>/electron/dist.
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'ollama-runtime', 'ollama')
+    : path.join(__dirname, '..', '..', 'build-resources', 'ollama', 'ollama');
 }
 
 /**
- * Spawn (or re-spawn) the bundled `ollama serve` bound to info.host, wiring up
- * crash handling. Reassigns info.process so stopOllama() always sees the live
- * child; binaryPath/host are reused verbatim on a restart.
+ * Spawn (or re-spawn) the bundled `ollama serve` bound to OLLAMA_HOST, wiring
+ * up crash handling. Reassigns the module-level bundledProc so stopOllama()
+ * always sees the live child.
  */
-function spawnBundled(info: OllamaInfo, binaryPath: string): void {
+function spawnBundled(): void {
+  lastSpawnError = null;
   // OLLAMA_HOST tells `ollama serve` where to bind. OLLAMA_MODELS is left
   // unset on purpose: the runtime then uses the standard ~/.ollama/models, so
   // there is one model store on the machine no matter which Ollama is running.
-  const child = spawn(binaryPath, ['serve'], {
-    env: { ...process.env, OLLAMA_HOST: info.host },
+  const child = spawn(bundledBinaryPath(), ['serve'], {
+    env: { ...process.env, OLLAMA_HOST },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  info.process = child;
+  bundledProc = child;
 
   const collect = (chunk: Buffer): void => {
     outputTail = (outputTail + chunk.toString()).slice(-OUTPUT_TAIL_MAX);
@@ -122,6 +164,7 @@ function spawnBundled(info: OllamaInfo, binaryPath: string): void {
   // spawn() failures (missing or non-executable binary) arrive here, not as a
   // throw — without this handler an EPIPE/ENOENT would be an uncaught error.
   child.on('error', (err) => {
+    lastSpawnError = err.message;
     console.error(`[ollama] bundled runtime process error: ${err.message}`);
   });
 
@@ -143,7 +186,7 @@ function spawnBundled(info: OllamaInfo, binaryPath: string): void {
     restarts += 1;
     console.log(`[ollama] restarting bundled runtime (${restarts}/${MAX_RESTARTS})`);
     setTimeout(() => {
-      if (!stopping) spawnBundled(info, binaryPath);
+      if (!stopping) spawnBundled();
     }, RESTART_DELAY_MS);
   });
 }
@@ -152,11 +195,11 @@ function spawnBundled(info: OllamaInfo, binaryPath: string): void {
  * Poll the bundled runtime until it answers, then log the outcome. Diagnostic
  * only — never awaited, so a slow or dead runtime cannot delay the window.
  */
-async function logWhenReady(host: string): Promise<void> {
+async function logWhenReady(): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (await isOllamaUp(host)) {
-      console.log(`[ollama] bundled runtime is serving on ${host}`);
+    if (await isOllamaUp()) {
+      console.log(`[ollama] bundled runtime is serving on ${OLLAMA_HOST}`);
       return;
     }
     await delay(READY_POLL_MS);
@@ -167,42 +210,97 @@ async function logWhenReady(host: string): Promise<void> {
 }
 
 /**
- * Resolve which Ollama the backend should use. Reuses a running system Ollama
- * if one is found, otherwise starts the bundled runtime. Never throws and
- * never blocks on readiness — safe to await directly in main.ts.
+ * Start the bundled runtime on demand and remember "bundled" as the engine
+ * choice. Driven by an IPC call when the onboarding wizard's "I don't have
+ * Ollama" branch is taken, or by OllamaGate's built-in-engine escape hatch.
+ *
+ * Idempotent: returns ok immediately when Ollama already answers (a system
+ * install, or a bundled runtime we started earlier). Otherwise it spawns the
+ * runtime and waits — up to READY_TIMEOUT_MS — for it to answer, so the caller
+ * gets a definitive ok/error to drive its UI.
  */
-export async function resolveOllama(): Promise<OllamaInfo> {
-  if (await isOllamaUp(DEFAULT_OLLAMA_HOST)) {
-    console.log(`[ollama] reusing the Ollama already running on ${DEFAULT_OLLAMA_HOST}`);
-    return { host: DEFAULT_OLLAMA_HOST, process: null };
+export async function startBundledOllama(): Promise<{
+  ok: boolean;
+  error?: string;
+}> {
+  setOllamaMode('bundled');
+
+  if (await isOllamaUp()) return { ok: true };
+
+  // Only spawn a fresh child if we don't already have one coming up.
+  if (!bundledProc || bundledProc.killed || bundledProc.exitCode !== null) {
+    restarts = 0;
+    stopping = false;
+    console.log('[ollama] starting bundled runtime on demand');
+    spawnBundled();
   }
 
-  try {
-    const host = `127.0.0.1:${await pickFreePort()}`;
-    // Packaged layout: extraResources puts the runtime under
-    // Resources/ollama-runtime/ (see electron-builder.yml).
-    const binaryPath = path.join(process.resourcesPath, 'ollama-runtime', 'ollama');
-    console.log(`[ollama] no system Ollama found — starting bundled runtime on ${host}`);
-    const info: OllamaInfo = { host, process: null };
-    spawnBundled(info, binaryPath);
-    void logWhenReady(host);
-    return info;
-  } catch (err) {
-    // Bundled startup failed outright. The app still runs; OllamaGate shows
-    // LLM features as unavailable.
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[ollama] could not start the bundled runtime: ${msg}`);
-    return { host: DEFAULT_OLLAMA_HOST, process: null };
+  // Wait for it to answer so the wizard can move on with a real result.
+  const deadline = Date.now() + READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (await isOllamaUp()) return { ok: true };
+    if (lastSpawnError) {
+      return {
+        ok: false,
+        error: `The built-in engine could not start (${lastSpawnError}).`,
+      };
+    }
+    await delay(READY_POLL_MS);
   }
+  const tail = outputTail.trim().slice(-400);
+  return {
+    ok: false,
+    error:
+      'The built-in engine did not finish starting in time.' +
+      (tail ? `\n\n${tail}` : ''),
+  };
 }
 
 /**
- * Stop the bundled runtime on app quit. No-op when we reused a system Ollama —
- * we must never kill a process we did not start.
+ * Resolve which Ollama the backend should target, and start the bundled
+ * runtime if that is the remembered choice. Never throws and never blocks on
+ * readiness — safe to await directly in main.ts. Always returns OLLAMA_HOST;
+ * the backend targets that host whether or not anything serves it yet.
  */
-export function stopOllama(info: OllamaInfo): void {
+export async function resolveOllama(): Promise<string> {
+  if (await isOllamaUp()) {
+    console.log(`[ollama] reusing the Ollama already running on ${OLLAMA_HOST}`);
+    return OLLAMA_HOST;
+  }
+
+  const mode = getOllamaMode();
+  if (mode === 'bundled') {
+    console.log('[ollama] engine mode is "bundled" — starting the bundled runtime');
+    try {
+      restarts = 0;
+      stopping = false;
+      spawnBundled();
+      void logWhenReady();
+    } catch (err) {
+      // Bundled startup failed outright. The app still runs; OllamaGate shows
+      // LLM features as unavailable.
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[ollama] could not start the bundled runtime: ${msg}`);
+    }
+  } else {
+    // First run (mode unset), or the user chose their own Ollama. Don't start
+    // anything: onboarding (first run) or OllamaGate (later) lets the user
+    // start their Ollama or the bundled runtime on demand.
+    console.log(
+      '[ollama] no Ollama running and engine mode is not "bundled" — ' +
+        'leaving the choice to the user',
+    );
+  }
+  return OLLAMA_HOST;
+}
+
+/**
+ * Stop the bundled runtime on app quit. No-op when we never started one — we
+ * must never kill an Ollama the user runs themselves.
+ */
+export function stopOllama(): void {
   stopping = true;
-  if (info.process && !info.process.killed) {
-    info.process.kill();
+  if (bundledProc && !bundledProc.killed) {
+    bundledProc.kill();
   }
 }

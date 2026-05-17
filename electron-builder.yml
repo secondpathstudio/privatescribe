@@ -42,7 +42,8 @@ extraResources:
       - "**/*"
   # The bundled Ollama runtime (headless ollama-darwin.tgz, staged by
   # scripts/fetch-ollama.mjs). Lands at Resources/ollama-runtime/ — Electron
-  # spawns ollama-runtime/ollama when no system Ollama is already running.
+  # spawns ollama-runtime/ollama on demand when the user opts into the
+  # built-in engine during onboarding (see electron/ollama-process.ts).
   - from: build-resources/ollama
     to: ollama-runtime
     filter:
