@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router";
 import { API_BASE } from "@/lib/api";
 import { OLLAMA_DOWN_EVENT } from "@/lib/ollama";
 import NeoButton from "@/components/neo/neo-button";
@@ -8,6 +9,13 @@ import NeoButton from "@/components/neo/neo-button";
 // healthy — most sessions stay healthy and there's no reason to hammer.
 const POLL_FAST_MS = 3000;
 const POLL_SLOW_MS = 60_000;
+
+// Routes where the gate must stay silent. First-run setup (the
+// organization/admin form lives on /login) and the onboarding wizard run
+// their own AI-engine handling — the wizard's model-picker step asks about
+// Ollama directly — so a global "engine unavailable" modal here would just
+// pop up over a form the user is in the middle of filling out.
+const SUPPRESSED_ROUTES = ["/login", "/welcome", "/getting-started"];
 
 // Grace window after mount before the gate may surface. The AI engine is
 // bundled and started with the app, so a brief "not responding" right after
@@ -42,6 +50,12 @@ async function probe(): Promise<boolean> {
 export default function OllamaGate() {
   const inElectron =
     typeof window !== "undefined" && !!window.electron;
+
+  // Hide the gate on first-run setup / onboarding routes (see
+  // SUPPRESSED_ROUTES). Polling continues underneath so the gate is ready
+  // the moment the user leaves those routes for the app proper.
+  const { pathname } = useLocation();
+  const suppressed = SUPPRESSED_ROUTES.includes(pathname);
 
   const [status, setStatus] = useState<Status>(
     inElectron ? "checking" : "available",
@@ -140,7 +154,7 @@ export default function OllamaGate() {
   // Pad the body when the banner is showing so it doesn't occlude the app's
   // fixed top nav. Cleaned up automatically when status flips or unmounts.
   const showingBanner =
-    inElectron && graceElapsed && status === "unavailable" && dismissed;
+    inElectron && !suppressed && graceElapsed && status === "unavailable" && dismissed;
   useEffect(() => {
     if (!showingBanner) return;
     const prev = document.body.style.paddingTop;
@@ -150,7 +164,8 @@ export default function OllamaGate() {
     };
   }, [showingBanner]);
 
-  if (!inElectron || status === "available" || !graceElapsed) return null;
+  if (!inElectron || suppressed || status === "available" || !graceElapsed)
+    return null;
 
   if (dismissed) {
     return (
