@@ -5,28 +5,21 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, limiter
 from app.models import Organization, Role, User
-from app.security import sessions
+from app.security import password_policy, sessions
 from app.security.auth import require_admin
 from app.services import two_factor
 from app.services.audit import log_action
 
 bp = Blueprint("users", __name__)
 
-# Modest cap; align with the login flow's brute-force defense. Anything
-# stricter and a fat-fingered user gets locked out of their own change form.
-PASSWORD_MIN_LENGTH = 8
-PASSWORD_MAX_LENGTH = 256
-
 
 def _validate_new_password(value) -> str | None:
-    """Returns an error message if invalid, else None."""
+    """Returns an error message if invalid, else None. Strength rules are
+    delegated to the shared policy validator (app/security/password_policy.py)
+    so every credential path enforces the same admin-configured policy."""
     if not isinstance(value, str) or not value:
         return "newPassword is required"
-    if len(value) < PASSWORD_MIN_LENGTH:
-        return f"Password must be at least {PASSWORD_MIN_LENGTH} characters"
-    if len(value) > PASSWORD_MAX_LENGTH:
-        return f"Password must be {PASSWORD_MAX_LENGTH} characters or fewer"
-    return None
+    return password_policy.validate(value)
 
 
 @bp.route('/api/getAllUsers', methods=['GET'])
@@ -66,6 +59,10 @@ def admin_create_user():
     required = ('firstName', 'lastName', 'email', 'password')
     if not all(data.get(k) for k in required):
         return jsonify({"error": "firstName, lastName, email, and password are required"}), 400
+
+    pw_err = password_policy.validate(data.get('password'))
+    if pw_err:
+        return jsonify({"error": pw_err}), 400
 
     role = data.get('role', 'user')
     if role not in ('user', 'admin'):

@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 
 from app.extensions import db, limiter
 from app.models import User, Organization
+from app.security import password_policy
 from app.services.audit import log_action
 
 bp = Blueprint("setup", __name__)
@@ -44,8 +45,9 @@ def setup_create_admin():
 
     if not email or '@' not in email:
         return jsonify({"error": "Valid email required"}), 400
-    if len(password) < 8:
-        return jsonify({"error": "Password must be at least 8 characters"}), 400
+    pw_err = password_policy.validate(password)
+    if pw_err:
+        return jsonify({"error": pw_err}), 400
     if not first_name or not last_name:
         return jsonify({"error": "First and last name required"}), 400
     if not organization:

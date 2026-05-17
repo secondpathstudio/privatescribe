@@ -8,6 +8,7 @@ from werkzeug.security import generate_password_hash
 
 from app.extensions import db
 from app.models import Note, Template, User
+from app.security import password_policy
 from app.services import settings as settings_service
 from app.services.audit import log_action
 
@@ -16,6 +17,7 @@ from app.services.audit import log_action
 @click.option("--email", prompt=True, help="Admin email")
 @click.option("--first-name", prompt=True, help="First name")
 @click.option("--last-name", prompt=True, help="Last name")
+@with_appcontext
 def create_admin(email, first_name, last_name):
     """Create an admin user."""
     if User.query.filter_by(email=email).first():
@@ -27,6 +29,12 @@ def create_admin(email, first_name, last_name):
 
     if password != password_confirm:
         click.echo("Passwords do not match!")
+        return
+
+    # Same policy the API enforces — the CLI is not a back door around it.
+    pw_err = password_policy.validate(password)
+    if pw_err:
+        click.echo(pw_err)
         return
 
     admin_user = User(

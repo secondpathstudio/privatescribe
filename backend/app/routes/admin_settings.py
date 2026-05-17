@@ -74,6 +74,11 @@ def get_settings():
         # overlays (see services/vocabulary.py).
         "vocabulary_terms": settings_service.get_admin_vocabulary_terms(),
         "abbreviations": settings_service.get_admin_abbreviations(),
+        # Password-strength policy enforced on every credential-creation path.
+        # "standard" = length floor only; "strict" = longer floor + common-
+        # password blocklist + character-class rules.
+        "password_policy": settings_service.get_password_policy(),
+        "password_policy_options": list(settings_service.VALID_PASSWORD_POLICIES),
     })
 
 
@@ -361,6 +366,41 @@ def update_two_factor_required():
     db.session.commit()
 
     return jsonify({"two_factor_required": settings_service.get_two_factor_required()})
+
+
+@bp.route('/password-policy', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_password_policy():
+    """Set the password-strength policy for all credential-creation paths.
+
+    Body: {"value": "standard" | "strict"}. Applies immediately — the next
+    password create / change / reset reads the fresh value. Existing stored
+    passwords are never re-validated, so tightening to "strict" can't lock
+    anyone out; it's enforced the next time a password is set.
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if value not in settings_service.VALID_PASSWORD_POLICIES:
+        return jsonify({
+            "error": f"value must be one of {list(settings_service.VALID_PASSWORD_POLICIES)}",
+        }), 400
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_password_policy()
+    settings_service.set_value(
+        settings_service.PASSWORD_POLICY, value, updated_by=current_user
+    )
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.PASSWORD_POLICY,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({"password_policy": settings_service.get_password_policy()})
 
 
 @bp.route('/exports-enabled', methods=['PUT'])

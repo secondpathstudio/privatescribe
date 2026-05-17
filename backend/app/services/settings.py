@@ -28,6 +28,7 @@ AUDIO_RETENTION_DAYS = "audio_retention_days"
 SESSION_IDLE_TIMEOUT_MINUTES = "session_idle_timeout_minutes"
 ONBOARDING_COMPLETED = "onboarding_completed"
 LLM_MODEL = "llm_model"
+PASSWORD_POLICY = "password_policy"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -112,6 +113,16 @@ DEFAULT_ABBREVIATIONS: dict[str, str] = {}
 # Set True once the first-run onboarding wizard has been completed. The
 # frontend reads this to stop routing a returning admin back into /welcome.
 DEFAULT_ONBOARDING_COMPLETED = False
+
+
+# Password-strength policy applied to every credential-creation path (admin
+# create-user, first-run setup, self-service change, admin reset, the
+# create-admin CLI). "standard" enforces only a length floor (min 8) — fine for
+# a single-user personal install. "strict" raises the floor to 12, rejects
+# common/breached passwords, and requires 3 of 4 character classes — the
+# multi-user / professional posture. See app/security/password_policy.py.
+DEFAULT_PASSWORD_POLICY = "standard"
+VALID_PASSWORD_POLICIES = ("standard", "strict")
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -232,6 +243,13 @@ def get_dictation_markers_enabled() -> bool:
 
 def get_onboarding_completed() -> bool:
     return get_bool(ONBOARDING_COMPLETED, DEFAULT_ONBOARDING_COMPLETED)
+
+
+def get_password_policy() -> str:
+    """Active password-strength policy. Falls back to the default if the row
+    is missing or holds an unrecognized value."""
+    value = get_str(PASSWORD_POLICY, DEFAULT_PASSWORD_POLICY)
+    return value if value in VALID_PASSWORD_POLICIES else DEFAULT_PASSWORD_POLICY
 
 
 def get_admin_vocabulary_terms() -> list[str]:
