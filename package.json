@@ -13,7 +13,8 @@
     "build:frontend": "cd frontend && npm run build",
     "build:electron": "tsc -p electron",
     "build:backend": "cd backend && . venv/bin/activate && pyinstaller privatescribe-backend.spec",
-    "dist": "npm run build:frontend && npm run build:electron && dotenv -e .env.notarize -- electron-builder"
+    "dist": "npm run build:frontend && npm run build:electron && dotenv -e .env.notarize -- electron-builder",
+    "release": "npm run build:frontend && npm run build:electron && dotenv -e .env.notarize -- electron-builder --publish always"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
@@ -23,5 +24,8 @@
     "electron-builder": "^26.8.1",
     "typescript": "^5.5.0",
     "wait-on": "^8.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
   }
 }

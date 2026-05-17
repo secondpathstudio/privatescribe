@@ -14,6 +14,14 @@ copyright: Copyright © 2026 Second Path Studio
 directories:
   output: release
 
+# Auto-update source. electron-builder publishes the installer, the update
+# .zip, its blockmap, and latest-mac.yml to GitHub Releases; electron-updater
+# (electron/updater.ts) polls latest-mac.yml from that same repo.
+publish:
+  provider: github
+  owner: secondpathstudio
+  repo: privatescribe
+
 # Files that go inside the asar (Resources/app/). Renderer + main process.
 files:
   - electron/dist/**/*
@@ -50,7 +58,11 @@ mac:
   # dotenv-cli. Adds ~3-5 min per build (Apple round-trip).
   notarize: true
   target:
+    # dmg is the first-install download; zip is what electron-updater
+    # (Squirrel.Mac) applies updates from. Both targets are notarized.
     - target: dmg
+      arch: arm64
+    - target: zip
       arch: arm64
 
 dmg:

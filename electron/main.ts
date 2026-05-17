@@ -6,6 +6,7 @@ import {
   stopBackend,
   type BackendInfo,
 } from './backend-process';
+import { initAutoUpdater } from './updater';
 
 // Set early so app.getName() and macOS menus pick this up instead of "Electron".
 // In a packaged build this comes from CFBundleName in Info.plist (driven by
@@ -238,6 +239,12 @@ app.whenReady().then(async () => {
   }
 
   await createWindow(apiBase);
+
+  // Check for app updates in the background — packaged builds only. A newer
+  // release downloads silently and installs on the next quit (see updater.ts).
+  if (!isDev) {
+    initAutoUpdater();
+  }
 });
 
 app.on('window-all-closed', () => {
