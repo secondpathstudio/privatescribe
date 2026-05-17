@@ -50,11 +50,34 @@ export default function OllamaGate() {
   // Suppresses the gate for the first few seconds after launch so the normal
   // engine-startup window never flashes a modal. Flips true once and stays.
   const [graceElapsed, setGraceElapsed] = useState(false);
+  // True while the built-in-engine escape hatch is starting the bundled
+  // runtime; carries the failure message if that start didn't take.
+  const [startingBundled, setStartingBundled] = useState(false);
+  const [bundledError, setBundledError] = useState<string | null>(null);
 
   const tick = useCallback(async () => {
     const ok = await probe();
     setStatus(ok ? "available" : "unavailable");
   }, []);
+
+  // Escape hatch: start (or restart) PrivateScribe's bundled AI engine. Works
+  // both for a user who chose their own Ollama but can't get it running, and
+  // to revive a bundled engine that crashed. The health poll picks up success
+  // and dismisses the gate on its own.
+  const useBundledEngine = useCallback(async () => {
+    const ollama = window.electron?.ollama;
+    if (!ollama) return;
+    setStartingBundled(true);
+    setBundledError(null);
+    const result = await ollama.startBundled();
+    setStartingBundled(false);
+    if (result.ok) {
+      setStatus("checking");
+      tick();
+    } else {
+      setBundledError(result.error || "The built-in engine couldn't start.");
+    }
+  }, [tick]);
 
   // One-shot probe on mount so we don't wait a full slow interval for the
   // first answer.
@@ -165,10 +188,33 @@ export default function OllamaGate() {
             <ul className="list-disc pl-5 space-y-1">
               <li>It may still be starting up — give it a few seconds.</li>
               <li>
-                If it doesn't come back, quit PrivateScribe and open it again.
+                If you run your own Ollama, make sure it's started and stays
+                running in the background.
               </li>
             </ul>
           </div>
+          {window.electron?.ollama && (
+            <div className="border-[2px] border-black bg-white p-3">
+              <p className="font-bold mb-1">Use the built-in engine</p>
+              <p className="mb-2 text-xs text-muted-foreground">
+                PrivateScribe can run its own bundled AI engine on this device
+                instead — no separate Ollama needed.
+              </p>
+              {bundledError && (
+                <p className="mb-2 whitespace-pre-wrap break-words font-mono text-xs text-red-600">
+                  {bundledError}
+                </p>
+              )}
+              <NeoButton
+                onClick={useBundledEngine}
+                disabled={startingBundled}
+                backgroundColor="#000000"
+                textColor="#ffffff"
+              >
+                {startingBundled ? "Starting…" : "Use the built-in engine"}
+              </NeoButton>
+            </div>
+          )}
           <p>
             Transcription and AI formatting are paused until it's back. Your
             notes and templates are unaffected — you can keep working on them.
