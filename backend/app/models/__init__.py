@@ -4,6 +4,7 @@ Importing this module also forces every model class to be registered on
 db.metadata, which db.create_all() and Flask-Migrate's autogenerate rely on.
 """
 from app.models.user import User
+from app.models.organization import Organization
 from app.models.template import Template
 from app.models.role import Role, user_roles, template_roles
 from app.models.participant import Participant, note_participants, user_participants
@@ -17,6 +18,7 @@ from app.models.session import Session
 
 __all__ = [
     "User",
+    "Organization",
     "Template",
     "Role",
     "user_roles",

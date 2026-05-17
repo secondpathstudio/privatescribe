@@ -50,6 +50,12 @@ class User(db.Model):
     abbreviations = db.Column(db.Text, nullable=False, default='{}')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_login = db.Column(db.DateTime, default=datetime.utcnow)
+    # The organization this user belongs to. One organization per install
+    # today — the admin sets it at first-run setup and every user inherits
+    # it. Nullable so users created before this column existed stay valid
+    # until an admin backfills the org; a FK so it can become a real tenant
+    # boundary if the app later runs as a centralized multi-client server.
+    organization_id = db.Column(db.String(36), db.ForeignKey('organization.id'), nullable=True)
 
     notes = db.relationship('Note', backref='user', lazy=True, cascade='all, delete-orphan')
     templates = db.relationship('Template', backref='user', lazy=True, cascade='all, delete-orphan')
