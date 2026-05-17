@@ -987,6 +987,23 @@ def search_notes():
         include_deleted=include_deleted,
         limit=SEARCH_RESULT_LIMIT,
     )
+
+    # Full-text search reads PHI (the snippets carry note content), so the
+    # access is audited. The raw query string is deliberately NOT recorded —
+    # it can itself be PHI (a patient name) — only its length and the hit
+    # count, which is enough to reconstruct "who searched, when, how broadly".
+    log_action(
+        'note.search',
+        user_id=current_user,
+        resource_type='note',
+        extra={
+            'query_length': len(q),
+            'result_count': len(hits),
+            'include_deleted': include_deleted,
+        },
+    )
+    db.session.commit()
+
     if not hits:
         return jsonify([])
 
@@ -1052,6 +1069,18 @@ def get_notes_for_user(user_id):
         query = query.filter_by(is_deleted=False)
 
     notes = query.all()
+
+    # The list endpoint returns full Markdown bodies, so it's a PHI read and
+    # is audited even when the result is empty (an empty list still reveals
+    # the caller has no notes).
+    log_action(
+        'note.list',
+        user_id=current_user,
+        resource_type='note',
+        extra={'count': len(notes), 'include_deleted': include_deleted},
+    )
+    db.session.commit()
+
     if not notes:
         return jsonify([]), 200
 

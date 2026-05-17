@@ -103,6 +103,7 @@ def transcribe():
         audio_path = None
         audio_file_id: str | None = None
         stored_filename: str | None = None
+        size_bytes: int | None = None
         try:
             # Decoding first — covers the encrypted-save + pydub/ffmpeg WAV
             # conversion. For large non-WAV uploads (mp4, webm) this can run
@@ -134,19 +135,26 @@ def transcribe():
                 db.session.add(audio_row)
                 db.session.flush()
                 audio_file_id = audio_row.id
-                log_action(
-                    'audio.transcribe',
-                    user_id=current_user,
-                    resource_type='audio_file',
-                    resource_id=audio_file_id,
-                    extra={
-                        'size_bytes': size_bytes,
-                        'mime_type': audio_row.mime_type,
-                        'diarize': diarize,
-                        'max_speakers': max_speakers,
-                    },
-                )
-                db.session.commit()
+
+            # Audit the transcription unconditionally. The audit row used to
+            # be gated behind the audio-storage toggle, which meant that with
+            # storage off a user could transcribe PHI with no trace at all.
+            # `stored` records whether the encrypted copy was kept; when
+            # storage is off there's no AudioFile row, so resource_id is None.
+            log_action(
+                'audio.transcribe',
+                user_id=current_user,
+                resource_type='audio_file' if audio_file_id else 'audio',
+                resource_id=audio_file_id,
+                extra={
+                    'stored': audio_file_id is not None,
+                    'size_bytes': size_bytes,
+                    'mime_type': file.mimetype or None,
+                    'diarize': diarize,
+                    'max_speakers': max_speakers,
+                },
+            )
+            db.session.commit()
 
             # Bias Whisper toward the user's effective vocabulary list
             # (admin defaults + user additions). build_whisper_prompt returns

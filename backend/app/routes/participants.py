@@ -68,6 +68,17 @@ def get_participants_for_user(user_id):
         return jsonify({"error": "Not authorized to access templates for this user"}), 403
 
     participants = Participant.query.filter_by(author_id=user_id).all()
+
+    # Participant records are author-scoped contacts (names, emails) — PHI
+    # under HIPAA — so reading the list is audited even when it's empty.
+    log_action(
+        'participant.list',
+        user_id=current_user,
+        resource_type='participant',
+        extra={'count': len(participants)},
+    )
+    db.session.commit()
+
     if not participants:
         return jsonify([]), 200
 

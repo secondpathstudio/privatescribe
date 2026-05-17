@@ -5,8 +5,10 @@ from flask import Blueprint, jsonify, request
 from flask_cors import cross_origin
 from sqlalchemy import desc
 
+from app.extensions import db
 from app.models import AuditLog
 from app.security.auth import require_admin
+from app.services.audit import log_action
 
 bp = Blueprint("admin_audit", __name__, url_prefix="/api/admin/audit-log")
 
@@ -91,6 +93,28 @@ def list_audit_log():
         .limit(limit)
         .all()
     )
+
+    # Reviewing the audit log is itself an auditable event: it tells a later
+    # reviewer who looked at the trail and with what filters. The actor is
+    # resolved from the admin's JWT inside log_action.
+    log_action(
+        'audit_log.view',
+        resource_type='audit_log',
+        extra={
+            'total': total,
+            'limit': limit,
+            'offset': offset,
+            'filters': {
+                k: request.args.get(k)
+                for k in (
+                    'user_id', 'user_email', 'action', 'resource_type',
+                    'resource_id', 'status', 'since', 'until',
+                )
+                if request.args.get(k)
+            },
+        },
+    )
+    db.session.commit()
 
     return jsonify({
         "total": total,

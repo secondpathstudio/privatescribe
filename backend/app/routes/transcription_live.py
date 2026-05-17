@@ -32,6 +32,8 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from pydub import AudioSegment
 
+from app.extensions import db
+from app.services.audit import log_action
 from app.services.diarization import (
     DiarizationUnavailable,
     diarize_path,
@@ -250,6 +252,7 @@ def transcribe_live():
     diarize = _truthy(request.form.get("diarize", "false"))
     session_id = request.form.get("session_id")
 
+    new_session = False
     with _registry_lock:
         _cleanup_expired_locked()
         if session_id and session_id in _sessions:
@@ -272,7 +275,22 @@ def transcribe_live():
                     "message": "Too many live transcription sessions open. Finish one and retry.",
                 }), 429
             session_id, sess = _new_session_locked(user_id)
+            new_session = True
         sess.last_touched = time.time()
+
+    # Audit once, when a session is first opened — not on every 2s tick, which
+    # would flood the log. This is the PHI-capture event for live recording;
+    # the per-tick chunks and the final /api/transcribe pass are covered
+    # separately. The audit write is best-effort and never blocks the tick.
+    if new_session:
+        log_action(
+            'audio.transcribe_live',
+            user_id=user_id,
+            resource_type='audio',
+            resource_id=session_id,
+            extra={'diarize': diarize},
+        )
+        db.session.commit()
 
     # Serialize ticks for THIS session so concurrent in-flight requests can't
     # race on the appended file or on session.committed_segments. Other
