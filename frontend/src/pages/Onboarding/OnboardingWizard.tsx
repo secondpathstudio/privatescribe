@@ -367,13 +367,23 @@ type ModelPickerStepProps = StepProps & {
 
 type PickerPhase = "loading" | "ready" | "down";
 
+// When the engine is down we don't assume the user has Ollama and rush to
+// install it. Instead we ask: "ask" presents the yes/no question, "have-it"
+// tells an existing user to start Ollama, "install" walks a new user through
+// downloading it.
+type DownStep = "ask" | "have-it" | "install";
+
 // Step 4 of the wizard: pick the local language model. The chosen model is
 // downloaded here (streamed `ollama pull` with a progress bar) and reported up
-// so the wizard can persist it as the app-wide default. With Ollama bundled,
-// "engine down" should be rare — it means the bundled runtime hasn't come up.
+// so the wizard can persist it as the app-wide default. When the engine is
+// down — the bundled runtime hasn't come up, or this is a non-bundled
+// install — we branch on whether the user already has Ollama before offering
+// to install it.
 function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStepProps) {
   const auth = useAuth();
   const [phase, setPhase] = useState<PickerPhase>("loading");
+  // Which "engine down" screen to show. Only meaningful while phase === "down".
+  const [downStep, setDownStep] = useState<DownStep>("ask");
   // Normalized tags of models already present in Ollama.
   const [installed, setInstalled] = useState<Set<string>>(new Set());
   const [pulling, setPulling] = useState(false);
@@ -492,13 +502,105 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
         <p className="text-sm text-muted-foreground">Checking the AI engine…</p>
       )}
 
-      {phase === "down" && (
-        <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
-          <p className="font-bold">The local AI engine isn't responding yet.</p>
-          <p className="mt-1">
-            It may still be starting up. Wait a moment and re-check, or continue
-            and download a model later from Admin → Models.
+      {phase === "down" && downStep === "ask" && (
+        <div className="flex flex-col gap-3">
+          <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
+            <p className="font-bold">The local AI engine isn't running.</p>
+            <p className="mt-1">
+              PrivateScribe uses Ollama — a small, free program — to run AI
+              models privately on this device. Do you already have Ollama
+              installed?
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDownStep("have-it")}
+            className="border-4 border-black bg-white p-4 text-left text-black transition-colors hover:bg-gray-100"
+          >
+            <div className="font-black uppercase tracking-wide">
+              Yes, I have Ollama
+            </div>
+            <div className="mt-1 text-xs">
+              I've installed it before — I just need to start it.
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDownStep("install")}
+            className="border-4 border-black bg-white p-4 text-left text-black transition-colors hover:bg-gray-100"
+          >
+            <div className="font-black uppercase tracking-wide">
+              No, I need to install it
+            </div>
+            <div className="mt-1 text-xs">
+              Walk me through downloading and installing Ollama.
+            </div>
+          </button>
+        </div>
+      )}
+
+      {phase === "down" && downStep === "have-it" && (
+        <div className="flex flex-col gap-2 border-4 border-black bg-yellow-100 p-4 text-sm">
+          <p className="font-black uppercase tracking-wide">Start Ollama</p>
+          <p>
+            Open the Ollama app from your Applications (or run{" "}
+            <code className="border border-black bg-white px-1 font-mono">
+              ollama serve
+            </code>{" "}
+            in a terminal).
           </p>
+          <p>
+            <strong>
+              Ollama needs to stay running in the background
+            </strong>{" "}
+            whenever you use PrivateScribe — if you quit it, AI formatting will
+            stop working.
+          </p>
+          <p>
+            Once Ollama is running, click <strong>Re-check</strong> below.
+          </p>
+          <button
+            type="button"
+            onClick={() => setDownStep("ask")}
+            className="self-start pt-1 text-xs font-bold uppercase tracking-wider underline"
+          >
+            ← Back
+          </button>
+        </div>
+      )}
+
+      {phase === "down" && downStep === "install" && (
+        <div className="flex flex-col gap-2 border-4 border-black bg-yellow-100 p-4 text-sm">
+          <p className="font-black uppercase tracking-wide">Install Ollama</p>
+          <ol className="ml-5 list-decimal space-y-1">
+            <li>
+              Go to{" "}
+              <a
+                href="https://ollama.com/download"
+                target="_blank"
+                rel="noreferrer"
+                className="font-bold underline"
+              >
+                ollama.com/download
+              </a>{" "}
+              and download Ollama for your system.
+            </li>
+            <li>Open the downloaded file and follow the installer.</li>
+            <li>
+              Launch Ollama. It runs quietly in the background — keep it
+              running whenever you use PrivateScribe.
+            </li>
+            <li>
+              Come back here and click <strong>Re-check</strong>.
+            </li>
+          </ol>
+          <button
+            type="button"
+            onClick={() => setDownStep("ask")}
+            className="self-start pt-1 text-xs font-bold uppercase tracking-wider underline"
+          >
+            ← Back
+          </button>
         </div>
       )}
 
