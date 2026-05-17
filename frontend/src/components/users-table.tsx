@@ -6,6 +6,7 @@ import { useAuth } from "@/context/auth-context";
 import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 import Reset2FAModal from "@/components/admin/Reset2FAModal";
 import DeactivateUserModal from "@/components/admin/DeactivateUserModal";
+import ManageRolesModal from "@/components/admin/ManageRolesModal";
 
 interface User {
   id: string;
@@ -16,6 +17,7 @@ interface User {
   lastLogin: string;
   twoFactorEnrolled?: boolean;
   isActive?: boolean;
+  roles?: { id: string; name: string }[];
 }
 
 const formatLocal = (value?: string) => {
@@ -33,6 +35,7 @@ export default function UsersTable({ users }: { users: User[] }) {
   const [activeTarget, setActiveTarget] = useState<
     { user: User; action: "deactivate" | "activate" } | null
   >(null);
+  const [rolesTarget, setRolesTarget] = useState<User | null>(null);
 
   const handleSort = (key: keyof User) => {
     let direction: "asc" | "desc" = "asc";
@@ -49,7 +52,9 @@ export default function UsersTable({ users }: { users: User[] }) {
         return isNaN(t) ? -Infinity : t;
       }
       if (typeof v === "boolean") return v ? 1 : 0;
-      return v ?? "";
+      // Non-sortable columns (e.g. roles) never reach here at runtime; the
+      // string check keeps compareKey total now that keyof User is wider.
+      return typeof v === "string" ? v : "";
     };
 
     const sortedData = [...data].sort((a, b) => {
@@ -93,6 +98,7 @@ export default function UsersTable({ users }: { users: User[] }) {
             ))}
             <TableHead>Status</TableHead>
             <TableHead>2FA</TableHead>
+            <TableHead>Roles</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -127,6 +133,28 @@ export default function UsersTable({ users }: { users: User[] }) {
                   >
                     {user.twoFactorEnrolled ? "Enrolled" : "—"}
                   </span>
+                </TableCell>
+                <TableCell>
+                  <button
+                    type="button"
+                    onClick={() => setRolesTarget(user)}
+                    className="flex flex-wrap items-center gap-1 text-left hover:opacity-70"
+                  >
+                    {user.roles && user.roles.length > 0 ? (
+                      user.roles.map((r) => (
+                        <span
+                          key={r.id}
+                          className="inline-block border-2 border-black bg-[#fd3777] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
+                        >
+                          {r.name}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground underline">
+                        Assign roles
+                      </span>
+                    )}
+                  </button>
                 </TableCell>
                 <TableCell>
                   {isSelf ? (
@@ -198,6 +226,19 @@ export default function UsersTable({ users }: { users: User[] }) {
           onClose={() => setActiveTarget(null)}
           onSuccess={() =>
             setActive(activeTarget.user.id, activeTarget.action === "activate")
+          }
+        />
+      )}
+      {rolesTarget && (
+        <ManageRolesModal
+          userId={rolesTarget.id}
+          userEmail={rolesTarget.email}
+          currentRoles={rolesTarget.roles ?? []}
+          onClose={() => setRolesTarget(null)}
+          onSaved={(roles) =>
+            setData((prev) =>
+              prev.map((u) => (u.id === rolesTarget.id ? { ...u, roles } : u)),
+            )
           }
         />
       )}
