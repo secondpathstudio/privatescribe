@@ -49,6 +49,9 @@ def onboarding_complete():
     use_cases = data.get("useCases") or []
     if not isinstance(use_cases, list):
         return jsonify({"error": "useCases must be a list"}), 400
+    # The model the wizard's picker landed on. Optional — a missing or blank
+    # value just leaves the app on its built-in default model.
+    default_model = data.get("defaultModel")
 
     current_user = get_jwt_identity()
     created = starter_templates.seed_for_user(current_user, use_cases)
@@ -61,6 +64,13 @@ def onboarding_complete():
         extra={"use_cases": use_cases, "templates_created": len(created)},
     )
     settings_service.set_value(settings_service.ONBOARDING_COMPLETED, True)
+
+    # Record the picked model as the app-wide default so the just-seeded
+    # templates (which leave llm_model null) format with it. Written after the
+    # completion flag on purpose: if this last write fails, onboarding is still
+    # done and the app simply falls back to its built-in default model.
+    if isinstance(default_model, str) and default_model.strip() and len(default_model) <= 200:
+        settings_service.set_value(settings_service.LLM_MODEL, default_model.strip())
 
     return jsonify({
         "completed": True,

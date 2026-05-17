@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Eye, EyeOff, KeyRound, NotebookPen, TriangleAlert } from "lucide-react";
@@ -7,7 +7,7 @@ import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
 
 // The first-run admin wizard: Welcome → recovery-key intro → recovery-key
-// backup → Ollama check → Whisper notice → use-case picker → finish (seed
+// backup → AI model picker → Whisper notice → use-case picker → finish (seed
 // templates, mark done).
 const TOTAL_STEPS = 6;
 
@@ -29,8 +29,7 @@ function WelcomeStep({ onNext }: StepProps) {
       </p>
       <p className="text-sm">
         This quick setup walks you through backing up your encryption key,
-        checking that the AI engine is ready, and picking a few templates to
-        start from.
+        choosing an AI model, and picking a few templates to start from.
       </p>
       <div className="flex justify-end pt-2">
         <NeoButton onClick={onNext} backgroundColor="#fd3777" textColor="#ffffff">
@@ -290,102 +289,296 @@ function RecoveryKeyStep({ onNext, onBack }: StepProps) {
   );
 }
 
-type OllamaState = "checking" | "ready" | "no-model" | "down";
+// The curated models the first-run picker offers. Each `tag` is exactly what
+// gets passed to `ollama pull` and stored as the app-wide default model — so
+// the picked model is both downloaded and used to fill templates. Sizes are
+// approximate; the real byte counts come from the pull progress stream.
+type PickerModel = {
+  tag: string;
+  label: string;
+  params: string;
+  approxGb: number;
+  blurb: string;
+  recommended?: boolean;
+};
 
-function OllamaCheckStep({ onNext, onBack }: StepProps) {
+const PICKER_MODELS: PickerModel[] = [
+  {
+    tag: "llama3.2",
+    label: "Llama 3.2",
+    params: "3B",
+    approxGb: 2.0,
+    blurb: "Fast and well-rounded. The recommended starting point.",
+    recommended: true,
+  },
+  {
+    tag: "qwen3:4b",
+    label: "Qwen 3",
+    params: "4B",
+    approxGb: 2.5,
+    blurb: "Strong instruction-following — a capable all-rounder.",
+  },
+  {
+    tag: "gemma3:4b",
+    label: "Gemma 3",
+    params: "4B",
+    approxGb: 3.3,
+    blurb: "Google's compact model — careful, tidy output.",
+  },
+  {
+    tag: "mistral",
+    label: "Mistral",
+    params: "7B",
+    approxGb: 4.1,
+    blurb: "A proven 7B model — the most capable here, and the largest.",
+  },
+];
+
+// Ollama reports installed models tagged ("llama3.2:latest"); a bare tag like
+// "llama3.2" means ":latest". Normalize both sides before comparing.
+const normalizeTag = (tag: string): string =>
+  tag.includes(":") ? tag : `${tag}:latest`;
+
+// One progress line from the /api/ollama/pull NDJSON stream.
+type ModelPullProgress = {
+  status?: string;
+  total?: number;
+  completed?: number;
+  error?: string;
+  done?: boolean;
+};
+
+function formatGb(bytes?: number): string {
+  if (!bytes) return "0.0 GB";
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+type ModelPickerStepProps = StepProps & {
+  selected: string;
+  onSelect: (tag: string) => void;
+};
+
+type PickerPhase = "loading" | "ready" | "down";
+
+// Step 4 of the wizard: pick the local language model. The chosen model is
+// downloaded here (streamed `ollama pull` with a progress bar) and reported up
+// so the wizard can persist it as the app-wide default. With Ollama bundled,
+// "engine down" should be rare — it means the bundled runtime hasn't come up.
+function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStepProps) {
   const auth = useAuth();
-  const [state, setState] = useState<OllamaState>("checking");
-  const [defaultModel, setDefaultModel] = useState("llama3.2");
+  const [phase, setPhase] = useState<PickerPhase>("loading");
+  // Normalized tags of models already present in Ollama.
+  const [installed, setInstalled] = useState<Set<string>>(new Set());
+  const [pulling, setPulling] = useState(false);
+  const [progress, setProgress] = useState<ModelPullProgress | null>(null);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Probe Ollama: a 503/network failure means the daemon is down; otherwise
-  // check the default model is among the installed ones (tag-tolerant, so
-  // "llama3.2" matches "llama3.2:latest").
-  const check = useCallback(async () => {
-    setState("checking");
+  // Load the installed-model list so each card can show "installed" vs a
+  // download size. A 503 / network failure means the local engine isn't up.
+  const loadInstalled = useCallback(async () => {
+    setPhase("loading");
     try {
       const res = await fetch(`${API_BASE}/api/ollama/models`, {
         headers: { Authorization: `Bearer ${auth.token}` },
       });
       if (!res.ok) {
-        setState("down");
+        setPhase("down");
         return;
       }
       const data = await res.json();
-      const def: string = data.default || "llama3.2";
-      setDefaultModel(def);
-      const stripTag = (name: string) => name.split(":")[0];
       const models: { name: string }[] = data.models || [];
-      const hasDefault = models.some((m) => stripTag(m.name) === stripTag(def));
-      setState(hasDefault ? "ready" : "no-model");
+      setInstalled(new Set(models.map((m) => normalizeTag(m.name))));
+      setPhase("ready");
     } catch {
-      setState("down");
+      setPhase("down");
     }
   }, [auth.token]);
 
-  useEffect(() => { check(); }, [check]);
+  useEffect(() => {
+    loadInstalled();
+  }, [loadInstalled]);
+
+  // Abort an in-flight pull if the user leaves the step. Ollama resumes a
+  // partial download on the next pull, so this costs nothing.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const selectedIsInstalled = installed.has(normalizeTag(selected));
+  const selectedModel =
+    PICKER_MODELS.find((m) => m.tag === selected) ?? PICKER_MODELS[0];
+
+  // Stream `ollama pull` for the selected model, painting a progress bar from
+  // the NDJSON events. On success the model is marked installed locally.
+  const downloadSelected = async () => {
+    setPulling(true);
+    setProgress({ status: "starting" });
+    setPullError(null);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    try {
+      const res = await fetch(`${API_BASE}/api/ollama/pull`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`,
+        },
+        body: JSON.stringify({ model: selected }),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Download failed (status ${res.status}).`);
+      }
+      // NDJSON: one JSON object per line; the final line carries done:true,
+      // with `error` set on failure.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finalEvent: ModelPullProgress | null = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const evt: ModelPullProgress = JSON.parse(line);
+            setProgress(evt);
+            if (evt.done) finalEvent = evt;
+          } catch {
+            // ignore a malformed line
+          }
+        }
+      }
+      if (finalEvent?.error) {
+        setPullError(finalEvent.error);
+      } else {
+        setInstalled((prev) => new Set(prev).add(normalizeTag(selected)));
+      }
+    } catch (e) {
+      if (e instanceof Error && e.name !== "AbortError") {
+        setPullError(e.message || "Download failed.");
+      }
+    } finally {
+      setPulling(false);
+      abortRef.current = null;
+    }
+  };
+
+  const percent =
+    progress?.total && progress?.completed
+      ? Math.min(100, Math.round((progress.completed / progress.total) * 100))
+      : null;
 
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="text-3xl font-black uppercase">Check the AI engine</h1>
+      <h1 className="text-3xl font-black uppercase">Choose your AI model</h1>
       <p className="text-sm">
-        PrivateScribe uses Ollama to run a language model locally — it's what
-        turns your raw transcript into a formatted note.
+        PrivateScribe runs a language model on this device to turn transcripts
+        into formatted notes. Pick one to download — you can add or switch
+        models later from Admin → Models.
       </p>
 
-      {state === "checking" && (
-        <p className="text-sm text-muted-foreground">Checking…</p>
+      {phase === "loading" && (
+        <p className="text-sm text-muted-foreground">Checking the AI engine…</p>
       )}
 
-      {state === "ready" && (
-        <div className="border-4 border-black bg-green-100 p-4 text-sm font-bold">
-          ✓ Ollama is running and the {defaultModel} model is installed —
-          you're all set.
-        </div>
-      )}
-
-      {state === "down" && (
+      {phase === "down" && (
         <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
-          <p className="mb-2 font-bold">Ollama doesn't appear to be running.</p>
-          <ol className="list-decimal space-y-2 pl-5">
-            <li>
-              Install Ollama from{" "}
-              <a
-                href="https://ollama.com/download/mac"
-                target="_blank"
-                rel="noreferrer"
-                className="font-semibold underline"
-              >
-                ollama.com/download/mac
-              </a>
-              .
-            </li>
-            <li>
-              In a terminal, run:
-              <pre className="mt-1 bg-black p-2 font-mono text-xs text-white">
-                ollama pull {defaultModel}
-              </pre>
-            </li>
-            <li>Leave Ollama running, then re-check.</li>
-          </ol>
-        </div>
-      )}
-
-      {state === "no-model" && (
-        <div className="border-4 border-black bg-yellow-100 p-4 text-sm">
-          <p className="mb-2 font-bold">
-            Ollama is running, but the {defaultModel} model isn't installed yet.
+          <p className="font-bold">The local AI engine isn't responding yet.</p>
+          <p className="mt-1">
+            It may still be starting up. Wait a moment and re-check, or continue
+            and download a model later from Admin → Models.
           </p>
-          <p className="mb-1">In a terminal, run:</p>
-          <pre className="bg-black p-2 font-mono text-xs text-white">
-            ollama pull {defaultModel}
-          </pre>
-          <p className="mt-2">Then re-check below.</p>
+        </div>
+      )}
+
+      {phase === "ready" && (
+        <div className="flex flex-col gap-3">
+          {PICKER_MODELS.map((m) => {
+            const on = m.tag === selected;
+            const have = installed.has(normalizeTag(m.tag));
+            return (
+              <button
+                key={m.tag}
+                type="button"
+                aria-pressed={on}
+                disabled={pulling}
+                onClick={() => onSelect(m.tag)}
+                className={
+                  "border-4 border-black p-4 text-left transition-colors disabled:opacity-60 " +
+                  (on ? "bg-[#fd3777] text-white" : "bg-white text-black")
+                }
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-black uppercase tracking-wide">
+                    {m.label} <span className="text-xs font-bold">{m.params}</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-black uppercase tracking-wider">
+                    {have ? "✓ Installed" : `~${m.approxGb.toFixed(1)} GB`}
+                  </span>
+                </div>
+                <div className="mt-1 text-xs">
+                  {m.recommended && (
+                    <span className="font-black uppercase">Recommended · </span>
+                  )}
+                  {m.blurb}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {pullError && (
+        <p role="alert" className="text-sm font-bold text-red-600">
+          {pullError}
+        </p>
+      )}
+
+      {pulling && progress && (
+        <div className="space-y-1 border-4 border-black bg-yellow-50 p-3 text-sm">
+          <div className="font-bold">{progress.status || "Downloading…"}</div>
+          {percent !== null && (
+            <>
+              <div className="h-3 border-2 border-black">
+                <div
+                  className="h-full bg-[#fd3777]"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {formatGb(progress.completed)} / {formatGb(progress.total)} ({percent}%)
+              </div>
+            </>
+          )}
         </div>
       )}
 
       <div className="flex items-center justify-between pt-2">
-        <NeoButton onClick={onBack}>Back</NeoButton>
-        {state === "ready" ? (
+        <NeoButton onClick={onBack} disabled={pulling}>
+          Back
+        </NeoButton>
+        {phase === "down" ? (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onNext}
+              className="text-xs font-bold uppercase tracking-wider underline"
+            >
+              Continue anyway
+            </button>
+            <NeoButton onClick={loadInstalled} backgroundColor="#fd3777" textColor="#ffffff">
+              Re-check
+            </NeoButton>
+          </div>
+        ) : pulling ? (
+          <NeoButton onClick={() => abortRef.current?.abort()}>
+            Cancel download
+          </NeoButton>
+        ) : selectedIsInstalled ? (
           <NeoButton onClick={onNext} backgroundColor="#fd3777" textColor="#ffffff">
             Next
           </NeoButton>
@@ -396,15 +589,15 @@ function OllamaCheckStep({ onNext, onBack }: StepProps) {
               onClick={onNext}
               className="text-xs font-bold uppercase tracking-wider underline"
             >
-              Continue anyway
+              Skip for now
             </button>
             <NeoButton
-              onClick={check}
-              disabled={state === "checking"}
+              onClick={downloadSelected}
+              disabled={phase !== "ready"}
               backgroundColor="#fd3777"
               textColor="#ffffff"
             >
-              {state === "checking" ? "Checking…" : "Re-check"}
+              Download {selectedModel.label} (~{selectedModel.approxGb.toFixed(1)} GB)
             </NeoButton>
           </div>
         )}
@@ -513,6 +706,10 @@ export default function OnboardingWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
   const [useCases, setUseCases] = useState<string[]>([]);
+  // The model chosen in the picker step — sent to /complete as the app-wide
+  // default. Pre-set to the recommended model so a skipped picker still sends
+  // a sensible value.
+  const [defaultModel, setDefaultModel] = useState("llama3.2");
   const [finishing, setFinishing] = useState(false);
   // null = onboarding status not yet known.
   const [completed, setCompleted] = useState<boolean | null>(null);
@@ -548,7 +745,7 @@ export default function OnboardingWizard() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${auth.token}`,
         },
-        body: JSON.stringify({ useCases }),
+        body: JSON.stringify({ useCases, defaultModel }),
       });
       if (!res.ok) throw new Error(`status ${res.status}`);
     } catch {
@@ -581,7 +778,14 @@ export default function OnboardingWizard() {
         {step === 0 && <WelcomeStep onNext={next} />}
         {step === 1 && <RecoveryKeyIntroStep onNext={next} onBack={back} />}
         {step === 2 && <RecoveryKeyStep onNext={next} onBack={back} />}
-        {step === 3 && <OllamaCheckStep onNext={next} onBack={back} />}
+        {step === 3 && (
+          <ModelPickerStep
+            selected={defaultModel}
+            onSelect={setDefaultModel}
+            onNext={next}
+            onBack={back}
+          />
+        )}
         {step === 4 && <WhisperNoticeStep onNext={next} onBack={back} />}
         {step === 5 && (
           <UseCaseStep

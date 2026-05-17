@@ -27,6 +27,7 @@ AUDIO_STORAGE_ENABLED = "audio_storage_enabled"
 AUDIO_RETENTION_DAYS = "audio_retention_days"
 SESSION_IDLE_TIMEOUT_MINUTES = "session_idle_timeout_minutes"
 ONBOARDING_COMPLETED = "onboarding_completed"
+LLM_MODEL = "llm_model"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -39,6 +40,12 @@ DEFAULT_DIARIZATION_DEVICE = "auto"
 # The admin can switch to a larger model from the Transcription settings
 # page (which downloads the weights first — see services/whisper_manager).
 DEFAULT_WHISPER_MODEL = "base"
+
+# Ollama model tag used to fill templates that don't pin their own llm_model.
+# Mirrors ollama_client.DEFAULT_OLLAMA_MODEL; the onboarding wizard writes the
+# user's picked model here so the templates it seeds (which leave llm_model
+# null) format with the model the user actually downloaded.
+DEFAULT_LLM_MODEL = "llama3.2"
 
 # Trash retention. A soft-deleted note/template must sit in the trash at least
 # this many days before it can be permanently deleted — manually or by the
@@ -173,6 +180,12 @@ def get_diarization_device() -> str:
 
 def get_whisper_model() -> str:
     return get_str(WHISPER_MODEL, DEFAULT_WHISPER_MODEL)
+
+
+def get_llm_model() -> str:
+    """App-wide default Ollama model — the fallback used to fill a template
+    whose llm_model is null. The onboarding picker sets it via set_value()."""
+    return get_str(LLM_MODEL, DEFAULT_LLM_MODEL)
 
 
 def get_trash_retention_days() -> int:

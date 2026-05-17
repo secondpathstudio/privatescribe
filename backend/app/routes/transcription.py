@@ -272,7 +272,7 @@ def list_ollama_models():
 
     return jsonify({
         "models": models,
-        "default": ollama_client.DEFAULT_OLLAMA_MODEL,
+        "default": settings_service.get_llm_model(),
     })
 
 
@@ -347,7 +347,7 @@ def get_markdown():
         return jsonify({"error": "Template not found"}), 404
 
     note_details['author_id'] = current_user
-    model_name = template.llm_model or ollama_client.DEFAULT_OLLAMA_MODEL
+    model_name = template.llm_model or settings_service.get_llm_model()
 
     # Pre-flight: distinguish "Ollama unreachable" (503) from "model not
     # installed" (422). Doing this before the stream opens lets clients
@@ -472,7 +472,7 @@ def run_structured():
     if not template.structured:
         return jsonify({"error": "Template has no structured payload"}), 400
 
-    model_name = template.llm_model or ollama_client.DEFAULT_OLLAMA_MODEL
+    model_name = template.llm_model or settings_service.get_llm_model()
 
     # Preflight model availability so the operator sees the same clear error
     # the single-call /api/getMarkdown surfaces, rather than failing mid-stream.
