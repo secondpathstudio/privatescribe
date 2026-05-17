@@ -12,6 +12,7 @@ const NAV: NavGroup[] = [
     heading: "Users & Access",
     items: [
       { to: "/admin/users", label: "Users" },
+      { to: "/admin/roles", label: "Roles" },
       { to: "/admin/audit-log", label: "Audit Log" },
       { to: "/admin/session", label: "Session" },
       { to: "/admin/two-factor", label: "Two-Factor Auth" },
