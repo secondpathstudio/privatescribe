@@ -14,6 +14,7 @@ import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import { Trash2 } from 'lucide-react'
+import ShareTemplateModal from '@/components/admin/ShareTemplateModal'
 
 // Mirrors backend caps in app.py (TEMPLATE_NAME_MAX, TEMPLATE_CONTENT_MAX)
 const TEMPLATE_NAME_MAX = 50;
@@ -35,6 +36,15 @@ const SingleTemplateForm = ({ template }: Props) => {
     const [updating, setUpdating] = React.useState(false);
     const [models, setModels] = React.useState<{ name: string; parameter_size?: string | null }[]>([]);
     const [modelsError, setModelsError] = React.useState<string | null>(null);
+    const [showShare, setShowShare] = React.useState(false);
+    // Roles this template is shared with — admin-owned templates only.
+    const [sharedRoles, setSharedRoles] = React.useState<{ id: string; name: string }[]>(
+        template?.sharedRoles ?? [],
+    );
+    const canShare =
+        auth.user?.role === 'admin' &&
+        template?.authorId === auth.user?.id &&
+        !template?.isDeleted;
     const navigate = useNavigate();
 
     const form = useForm({
@@ -371,6 +381,11 @@ const SingleTemplateForm = ({ template }: Props) => {
                 >
                     Reset
                 </NeoButton>
+                {canShare && (
+                    <NeoButton type="button" onClick={() => setShowShare(true)}>
+                        Share with roles
+                    </NeoButton>
+                )}
                 {template.isDeleted ? (
                     <>
                         <NeoButton
@@ -398,6 +413,15 @@ const SingleTemplateForm = ({ template }: Props) => {
         </div>
         )}
     </form>
+    {showShare && (
+        <ShareTemplateModal
+            templateId={template.id}
+            templateName={template.name}
+            currentRoles={sharedRoles}
+            onClose={() => setShowShare(false)}
+            onSaved={(roles) => setSharedRoles(roles)}
+        />
+    )}
     </Form>
 
   )
