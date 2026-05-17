@@ -86,3 +86,9 @@ electron/dist/
 release/
 *.dmg
 *.app
+
+# ===== Vendored binaries =====
+# Ollama runtime + download cache, staged by scripts/fetch-ollama.mjs. Not
+# committed — large, and reproducible from the pinned release.
+build-resources/ollama/
+build-resources/.cache/

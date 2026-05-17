@@ -4,6 +4,7 @@
 #   - frontend/dist/        (npm run build:frontend)
 #   - electron/dist/        (npm run build:electron)
 #   - backend/dist/privatescribe-backend/  (npm run build:backend, slow)
+#   - build-resources/ollama/  (npm run build:ollama — run automatically by `npm run dist`)
 #
 # Run: npm run dist  →  release/PrivateScribe-<ver>.dmg
 
@@ -37,6 +38,13 @@ files:
 extraResources:
   - from: backend/dist/privatescribe-backend
     to: backend
+    filter:
+      - "**/*"
+  # The bundled Ollama runtime (headless ollama-darwin.tgz, staged by
+  # scripts/fetch-ollama.mjs). Lands at Resources/ollama-runtime/ — Electron
+  # spawns ollama-runtime/ollama when no system Ollama is already running.
+  - from: build-resources/ollama
+    to: ollama-runtime
     filter:
       - "**/*"
 
