@@ -6,6 +6,7 @@ import { DataTable } from '@/components/data-table';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import NeoButton from '@/components/neo/neo-button';
+import AuditRetentionCard from '@/components/admin/AuditRetentionCard';
 import SectionHeader from './sections/SectionHeader';
 
 type AuditEntry = {
@@ -55,7 +56,11 @@ const AuditLogPage = () => {
     const [filterSince, setFilterSince] = useState('');
     const [filterUntil, setFilterUntil] = useState('');
 
-    const queryString = useMemo(() => {
+    const [exporting, setExporting] = useState(false);
+
+    // Just the server-side filters — shared by the paginated fetch and the
+    // (un-paginated) export so both always slice the trail the same way.
+    const filterQuery = useMemo(() => {
         const params = new URLSearchParams();
         if (filterAction) params.set('action', filterAction);
         if (filterUserEmail) params.set('user_email', filterUserEmail);
@@ -63,10 +68,15 @@ const AuditLogPage = () => {
         if (filterStatus) params.set('status', filterStatus);
         if (filterSince) params.set('since', new Date(filterSince).toISOString());
         if (filterUntil) params.set('until', new Date(filterUntil).toISOString());
+        return params.toString();
+    }, [filterAction, filterUserEmail, filterResourceType, filterStatus, filterSince, filterUntil]);
+
+    const queryString = useMemo(() => {
+        const params = new URLSearchParams(filterQuery);
         params.set('limit', String(PAGE_SIZE));
         params.set('offset', String(offset));
         return params.toString();
-    }, [filterAction, filterUserEmail, filterResourceType, filterStatus, filterSince, filterUntil, offset]);
+    }, [filterQuery, offset]);
 
     useEffect(() => {
         const fetchEntries = async () => {
@@ -114,6 +124,39 @@ const AuditLogPage = () => {
         setFilterSince('');
         setFilterUntil('');
         setOffset(0);
+    };
+
+    // Download the whole filtered trail in one file. The endpoint needs the
+    // bearer token, so we fetch into a blob and trigger the save ourselves
+    // rather than using a plain anchor link.
+    const handleExport = async (format: 'csv' | 'json') => {
+        setExporting(true);
+        setError(null);
+        try {
+            const params = new URLSearchParams(filterQuery);
+            params.set('format', format);
+            const res = await fetch(
+                `${API_BASE}/api/admin/audit-log/export?${params.toString()}`,
+                { headers: { Authorization: `Bearer ${auth.token}` } },
+            );
+            if (!res.ok) throw new Error(`Server error: ${res.status}`);
+            const blob = await res.blob();
+            const disposition = res.headers.get('Content-Disposition') ?? '';
+            const match = disposition.match(/filename="?([^"]+)"?/);
+            const filename = match ? match[1] : `audit-log.${format}`;
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Export failed');
+        } finally {
+            setExporting(false);
+        }
     };
 
     const columns = useMemo<ColumnDef<AuditEntry, unknown>[]>(() => [
@@ -273,18 +316,41 @@ const AuditLogPage = () => {
                         onChange={(e) => { setFilterUntil(e.target.value); setOffset(0); }}
                     />
                 </div>
-                <div className='md:col-span-3 flex items-center justify-between'>
-                    <NeoButton
-                        onClick={resetFilters}
-                        backgroundColor='#ffffff'
-                        textColor='#000000'
-                    >
-                        Reset filters
-                    </NeoButton>
+                <div className='md:col-span-3 flex flex-wrap items-center justify-between gap-2'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                        <NeoButton
+                            onClick={resetFilters}
+                            backgroundColor='#ffffff'
+                            textColor='#000000'
+                        >
+                            Reset filters
+                        </NeoButton>
+                        <NeoButton
+                            onClick={() => handleExport('csv')}
+                            backgroundColor='#000000'
+                            textColor='#ffffff'
+                            disabled={exporting}
+                        >
+                            {exporting ? 'Exporting…' : 'Export CSV'}
+                        </NeoButton>
+                        <NeoButton
+                            onClick={() => handleExport('json')}
+                            backgroundColor='#000000'
+                            textColor='#ffffff'
+                            disabled={exporting}
+                        >
+                            Export JSON
+                        </NeoButton>
+                    </div>
                     <span className='text-sm text-muted-foreground'>
                         Showing {entries.length} of {total} {total === 1 ? 'entry' : 'entries'}
                     </span>
                 </div>
+                <p className='md:col-span-3 text-xs text-muted-foreground'>
+                    Export downloads <strong>every</strong> entry matching the filters
+                    above (not just this page) as a single CSV or JSON file for an
+                    external auditor.
+                </p>
             </div>
 
             {error && <p className='text-red-600'>{error}</p>}
@@ -323,6 +389,8 @@ const AuditLogPage = () => {
                     </div>
                 </>
             )}
+
+            <AuditRetentionCard />
 
             {selectedRow && (
                 <div
