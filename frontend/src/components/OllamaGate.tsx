@@ -9,6 +9,12 @@ import NeoButton from "@/components/neo/neo-button";
 const POLL_FAST_MS = 3000;
 const POLL_SLOW_MS = 60_000;
 
+// Grace window after mount before the gate may surface. The AI engine is
+// bundled and started with the app, so a brief "not responding" right after
+// launch just means it is still binding its port — not worth a modal. Only an
+// outage that outlasts this window is shown.
+const STARTUP_GRACE_MS = 10_000;
+
 type Status = "checking" | "available" | "unavailable";
 
 async function probe(): Promise<boolean> {
@@ -22,13 +28,16 @@ async function probe(): Promise<boolean> {
   }
 }
 
-// Surfaces Ollama-missing state in the Electron shell:
-// - First detection → blocking modal with install steps.
+// Surfaces a down AI engine in the Electron shell. PrivateScribe bundles its
+// own Ollama runtime and starts it with the app, so this is no longer an
+// "install something" prompt — a failed health check means the engine is
+// still starting up or has stopped.
+// - Engine down past the startup grace window → modal explaining it; the fix
+//   is to wait for it to recover or relaunch the app.
 // - User dismisses → persistent yellow banner; the rest of the app stays
-//   usable (templates, account, etc.) but transcription will fail until
-//   Ollama is back.
+//   usable (templates, notes, account) — only AI formatting is paused.
 // - Polling continues across both states, so the banner/modal auto-vanish
-//   when Ollama comes back online.
+//   once the engine is back.
 // Browser-only users (marketing site, plain vite preview) never see this.
 export default function OllamaGate() {
   const inElectron =
@@ -38,6 +47,9 @@ export default function OllamaGate() {
     inElectron ? "checking" : "available",
   );
   const [dismissed, setDismissed] = useState(false);
+  // Suppresses the gate for the first few seconds after launch so the normal
+  // engine-startup window never flashes a modal. Flips true once and stays.
+  const [graceElapsed, setGraceElapsed] = useState(false);
 
   const tick = useCallback(async () => {
     const ok = await probe();
@@ -55,6 +67,13 @@ export default function OllamaGate() {
     return () => {
       cancelled = true;
     };
+  }, [inElectron]);
+
+  // One-time startup grace timer (see STARTUP_GRACE_MS).
+  useEffect(() => {
+    if (!inElectron) return;
+    const handle = setTimeout(() => setGraceElapsed(true), STARTUP_GRACE_MS);
+    return () => clearTimeout(handle);
   }, [inElectron]);
 
   // Periodic re-check; cadence depends on current health. Re-fires the
@@ -97,7 +116,8 @@ export default function OllamaGate() {
 
   // Pad the body when the banner is showing so it doesn't occlude the app's
   // fixed top nav. Cleaned up automatically when status flips or unmounts.
-  const showingBanner = inElectron && status === "unavailable" && dismissed;
+  const showingBanner =
+    inElectron && graceElapsed && status === "unavailable" && dismissed;
   useEffect(() => {
     if (!showingBanner) return;
     const prev = document.body.style.paddingTop;
@@ -107,14 +127,14 @@ export default function OllamaGate() {
     };
   }, [showingBanner]);
 
-  if (!inElectron || status === "available") return null;
+  if (!inElectron || status === "available" || !graceElapsed) return null;
 
   if (dismissed) {
     return (
       <div className="fixed top-0 left-0 right-0 z-[60] flex items-center justify-between gap-3 border-b-[3px] border-black bg-yellow-300 px-4 py-2 text-sm font-bold shadow-[0_3px_0_0_#000]">
         <span className="truncate">
-          ⚠ Ollama not running — transcription is unavailable. Templates and
-          notes can still be edited.
+          ⚠ The AI engine isn't responding — AI formatting is paused. Notes
+          and templates still work.
         </span>
         <button
           type="button"
@@ -132,42 +152,29 @@ export default function OllamaGate() {
       <div className="w-full max-w-lg border-[3px] border-black bg-white shadow-[6px_6px_0_0_#000]">
         <div className="border-b-2 border-black bg-[#fd3777] px-5 py-3">
           <h3 className="font-black uppercase tracking-wide text-white">
-            Ollama not detected
+            AI engine unavailable
           </h3>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <p>
-            PrivateScribe runs the language model locally via{" "}
-            <strong>Ollama</strong>, which doesn't appear to be running.
+            PrivateScribe runs a language model on this device to format your
+            transcripts into notes. That engine isn't responding right now.
           </p>
           <div className="border-[2px] border-black bg-yellow-50 p-3">
-            <p className="font-bold mb-2">To get going:</p>
-            <ol className="list-decimal pl-5 space-y-2">
+            <p className="font-bold mb-2">What to do:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>It may still be starting up — give it a few seconds.</li>
               <li>
-                Install Ollama from{" "}
-                <a
-                  href="https://ollama.com/download/mac"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline font-semibold"
-                >
-                  ollama.com/download/mac
-                </a>
-                .
+                If it doesn't come back, quit PrivateScribe and open it again.
               </li>
-              <li>
-                In a terminal, run:
-                <pre className="mt-1 bg-black text-white p-2 font-mono text-xs">
-                  ollama pull llama3.2
-                </pre>
-              </li>
-              <li>Leave Ollama running in the menu bar.</li>
-            </ol>
+            </ul>
           </div>
+          <p>
+            Transcription and AI formatting are paused until it's back. Your
+            notes and templates are unaffected — you can keep working on them.
+          </p>
           <p className="text-xs text-muted-foreground">
-            {status === "checking"
-              ? "Checking..."
-              : "Re-checking every few seconds."}
+            {status === "checking" ? "Checking…" : "Re-checking automatically."}
           </p>
           <div className="flex items-center justify-between pt-2">
             <button
@@ -175,7 +182,7 @@ export default function OllamaGate() {
               onClick={() => setDismissed(true)}
               className="text-xs underline text-muted-foreground"
             >
-              Continue without Ollama
+              Continue without it
             </button>
             <NeoButton
               onClick={() => {
