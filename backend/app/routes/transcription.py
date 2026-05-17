@@ -8,6 +8,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db, limiter
 from app.models import AudioFile, Template
+from app.services.template_access import template_shared_with_user
 from app.security.auth import require_admin
 from app.services import audio_storage, ollama_client
 from app.services import dictation_markers, settings as settings_service
@@ -338,12 +339,11 @@ def get_markdown():
             yield json.dumps({"stage": "complete", "markdown": raw_note}) + "\n"
         return Response(verbatim(), mimetype="application/x-ndjson")
 
-    template = Template.query.filter_by(
-        id=template_id,
-        author_id=current_user,
-        is_deleted=False,
-    ).first()
-    if not template:
+    template = Template.query.filter_by(id=template_id, is_deleted=False).first()
+    if not template or (
+        template.author_id != current_user
+        and not template_shared_with_user(template_id, current_user)
+    ):
         return jsonify({"error": "Template not found"}), 404
 
     note_details['author_id'] = current_user
@@ -461,12 +461,11 @@ def run_structured():
         return jsonify({"error": "raw_note and template_id are required"}), 400
 
     current_user = get_jwt_identity()
-    template = Template.query.filter_by(
-        id=template_id,
-        author_id=current_user,
-        is_deleted=False,
-    ).first()
-    if not template:
+    template = Template.query.filter_by(id=template_id, is_deleted=False).first()
+    if not template or (
+        template.author_id != current_user
+        and not template_shared_with_user(template_id, current_user)
+    ):
         return jsonify({"error": "Template not found"}), 404
     if template.template_type != 'structured':
         return jsonify({"error": "Template is not structured; use /api/getMarkdown instead"}), 400

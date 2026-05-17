@@ -6,9 +6,11 @@ from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
-from app.models import Template
+from app.models import Role, Template
+from app.security.auth import require_admin
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
+from app.services.template_access import shared_template_ids_for_user, template_shared_with_user
 
 bp = Blueprint("templates", __name__, url_prefix="/api/templates")
 
@@ -111,6 +113,7 @@ def _serialize_template(t: Template) -> dict:
         "authorId": t.author_id,
         "isDeleted": t.is_deleted,
         "isDeletedTimestamp": t.is_deleted_timestamp,
+        "sharedRoles": [{"id": r.id, "name": r.name} for r in t.shared_roles],
     }
 
 
@@ -200,15 +203,26 @@ def get_templates_for_user(user_id):
         return jsonify({"error": "Not authorized to access templates for this user"}), 403
 
     include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
-    query = Template.query.filter_by(author_id=user_id)
+
+    # The user's own templates — their trash included only when asked.
+    own_query = Template.query.filter_by(author_id=user_id)
     if not include_deleted:
-        query = query.filter_by(is_deleted=False)
+        own_query = own_query.filter_by(is_deleted=False)
+    own = own_query.all()
 
-    templates = query.all()
-    if not templates:
-        return jsonify([]), 200
+    # Plus templates shared with a role this user holds — owned by someone
+    # else, never deleted (include_deleted only governs the user's own trash).
+    shared = (
+        Template.query
+        .filter(
+            Template.id.in_(shared_template_ids_for_user(user_id)),
+            Template.author_id != user_id,
+            Template.is_deleted.is_(False),
+        )
+        .all()
+    )
 
-    return jsonify([_serialize_template(t) for t in templates])
+    return jsonify([_serialize_template(t) for t in own + shared])
 
 
 @bp.route('/<string:id>', methods=['GET'])
@@ -216,9 +230,14 @@ def get_templates_for_user(user_id):
 @jwt_required()
 def get_template(id):
     current_user = get_jwt_identity()
-    template = Template.query.filter_by(id=id, author_id=current_user).first()
+    template = Template.query.filter_by(id=id).first()
     if not template:
         return jsonify({"error": "Template not found"}), 404
+    if template.author_id != current_user:
+        # A non-owner may view a template only while it's actively shared with
+        # one of their roles. 404 (not 403) so we don't reveal its existence.
+        if template.is_deleted or not template_shared_with_user(id, current_user):
+            return jsonify({"error": "Template not found"}), 404
 
     log_action(
         'template.view',
@@ -316,6 +335,40 @@ def update_template(id):
     db.session.commit()
 
     return jsonify(_serialize_template(template))
+
+
+@bp.route('/<string:id>/roles', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def set_template_roles(id):
+    """Share a template with a set of roles (replace semantics). Admin-only,
+    and the template must belong to the calling admin. Users who hold one of
+    those roles then see the template, read-only."""
+    current_user = get_jwt_identity()
+    template = Template.query.filter_by(id=id, author_id=current_user).first()
+    if not template:
+        return jsonify({"error": "Template not found"}), 404
+    if template.is_deleted:
+        return jsonify({"error": "Template is deleted; restore it before sharing"}), 409
+
+    data = request.get_json(silent=True) or {}
+    role_ids = data.get('roleIds')
+    if not isinstance(role_ids, list):
+        return jsonify({"error": "roleIds must be a list"}), 400
+
+    roles = Role.query.filter(Role.id.in_(role_ids)).all()
+    template.shared_roles = roles
+    template.updated_at = datetime.utcnow()
+    log_action(
+        'template.share',
+        user_id=current_user,
+        resource_type='template',
+        resource_id=template.id,
+        extra={'role_ids': [r.id for r in roles], 'role_names': [r.name for r in roles]},
+    )
+    db.session.commit()
+
+    return jsonify(_serialize_template(template)), 200
 
 
 @bp.route('/<string:id>/delete', methods=['PUT'])
