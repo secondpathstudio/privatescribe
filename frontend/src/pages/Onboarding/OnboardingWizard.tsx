@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router";
 import { toast } from "sonner";
+import { Eye, EyeOff } from "lucide-react";
 import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
@@ -42,6 +43,7 @@ function WelcomeStep({ onNext }: StepProps) {
 function RecoveryKeyStep({ onNext, onBack }: StepProps) {
   const auth = useAuth();
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [revealing, setRevealing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // null until the admin re-authenticates and the key is revealed.
@@ -121,15 +123,26 @@ function RecoveryKeyStep({ onNext, onBack }: StepProps) {
             >
               Confirm your password to view the key
             </label>
-            <input
-              id="recovery-key-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") reveal(); }}
-              className="w-full border-4 border-black bg-white p-3 font-bold text-black focus:outline-none"
-            />
+            <div className="relative">
+              <input
+                id="recovery-key-password"
+                type={showPassword ? "text" : "password"}
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") reveal(); }}
+                className="w-full border-4 border-black bg-white p-3 pr-12 font-bold text-black focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                title={showPassword ? "Hide password" : "Show password"}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-black transition-colors hover:text-[#fd3777]"
+              >
+                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+              </button>
+            </div>
           </div>
           {error && (
             <p role="alert" className="text-sm font-bold text-red-600">{error}</p>

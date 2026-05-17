@@ -1,7 +1,7 @@
 import { API_BASE } from "@/lib/api";
 import { FormEvent, useState } from "react";
 import { useAuth } from "@/context/auth-context";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
 
@@ -93,9 +93,8 @@ export default function ResetPasswordModal({ userId, userEmail, onClose, onSucce
                 <Label htmlFor="reset-admin-password" className="font-black">
                   Your password
                 </Label>
-                <Input
+                <PasswordInput
                   id="reset-admin-password"
-                  type="password"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   autoComplete="current-password"
@@ -110,9 +109,8 @@ export default function ResetPasswordModal({ userId, userEmail, onClose, onSucce
                 <Label htmlFor="reset-new-password" className="font-black">
                   New password for {userEmail}
                 </Label>
-                <Input
+                <PasswordInput
                   id="reset-new-password"
-                  type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   autoComplete="new-password"
@@ -123,9 +121,8 @@ export default function ResetPasswordModal({ userId, userEmail, onClose, onSucce
                 <Label htmlFor="reset-confirm-password" className="font-black">
                   Confirm new password
                 </Label>
-                <Input
+                <PasswordInput
                   id="reset-confirm-password"
-                  type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   autoComplete="new-password"

@@ -1,7 +1,7 @@
 import { API_BASE } from "@/lib/api";
 import { FormEvent, useState } from "react";
 import { useAuth } from "@/context/auth-context";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
 
@@ -82,9 +82,8 @@ export default function Reset2FAModal({ userId, userEmail, onClose, onSuccess }:
                 <Label htmlFor="reset-2fa-admin-password" className="font-black">
                   Your password
                 </Label>
-                <Input
+                <PasswordInput
                   id="reset-2fa-admin-password"
-                  type="password"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
                   autoComplete="current-password"

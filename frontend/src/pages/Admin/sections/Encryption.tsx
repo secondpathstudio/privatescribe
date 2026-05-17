@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import { useAuth } from "@/context/auth-context";
 import BackupKeyModal from "@/components/admin/BackupKeyModal";
 import NeoButton from "@/components/neo/neo-button";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import SectionHeader from "./SectionHeader";
 
@@ -118,9 +118,8 @@ export default function EncryptionSection() {
               <Label htmlFor="export-password" className="font-black">
                 Confirm password
               </Label>
-              <Input
+              <PasswordInput
                 id="export-password"
-                type="password"
                 value={keyFormPassword}
                 onChange={(e) => setKeyFormPassword(e.target.value)}
                 autoFocus
@@ -169,9 +168,8 @@ export default function EncryptionSection() {
               <Label htmlFor="rotate-password" className="font-black">
                 Confirm password to rotate
               </Label>
-              <Input
+              <PasswordInput
                 id="rotate-password"
-                type="password"
                 value={rotatePassword}
                 onChange={(e) => setRotatePassword(e.target.value)}
                 autoFocus

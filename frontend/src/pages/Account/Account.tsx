@@ -2,7 +2,7 @@ import { API_BASE } from "@/lib/api";
 import { FormEvent, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "@/context/auth-context";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
 import TwoFactorSection from "@/components/account/TwoFactorSection";
@@ -100,9 +100,8 @@ export default function Account() {
             <Label htmlFor="current-password" className="font-black">
               Current password
             </Label>
-            <Input
+            <PasswordInput
               id="current-password"
-              type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               autoComplete="current-password"
@@ -114,9 +113,8 @@ export default function Account() {
             <Label htmlFor="new-password" className="font-black">
               New password
             </Label>
-            <Input
+            <PasswordInput
               id="new-password"
-              type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               autoComplete="new-password"
@@ -130,9 +128,8 @@ export default function Account() {
             <Label htmlFor="confirm-password" className="font-black">
               Confirm new password
             </Label>
-            <Input
+            <PasswordInput
               id="confirm-password"
-              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               autoComplete="new-password"

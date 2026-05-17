@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/context/auth-context";
@@ -164,7 +165,7 @@ export default function LoginForm() {
             </div>
             <div>
               <Label htmlFor="password" className="font-black">PASSWORD</Label>
-              <Input id="password" type="password" autoComplete="current-password" {...register("password")} />
+              <PasswordInput id="password" autoComplete="current-password" {...register("password")} />
               {errors.password && <p className="text-red-500 text-sm">{errors.password.message}</p>}
             </div>
             {serverError && <p className="text-red-600 text-sm">{serverError}</p>}
