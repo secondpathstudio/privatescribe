@@ -38,6 +38,7 @@ import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
 import AudioStorageSection from './pages/Admin/sections/AudioStorage.tsx'
 import SessionSection from './pages/Admin/sections/Session.tsx'
 import TwoFactorSection from './pages/Admin/sections/TwoFactor.tsx'
+import PasswordPolicySection from './pages/Admin/sections/PasswordPolicy.tsx'
 import ExportsSection from './pages/Admin/sections/Exports.tsx'
 import DictationMarkersSection from './pages/Admin/sections/DictationMarkers.tsx'
 import TranscriptionSection from './pages/Admin/sections/Transcription.tsx'
@@ -95,6 +96,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="audio-storage" element={<AudioStorageSection />} />
             <Route path="session" element={<SessionSection />} />
             <Route path="two-factor" element={<TwoFactorSection />} />
+            <Route path="password-policy" element={<PasswordPolicySection />} />
             <Route path="exports" element={<ExportsSection />} />
             <Route path="dictation-markers" element={<DictationMarkersSection />} />
             <Route path="vocabulary" element={<TranscriptionSection />} />

@@ -14,7 +14,10 @@ const schema = z
     firstName: z.string().min(1, "First name is required"),
     lastName: z.string().min(1, "Last name is required"),
     email: z.string().email("Invalid email address"),
-    password: z.string().min(6, "Password must be at least 6 characters"),
+    // Loosest possible backend floor (the "standard" policy). The active
+    // policy may demand more — "strict" requires 12 chars + character-class
+    // rules — and the server enforces it, surfacing any violation as serverError.
+    password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string(),
     role: z.enum(["user", "admin"]),
   })

@@ -17,6 +17,7 @@ const NAV: NavGroup[] = [
       { to: "/admin/audit-log", label: "Audit Log" },
       { to: "/admin/session", label: "Session" },
       { to: "/admin/two-factor", label: "Two-Factor Auth" },
+      { to: "/admin/password-policy", label: "Password Policy" },
     ],
   },
   {
