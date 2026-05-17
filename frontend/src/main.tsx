@@ -28,6 +28,7 @@ import AdminLayout from './pages/Admin/AdminLayout.tsx'
 import OverviewSection from './pages/Admin/sections/Overview.tsx'
 import UsersSection from './pages/Admin/sections/Users.tsx'
 import RolesSection from './pages/Admin/sections/Roles.tsx'
+import OrganizationSection from './pages/Admin/sections/Organization.tsx'
 import EncryptionSection from './pages/Admin/sections/Encryption.tsx'
 import TemplatesSection from './pages/Admin/sections/Templates.tsx'
 import ModelsSection from './pages/Admin/sections/Models.tsx'
@@ -80,6 +81,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="overview" element={<OverviewSection />} />
             <Route path="users" element={<UsersSection />} />
             <Route path="roles" element={<RolesSection />} />
+            <Route path="organization" element={<OrganizationSection />} />
             <Route path="audit-log" element={<AuditLogPage />} />
             <Route path="encryption" element={<EncryptionSection />} />
             <Route path="templates" element={<TemplatesSection />} />
