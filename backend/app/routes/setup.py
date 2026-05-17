@@ -10,7 +10,7 @@ from flask_cors import cross_origin
 from werkzeug.security import generate_password_hash
 
 from app.extensions import db, limiter
-from app.models import User
+from app.models import User, Organization
 from app.services.audit import log_action
 
 bp = Blueprint("setup", __name__)
@@ -40,6 +40,7 @@ def setup_create_admin():
     password = data.get('password') or ''
     first_name = (data.get('firstName') or '').strip()
     last_name = (data.get('lastName') or '').strip()
+    organization = (data.get('organization') or '').strip()
 
     if not email or '@' not in email:
         return jsonify({"error": "Valid email required"}), 400
@@ -47,10 +48,18 @@ def setup_create_admin():
         return jsonify({"error": "Password must be at least 8 characters"}), 400
     if not first_name or not last_name:
         return jsonify({"error": "First and last name required"}), 400
+    if not organization:
+        return jsonify({"error": "Organization name required"}), 400
 
     # Re-check after validation in case two setup requests raced.
     if not _needs_setup():
         return jsonify({"error": "Setup already complete"}), 409
+
+    # The first-run admin and the install's organization are created
+    # together — every user, starting with this admin, inherits the org.
+    org = Organization(name=organization)
+    db.session.add(org)
+    db.session.flush()  # populates org.id
 
     admin = User(
         email=email,
@@ -59,6 +68,7 @@ def setup_create_admin():
         role='admin',
         password=generate_password_hash(password, method='pbkdf2:sha256'),
         last_login=None,
+        organization_id=org.id,
     )
     db.session.add(admin)
     db.session.flush()  # populates admin.id
@@ -69,4 +79,8 @@ def setup_create_admin():
     )
     db.session.commit()
 
-    return jsonify({"id": admin.id, "email": admin.email}), 201
+    return jsonify({
+        "id": admin.id,
+        "email": admin.email,
+        "organization": {"id": org.id, "name": org.name},
+    }), 201

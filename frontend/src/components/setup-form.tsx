@@ -11,6 +11,7 @@ import NeoButton from "./neo/neo-button";
 
 const setupSchema = z
   .object({
+    organization: z.string().min(1, "Required"),
     firstName: z.string().min(1, "Required"),
     lastName: z.string().min(1, "Required"),
     email: z.string().email("Invalid email address"),
@@ -48,6 +49,7 @@ export default function SetupForm({ onDone }: SetupFormProps) {
           password: formData.password,
           firstName: formData.firstName,
           lastName: formData.lastName,
+          organization: formData.organization,
         }),
       });
       if (!res.ok) {
@@ -82,12 +84,20 @@ export default function SetupForm({ onDone }: SetupFormProps) {
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-black">SET UP YOUR APP</CardTitle>
           <p className="text-sm text-muted-foreground mt-1">
-            Welcome — create your admin account to get started. Your encryption
-            key will be generated automatically; back it up after sign-in.
+            Welcome — create your organization and admin account to get
+            started. Your encryption key will be generated automatically;
+            back it up after sign-in.
           </p>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+            <div>
+              <Label htmlFor="organization" className="font-black">ORGANIZATION</Label>
+              <Input id="organization" maxLength={255} autoComplete="organization" {...register("organization")} />
+              {errors.organization && (
+                <p className="text-red-500 text-sm">{errors.organization.message as string}</p>
+              )}
+            </div>
             <div>
               <Label htmlFor="firstName" className="font-black">FIRST NAME</Label>
               <Input id="firstName" {...register("firstName")} />
