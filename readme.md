@@ -42,7 +42,7 @@ One recording can produce many documents. Apply several templates to the same tr
 
 **Formatting and documents**
 
-- **Local LLM formatting** via Ollama (defaults to Llama 3.2, swap in any model you prefer).
+- **Local LLM formatting** via Ollama (defaults to Gemma 3, swap in any model you prefer). The desktop app bundles the Ollama runtime — there is nothing separate to install.
 - **Customizable templates** — simple Markdown templates or structured templates imported from the Studio. Define the document structure once, apply it to any transcript.
 - **One transcript, many documents** — apply multiple templates to the same recording and keep them linked as siblings of a single source. Refine a template, re-run it, get a new sibling without losing the old one.
 - **Note workflow** — notes move draft → finalized → signed. Signed notes are immutable and extended only through append-only addenda.
@@ -98,7 +98,7 @@ Honest disclosure of what PrivateScribe protects against and what it doesn't:
 
 **What stays local:** All audio. All transcripts. All generated documents. All template definitions. All participant records.
 
-**The single network exception:** When you first install Ollama and pull a model, that download happens over the internet. After that, you can disconnect entirely and everything will keep working - forever. If you want to update your model or pull a different one, you'll need to reconnect temporarily. You could also do this on a different machine, transfer the model files via USB, and load them into Ollama locally if you want to avoid any network connection at all.
+**The single network exception:** The first time you download an AI model, that download happens over the internet. After that, you can disconnect entirely and everything will keep working - forever. If you want to update your model or pull a different one, you'll need to reconnect temporarily. You could also do this on a different machine, transfer the model files via USB, and load them locally if you want to avoid any network connection at all.
 
 **What this is *not*:** A HIPAA compliance certification. HIPAA compliance is an organizational and procedural matter, not a software feature. PrivateScribe gives you the *technical* foundation a covered entity would need (data never leaves the device, no third-party processors involved), but the policies, BAAs, audit procedures, and risk assessments remain your responsibility.
 
@@ -112,7 +112,7 @@ Honest disclosure of what PrivateScribe protects against and what it doesn't:
 
 - **Backend:** Flask + SQLAlchemy + SQLite (SQLCipher)
 - **Frontend:** Vite + React + TypeScript
-- **Desktop app:** Electron (bundles the backend + frontend)
+- **Desktop app:** Electron (bundles the backend, frontend, and Ollama runtime)
 - **Transcription:** Whisper (faster-whisper)
 - **Speaker diarization:** pyannote.audio
 - **LLM inference:** Ollama
@@ -158,7 +158,7 @@ npm install
 **Pull a model with Ollama:**
 
 ```bash
-ollama pull llama3.2
+ollama pull gemma3:4b
 ```
 
 **Optional — speaker diarization:** to label who said what, set `HF_TOKEN` in `backend/.env` (a Hugging Face access token, used once to download the pyannote model). Without it, transcription still works — it just won't separate speakers.
@@ -192,7 +192,7 @@ The dashboard opens at `http://127.0.0.1:3000`.
 
 ### Desktop app
 
-PrivateScribe also runs as a standalone desktop app via Electron, which bundles the backend and frontend together so there are no servers to start by hand. From the repo root:
+PrivateScribe also runs as a standalone desktop app via Electron, which bundles the backend, frontend, and Ollama runtime together so there are no servers or AI engines to start by hand. From the repo root:
 
 ```bash
 npm install
