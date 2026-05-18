@@ -33,6 +33,8 @@ PASSWORD_POLICY = "password_policy"
 AUDIT_RETENTION_DAYS = "audit_retention_days"
 AUDIT_AUTO_PURGE = "audit_auto_purge"
 AUDIT_ARCHIVE_WATERMARK = "audit_archive_watermark"
+ACCOUNT_LOCKOUT_THRESHOLD = "account_lockout_threshold"
+ACCOUNT_LOCKOUT_MINUTES = "account_lockout_minutes"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -153,6 +155,23 @@ MAX_AUDIT_RETENTION_DAYS = 3650
 # with --force — so the audit trail is never trimmed without an explicit
 # opt-in, mirroring trash_auto_purge.
 DEFAULT_AUDIT_AUTO_PURGE = False
+
+
+# Account lockout (GAP-03 brute-force backstop). After this many consecutive
+# failed password attempts, an account is locked for `account_lockout_minutes`
+# — logins are refused before the password is even checked. The counter resets
+# on any successful login. 0 disables lockout entirely (the per-IP rate limit
+# is then the only brake). The ceiling is generous; 5 is a common default.
+DEFAULT_ACCOUNT_LOCKOUT_THRESHOLD = 5
+MIN_ACCOUNT_LOCKOUT_THRESHOLD = 0
+MAX_ACCOUNT_LOCKOUT_THRESHOLD = 100
+
+# How long a locked account stays locked, in minutes. After the window passes
+# the account unlocks itself — no admin action needed — and gets a fresh set
+# of attempts. The 24h ceiling matches the idle-timeout cap.
+DEFAULT_ACCOUNT_LOCKOUT_MINUTES = 15
+MIN_ACCOUNT_LOCKOUT_MINUTES = 1
+MAX_ACCOUNT_LOCKOUT_MINUTES = 1440
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -297,6 +316,21 @@ def get_audit_retention_days() -> int:
 
 def get_audit_auto_purge() -> bool:
     return get_bool(AUDIT_AUTO_PURGE, DEFAULT_AUDIT_AUTO_PURGE)
+
+
+def get_account_lockout_threshold() -> int:
+    """Consecutive failed password attempts before an account locks. 0 = the
+    lockout feature is disabled."""
+    value = get_int(ACCOUNT_LOCKOUT_THRESHOLD, DEFAULT_ACCOUNT_LOCKOUT_THRESHOLD)
+    # Clamp defensively — a bad row shouldn't make the threshold negative or absurd.
+    return max(MIN_ACCOUNT_LOCKOUT_THRESHOLD, min(MAX_ACCOUNT_LOCKOUT_THRESHOLD, value))
+
+
+def get_account_lockout_minutes() -> int:
+    """How long a locked account stays locked, in minutes."""
+    value = get_int(ACCOUNT_LOCKOUT_MINUTES, DEFAULT_ACCOUNT_LOCKOUT_MINUTES)
+    # Clamp defensively — a bad row shouldn't disable or absurdly extend it.
+    return max(MIN_ACCOUNT_LOCKOUT_MINUTES, min(MAX_ACCOUNT_LOCKOUT_MINUTES, value))
 
 
 def get_audit_archive_watermark() -> Optional[dict]:

@@ -7,7 +7,7 @@ from werkzeug.security import check_password_hash
 
 from app.extensions import db, limiter
 from app.models import User
-from app.security import login_challenge, sessions
+from app.security import account_lockout, login_challenge, sessions
 from app.security.secrets import is_backup_key_acknowledged
 from app.services import settings as settings_service
 from app.services import two_factor
@@ -91,6 +91,19 @@ def login():
     attempted_email = data['email']
     user = User.query.filter_by(email=attempted_email).first()
 
+    # Brute-force backstop: a locked account is refused before the password is
+    # checked at all, so a correct guess landed mid-lockout still can't get in.
+    if user and account_lockout.is_locked(user):
+        log_action(
+            'auth.login_failed',
+            user_id=user.id,
+            user_email=user.email,
+            status='failure',
+            extra={'reason': 'account_locked'},
+        )
+        db.session.commit()
+        return jsonify({"error": account_lockout.lockout_message(user)}), 403
+
     if user and check_password_hash(user.password, data['password']):
         # A deactivated account can't sign in — stop before 2FA / token issue.
         if not user.is_active:
@@ -105,6 +118,10 @@ def login():
             return jsonify({
                 "error": "This account has been deactivated. Contact an administrator.",
             }), 403
+        # Correct password — clear any accumulated failed-attempt count so a
+        # past run of misses doesn't carry toward a future lockout. Done before
+        # the 2FA branches so it applies even when the token pair is deferred.
+        account_lockout.register_success(user)
         # 2FA precedence:
         # 1. If the user has opted in (enrolled), always challenge them, even
         #    when the org-wide toggle is off. A self-enabled second factor
@@ -147,6 +164,9 @@ def login():
         db.session.commit()
         return jsonify(response_body), 200
 
+    # Count this miss against the account (if the email matched one). A return
+    # value of True means this attempt is the one that tripped the threshold.
+    just_locked = account_lockout.register_failure(user) if user else False
     log_action(
         'auth.login_failed',
         user_id=user.id if user else None,
@@ -156,7 +176,21 @@ def login():
             'reason': 'invalid_password' if user else 'unknown_email',
         },
     )
+    if just_locked:
+        log_action(
+            'auth.account_locked',
+            user_id=user.id,
+            user_email=user.email,
+            status='failure',
+            extra={
+                'locked_until': user.locked_until.isoformat(),
+                'threshold': settings_service.get_account_lockout_threshold(),
+                'lockout_minutes': settings_service.get_account_lockout_minutes(),
+            },
+        )
     db.session.commit()
+    if just_locked:
+        return jsonify({"error": account_lockout.lockout_message(user)}), 403
     return jsonify({"error": "Invalid username or password"}), 401
 
 
