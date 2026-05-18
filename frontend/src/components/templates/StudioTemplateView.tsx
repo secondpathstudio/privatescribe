@@ -5,7 +5,6 @@ import { useNavigate } from "react-router";
 import { Trash2 } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
 import NeoButton from "@/components/neo/neo-button";
-import PirateWheel from "@/components/PirateWheel";
 
 type StructuredField = {
     id: string;
@@ -254,8 +253,8 @@ const StudioTemplateView = ({ template }: Props) => {
 
             {busy && (
                 <div className="flex flex-col w-full justify-center items-center mt-4">
-                    <PirateWheel isRotating={true} />
-                    <p className="text-primary">Working...</p>
+                    <span className="inline-block h-10 w-10 border-4 border-black border-t-transparent rounded-full animate-spin" />
+                    <p className="text-primary mt-3">Working...</p>
                 </div>
             )}
 

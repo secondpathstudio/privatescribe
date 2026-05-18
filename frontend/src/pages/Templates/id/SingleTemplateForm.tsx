@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { useAuth } from '../../../context/auth-context'
-import PirateWheel from '@/components/PirateWheel'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import { Trash2 } from 'lucide-react'
@@ -354,8 +353,8 @@ const SingleTemplateForm = ({ template }: Props) => {
         {/* animation for server processing */}
         {updating && (
         <div className="flex flex-col w-full justify-center items-center mt-4">
-            <PirateWheel isRotating={true} />
-            <p className="text-primary">Transcribing audio...</p>
+            <span className="inline-block h-10 w-10 border-4 border-black border-t-transparent rounded-full animate-spin" />
+            <p className="text-primary mt-3">Transcribing audio...</p>
         </div>
         )}
 
@@ -364,8 +363,8 @@ const SingleTemplateForm = ({ template }: Props) => {
         {/* Buttons */}
         {updating && (
             <div className="flex flex-col w-full justify-center items-center mt-4">
-                <PirateWheel isRotating={true} />
-                <p className="text-primary">Saving note...</p>
+                <span className="inline-block h-10 w-10 border-4 border-black border-t-transparent rounded-full animate-spin" />
+                <p className="text-primary mt-3">Saving note...</p>
             </div>
         )}
         {!updating && !readOnly && (
