@@ -371,33 +371,6 @@ def segments_to_text(merged_segments: list[dict]) -> str:
     return "\n".join(f"{seg['speaker']}: {seg['text']}" for seg in merged_segments)
 
 
-def collapse_segments(segments: list[dict]) -> list[dict]:
-    """Merge consecutive segments that share a speaker into single turns.
-
-    Used after a manual speaker reassignment: moving one turn onto another
-    speaker can leave it adjacent to a same-speaker neighbour, and a diarized
-    transcript should keep one turn per continuous speaker run — the invariant
-    merge_segments() produces. Each run takes the first segment's start, the
-    last segment's end, and the joined text. Returns fresh dicts so the result
-    can be assigned straight onto a JSON column.
-    """
-    collapsed: list[dict] = []
-    for seg in segments:
-        if collapsed and collapsed[-1]["speaker"] == seg["speaker"]:
-            collapsed[-1]["end"] = seg["end"]
-            collapsed[-1]["text"] = (
-                collapsed[-1]["text"] + " " + (seg.get("text") or "").strip()
-            ).strip()
-        else:
-            collapsed.append({
-                "speaker": seg["speaker"],
-                "start": seg["start"],
-                "end": seg["end"],
-                "text": (seg.get("text") or "").strip(),
-            })
-    return collapsed
-
-
 def relabel_speakers(text: Optional[str], speaker_labels: Optional[dict]) -> Optional[str]:
     """Rewrite raw "Speaker N" labels in `text` with their assigned names.
 

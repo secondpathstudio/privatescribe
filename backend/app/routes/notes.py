@@ -12,7 +12,7 @@ from app.models import AudioFile, Note, NoteAddendum, Participant, Template, Use
 from app.services import audio_retention, audio_storage, note_export, note_search
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
-from app.services.diarization import collapse_segments, relabel_speakers, segments_to_text
+from app.services.diarization import relabel_speakers, segments_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -630,112 +630,6 @@ def update_note_speakers(id):
         db.session.rollback()
         logger.error(f"Error updating note speakers: {e}")
         return jsonify({"error": "Failed to update speaker labels"}), 500
-
-
-@bp.route('/<string:id>/segments/<int:index>', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
-@jwt_required()
-def reassign_note_segment(id, index):
-    """Reassign a single diarized turn to a different speaker.
-
-    Speaker diarization sometimes over-splits one person into several
-    "Speaker N" labels; this lets the user move a mis-attributed turn onto
-    the correct speaker during transcript review. Like the raw transcript
-    and the speaker-label overlay, it's editable only until the note is
-    approved (approved_at set), after which it locks.
-
-    Body: {"speaker": "Speaker 2"}. The target must already exist in the
-    transcript — this merges turns onto a known speaker, it doesn't invent
-    new ones. After the move, consecutive same-speaker turns are collapsed
-    (the invariant the diarization pipeline produces), note_content_raw is
-    re-rendered to match, and any speaker_labels entry whose speaker no
-    longer appears is dropped — which is how a phantom speaker disappears
-    once its last turn has been reassigned away.
-    """
-    current_user = get_jwt_identity()
-    note = Note.query.filter_by(id=id, author_id=current_user).first()
-    if not note:
-        return jsonify({"error": "Note not found"}), 404
-
-    if note.approved_at is not None:
-        return jsonify({
-            "error": "The transcript is locked because this note has been approved.",
-        }), 409
-
-    segments = note.note_content_segments
-    if not isinstance(segments, list) or not segments:
-        return jsonify({"error": "Note has no diarized transcript"}), 400
-    if index < 0 or index >= len(segments):
-        return jsonify({"error": f"Segment index {index} is out of range"}), 400
-
-    data = request.get_json(silent=True) or {}
-    target = data.get('speaker')
-    if not isinstance(target, str) or not target.strip():
-        return jsonify({"error": "speaker is required"}), 400
-    target = target.strip()
-
-    # Reassignment merges onto an existing speaker; it never creates one.
-    existing_speakers = {
-        s['speaker'] for s in segments if isinstance(s, dict) and 'speaker' in s
-    }
-    if target not in existing_speakers:
-        return jsonify({
-            "error": "speaker must be one of the transcript's existing speakers",
-        }), 400
-
-    from_speaker = segments[index].get('speaker')
-    if from_speaker == target:
-        # No-op — return the current state so the client stays in sync.
-        return jsonify({
-            "id": note.id,
-            "noteContentSegments": segments,
-            "noteContentRaw": note.note_content_raw,
-            "speakerLabels": note.speaker_labels,
-            "version": note.version,
-        })
-
-    # Rebuild the list with the one turn reassigned, then collapse runs.
-    new_segments = [dict(s) for s in segments]
-    new_segments[index]['speaker'] = target
-    collapsed = collapse_segments(new_segments)
-
-    note.note_content_segments = collapsed
-    # Keep the raw transcript (the FTS source and the re-transcribe input) in
-    # step. For a diarized note the raw is exactly segments_to_text(segments)
-    # and there is no separate raw-edit UI to clobber.
-    note.note_content_raw = segments_to_text(collapsed)
-    # Drop labels for any speaker the reassignment eliminated.
-    note.speaker_labels = _clean_speaker_labels(
-        note.speaker_labels, collapsed, current_user
-    )
-    note.updated_at = datetime.utcnow()
-    note.version = note.version + 1
-
-    try:
-        log_action(
-            'note.reassign_segment',
-            user_id=current_user,
-            resource_type='note',
-            resource_id=note.id,
-            extra={
-                'index': index,
-                'from_speaker': from_speaker,
-                'to_speaker': target,
-                'new_version': note.version,
-            },
-        )
-        db.session.commit()
-        return jsonify({
-            "id": note.id,
-            "noteContentSegments": note.note_content_segments,
-            "noteContentRaw": note.note_content_raw,
-            "speakerLabels": note.speaker_labels,
-            "version": note.version,
-        })
-    except Exception as e:
-        db.session.rollback()
-        logger.error(f"Error reassigning note segment: {e}")
-        return jsonify({"error": "Failed to reassign segment"}), 500
 
 
 @bp.route('/<string:id>/segments', methods=['PUT'])
