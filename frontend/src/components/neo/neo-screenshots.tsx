@@ -18,6 +18,38 @@ type Screenshot = {
 
 const screenshots: Screenshot[] = [
   {
+    slug: 'template-edit',
+    title: 'Templates do the heavy lifting',
+    caption: 'Design a template once and apply it to any recording. SOAP notes, intake summaries, progress notes — whatever shape your work needs.',
+    alt: 'Template editor with markdown skeleton and bracketed instruction fields',
+    gradient: 'linear-gradient(135deg, #9d4edd, #00ffff)',
+    media: 'video',
+  },
+  {
+    slug: 'live-transcription',
+    title: 'Watch the transcript appear as you talk',
+    caption: 'Record in real time and the words land on screen the moment they are spoken — no upload, no waiting for a file to process.',
+    alt: 'Live transcription view with words appearing on screen as a recording runs',
+    gradient: 'linear-gradient(135deg, #fd3777, #ff9900)',
+    media: 'video',
+  },
+  {
+    slug: 'signing-note',
+    title: 'Draft, finalize, sign.',
+    caption: 'A note moves draft → finalized → signed. Once signed it\'s immutable; corrections are appended as dated addenda, never silent edits.',
+    alt: 'Note status workflow showing a signed, locked note with an addendum below it',
+    gradient: 'linear-gradient(135deg, #5d1d91, #fd3777)',
+    media: 'video',
+  },
+  {
+    slug: 'diarization-example',
+    title: 'Knows who said what',
+    caption: 'For multi-person conversations, transcripts are labeled by speaker — clinician, client, intake nurse, whoever was in the room.',
+    alt: 'Speaker-labeled transcript with Clinician and Client turns alternating',
+    gradient: 'linear-gradient(135deg, #ff9900, #ffff00)',
+    media: 'video',
+  },
+  {
     slug: 'notes-list',
     title: 'Every conversation in one place',
     caption: 'Sortable, searchable list of every transcript and generated note. Soft-delete keeps mistakes recoverable.',
@@ -26,40 +58,11 @@ const screenshots: Screenshot[] = [
     media: 'video'
   },
   {
-    slug: 'note-view',
-    title: 'Raw transcript, formatted note, one screen',
-    caption: "The Whisper transcript on one side, the AI-formatted note on the other. Both editable. Both encrypted on disk.",
-    alt: 'Single note view showing raw transcript and markdown-formatted note side by side',
-    gradient: 'linear-gradient(135deg, #5d1d91, #fd3777)',
-  },
-  {
-    slug: 'audio-playback',
-    title: 'Audio playback inside every note',
-    caption: 'When the exact wording matters, scrub back to the original recording — stored locally, never uploaded.',
-    alt: 'Audio playback bar inside a note, showing waveform and time scrubber',
-    gradient: 'linear-gradient(135deg, #fd3777, #ff9900)',
-  },
-  {
-    slug: 'diarization',
-    title: 'Knows who said what',
-    caption: 'For multi-person conversations, transcripts are labeled by speaker — clinician, client, intake nurse, whoever was in the room.',
-    alt: 'Speaker-labeled transcript with Clinician and Client turns alternating',
-    gradient: 'linear-gradient(135deg, #ff9900, #ffff00)',
-  },
-  {
-    slug: 'template-editor',
-    title: 'Templates do the heavy lifting',
-    caption: 'Design a template once and apply it to any recording. SOAP notes, intake summaries, progress notes — whatever shape your work needs.',
-    alt: 'Template editor with markdown skeleton and bracketed instruction fields',
-    gradient: 'linear-gradient(135deg, #9d4edd, #00ffff)',
-  },
-  {
-    slug: 'admin-controls',
+    slug: 'admin-page',
     title: 'Robust administrative controls',
     caption: 'Manage users and roles, set retention and storage policies, and require 2FA — all backed by a self-watching audit log that records every login, password reset, and key access.',
     alt: 'Admin settings area showing user management, retention policies, and the audit log',
     gradient: 'linear-gradient(135deg, #2b0f54, #fd3777)',
-    media: 'video',
   },
 ];
 
