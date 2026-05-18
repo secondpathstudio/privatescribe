@@ -36,14 +36,14 @@ One recording can produce many documents. Apply several templates to the same tr
 
 - **Whisper-based transcription** running locally — no audio leaves your machine. Pick the model size (`tiny` → `large-v3`) that fits your hardware.
 - **Real-time transcription** — see a live preview while you record, not just after you stop.
-- **Speaker diarization** — pyannote labels who said what, so conversations come out as a readable, attributed transcript.
+- **Speaker diarization** — pyannote labels who said what, so conversations come out as a readable, attributed transcript complete with ability to name speakers by role or identity.
 - **Confidence highlighting** — words Whisper was unsure about are flagged so you can review, edit, and approve a transcript before formatting.
 - **Custom vocabulary, abbreviations, and dictation commands** — bias transcription toward your domain terms, auto-expand short forms, and speak formatting commands like "new paragraph" or "period".
 
 **Formatting and documents**
 
-- **Local LLM formatting** via Ollama (defaults to Gemma 3, swap in any model you prefer). The desktop app bundles the Ollama runtime — there is nothing separate to install.
-- **Customizable templates** — simple Markdown templates or structured templates imported from the Studio. Define the document structure once, apply it to any transcript.
+- **Local LLM formatting** via Ollama (defaults to Gemma 3, swap in any model you prefer). The desktop app bundles the Ollama runtime — if you already are running an Ollama server, PrivateScribe will use it instead.
+- **Customizable templates** — simple Markdown templates (or structured templates imported from the Studio - coming soon). Define the document structure once, apply it to any transcript.
 - **One transcript, many documents** — apply multiple templates to the same recording and keep them linked as siblings of a single source. Refine a template, re-run it, get a new sibling without losing the old one.
 - **Note workflow** — notes move draft → finalized → signed. Signed notes are immutable and extended only through append-only addenda.
 - **Document export** — download finished notes as PDF or DOCX (admins can disable export org-wide).
@@ -51,14 +51,20 @@ One recording can produce many documents. Apply several templates to the same tr
 
 **Security and privacy**
 
-- **Encrypted at rest** — transcripts, generated documents, templates, participant records, and the original audio recordings are all stored encrypted on disk.
+- **Encrypted at rest** — transcripts, generated documents, templates, participant records, and the original audio recordings are all stored encrypted on disk. The encryption key can be rotated at runtime from the admin panel.
 - **Configurable audio storage** — admins choose whether recordings are kept at all and, if so, for how long before they're automatically purged.
-- **Two-factor authentication** — optional TOTP for every user; admins can require it org-wide and reset it.
-- **Audit logging** — security-relevant actions (logins, key access, deletions, admin changes) are recorded for review.
+- **Two-factor authentication** — optional TOTP for every user, with one-time recovery codes; admins can require it org-wide and reset it for a user who has lost their device.
+- **Brute-force protection** — after too many consecutive failed sign-in attempts an account is temporarily locked; the attempt threshold and lockout duration are admin-configurable, and an admin can unlock an account early.
+- **Password policy** — an admin-selected strength policy (standard or strict) enforced consistently on every path that sets a password.
+- **Session controls** — a configurable idle-timeout that signs inactive users out, plus an option for the desktop app to forget credentials on close.
+- **Tamper-evident audit logging** — security-relevant actions (logins, key access, deletions, admin changes) are recorded in an append-only, hash-chained audit log with an admin-configurable retention and archival policy.
+- **Offline account recovery** — break-glass CLI commands reset a forgotten password or clear a lockout with no email server or cloud round-trip, so even a sole admin can never be permanently locked out.
 
 **Everything else**
 
-- **Participant and role management** — track who was in the conversation and have templates use that context.
+- **Participant and role management** — track who was in the conversation and have templates use that context; custom roles also scope which shared templates each user sees.
+- **Soft-delete with retention** — deleted notes and templates go to a trash and are recoverable, with an admin-configured retention window before they can be permanently purged.
+- **Guided first-run setup** — an onboarding wizard walks a new install through creating the admin account, picking models, and seeding starter templates.
 - **Runs as a desktop app or in the browser** — a signed, notarized macOS build, or the standard web app.
 - **Fully offline operation** after the initial model download.
 - **MIT licensed** — fork it, audit it, modify it, ship it inside your own workflow.
@@ -88,7 +94,7 @@ One recording can produce many documents. Apply several templates to the same tr
                                            to the same transcript)
 ```
 
-Audio in. Local transcription. The transcript becomes the canonical source. Apply any template — or several — to produce structured documents, all preserved as a tree under their parent recording. Nothing in the middle ever touches an outside network.
+Audio in -> local transcription -> transcript becomes the canonical source. Apply any template — or several — to produce structured documents, all preserved as a tree under their parent recording. Nothing in the middle ever touches an outside network.
 
 ---
 
@@ -174,13 +180,15 @@ flask run
 
 The backend listens on `http://127.0.0.1:5000`. A unique JWT secret is generated on first run and saved to `backend/.env`.
 
-Create your admin user — either run the CLI command, or open the app and complete the first-run setup screen:
+Create your admin user — open the app and complete the first-run setup screen or run this command from `backend/`:
 
 ```bash
 flask create-admin
 ```
 
 On first admin login, the database encryption key will be displayed once. **Record it in a secure location** (a password manager is the right tool here). It will remain accessible to any admin after password re-authentication, and can be reset from the admin panel if necessary.
+
+Because PrivateScribe has no mail server, account recovery is a local, break-glass operation. If anyone forgets their password — or an account is locked after too many failed sign-ins — run `flask reset-password --email <address>` or `flask unlock-account --email <address>` from `backend/`. This works even for a sole admin who would otherwise have no way back in.
 
 Start the frontend (from `frontend/`):
 
@@ -192,15 +200,7 @@ The dashboard opens at `http://127.0.0.1:3000`.
 
 ### Desktop app
 
-PrivateScribe also runs as a standalone desktop app via Electron, which bundles the backend, frontend, and Ollama runtime together so there are no servers or AI engines to start by hand. From the repo root:
-
-```bash
-npm install
-npm run dev      # run the desktop app against the dev servers
-npm run dist     # build a signed, notarized installer
-```
-
-A signed, notarized macOS build is available today; Windows and Linux installers are on the roadmap.
+A signed, notarized macOS build will be available soon; Windows and Linux installers are on the roadmap.
 
 ---
 
@@ -223,12 +223,10 @@ PrivateScribe is general enough to handle any domain where structured documentat
 
 ## Long-term Roadmap
 
-- Named participant assignment to diarized speakers (auto-labeling "Dr. Smith" / "Client" from known participants)
+- Guided backup & restore so losing `backend/.env` can't brick the database
 - Windows and Linux desktop installers (`.exe`, `.AppImage`) — a signed macOS build ships today
 - On-prem server mode: one office server hosting the backend, Whisper, and Ollama for desktops, tablets, and phones on a closed LAN, with TLS by default
 - Phone-as-microphone — record on a phone, review and edit on the desktop
-- Guided backup & restore so losing `backend/.env` can't brick the database
-- Template gallery with community-contributed structures
 
 ---
 
@@ -243,7 +241,3 @@ Issues and pull requests welcome. If you're a domain expert (clinician, attorney
 MIT. See [license.txt](license.txt).
 
 ---
-
-## A note on trust
-
-The reason PrivateScribe is open source is that "private" is not something you should take on faith. Every claim made above can be verified by reading the code. If you find something that contradicts the privacy posture described here, please open an issue — that's the kind of bug report that matters most.
