@@ -7,6 +7,7 @@ import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 import Reset2FAModal from "@/components/admin/Reset2FAModal";
 import DeactivateUserModal from "@/components/admin/DeactivateUserModal";
 import ManageRolesModal from "@/components/admin/ManageRolesModal";
+import UnlockAccountModal from "@/components/admin/UnlockAccountModal";
 
 interface User {
   id: string;
@@ -17,6 +18,8 @@ interface User {
   lastLogin: string;
   twoFactorEnrolled?: boolean;
   isActive?: boolean;
+  accountLocked?: boolean;
+  failedLoginCount?: number;
   roles?: { id: string; name: string }[];
   organization?: { id: string; name: string } | null;
 }
@@ -37,6 +40,7 @@ export default function UsersTable({ users }: { users: User[] }) {
     { user: User; action: "deactivate" | "activate" } | null
   >(null);
   const [rolesTarget, setRolesTarget] = useState<User | null>(null);
+  const [unlockTarget, setUnlockTarget] = useState<User | null>(null);
 
   const handleSort = (key: keyof User) => {
     let direction: "asc" | "desc" = "asc";
@@ -117,14 +121,24 @@ export default function UsersTable({ users }: { users: User[] }) {
                 <TableCell>{user.lastName}</TableCell>
                 <TableCell>{user.lastLogin ? formatLocal(user.lastLogin) : 'No logins'}</TableCell>
                 <TableCell>
-                  <span
-                    className={[
-                      "inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border-2 border-black",
-                      isInactive ? "bg-red-200 text-red-900" : "bg-[#c6f6d5] text-green-900",
-                    ].join(" ")}
-                  >
-                    {isInactive ? "Inactive" : "Active"}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span
+                      className={[
+                        "inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border-2 border-black",
+                        isInactive ? "bg-red-200 text-red-900" : "bg-[#c6f6d5] text-green-900",
+                      ].join(" ")}
+                    >
+                      {isInactive ? "Inactive" : "Active"}
+                    </span>
+                    {user.accountLocked && (
+                      <span
+                        className="inline-block px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border-2 border-black bg-red-500 text-white"
+                        title="Locked after too many failed sign-in attempts"
+                      >
+                        Locked
+                      </span>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell>
                   <span
@@ -186,6 +200,15 @@ export default function UsersTable({ users }: { users: User[] }) {
                           Reset 2FA
                         </Button>
                       )}
+                      {user.accountLocked && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setUnlockTarget(user)}
+                        >
+                          Unlock
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"
@@ -236,6 +259,22 @@ export default function UsersTable({ users }: { users: User[] }) {
           onSuccess={() =>
             setActive(activeTarget.user.id, activeTarget.action === "activate")
           }
+        />
+      )}
+      {unlockTarget && (
+        <UnlockAccountModal
+          userId={unlockTarget.id}
+          userEmail={unlockTarget.email}
+          onClose={() => setUnlockTarget(null)}
+          onSuccess={() => {
+            setData((prev) =>
+              prev.map((u) =>
+                u.id === unlockTarget.id
+                  ? { ...u, accountLocked: false, failedLoginCount: 0 }
+                  : u
+              )
+            );
+          }}
         />
       )}
       {rolesTarget && (
