@@ -12,6 +12,7 @@ type Screenshot = {
   caption: string;
   alt: string;
   gradient: string;
+  media?: 'image' | 'video';
 };
 
 const screenshots: Screenshot[] = [
@@ -81,14 +82,29 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
                       boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)',
                     }}
                   >
-                    <img
-                      src={`/screenshots/${shot.slug}.png`}
-                      alt={shot.alt}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-                      }}
-                    />
+                    {shot.media === 'video' ? (
+                      <video
+                        src={`/screenshots/${shot.slug}.mp4`}
+                        aria-label={shot.alt}
+                        className="w-full h-full object-cover"
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        onError={(e) => {
+                          (e.currentTarget as HTMLVideoElement).style.visibility = 'hidden';
+                        }}
+                      />
+                    ) : (
+                      <img
+                        src={`/screenshots/${shot.slug}.png`}
+                        alt={shot.alt}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+                        }}
+                      />
+                    )}
                   </div>
                 </div>
                 <div className={imageFirst ? '' : 'md:order-1'}>
