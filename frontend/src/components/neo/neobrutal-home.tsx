@@ -89,21 +89,21 @@ const NeobrutalHome = () => {
           <h2 className="text-4xl font-black mb-12 text-center text-white">PRICING</h2>
           <div className="grid md:grid-cols-3 gap-8">
           <NeoPricingCard
-            title='PERSONAL'
+            title='FREE'
             price='0'
             pricePeriod='mo'
             features={[
               "Open source transcription engine (MIT license)",
-              "Basic UI and controls",
+              "Easily self-hosted with standalone macOS app",
+              "All application functionality available",
               "Community support",
-              "Self-hosted via terminal (best for technically comfortable users — standalone installer in development)",
               "Works with publicly available models"
             ]}
             buttonText='100% Free!'
           />
       
           <NeoPricingCard
-            title='PROFESSIONAL'
+            title='STUDIO'
             price='soon'
             pricePeriod='yr'
             features={[
