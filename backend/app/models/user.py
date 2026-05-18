@@ -25,6 +25,15 @@ class User(db.Model):
     # are routed through a brief intro wizard on first login; admins complete
     # the fuller setup wizard. Set true when either onboarding flow finishes.
     has_onboarded = db.Column(db.Boolean, nullable=False, default=False)
+    # Brute-force backstop. `failed_login_count` counts consecutive failed
+    # password attempts; it resets to 0 on any successful login. Once it
+    # crosses the admin-configured threshold, `locked_until` is stamped with a
+    # future UTC time and logins are refused (before the password check) until
+    # it passes. A successful login, an admin unlock, or the `flask
+    # unlock-account` CLI clears both. Unlike the per-IP rate limiter this
+    # lives in the encrypted DB, so it survives a backend restart.
+    failed_login_count = db.Column(db.Integer, nullable=False, default=0)
+    locked_until = db.Column(db.DateTime, nullable=True)
     # TOTP-based 2FA. `totp_secret` is the base32-encoded shared secret stored
     # in the encrypted DB (never returned over the wire). `totp_enrolled_at`
     # is the source of truth for "is this user enrolled" — `totp_secret` may
