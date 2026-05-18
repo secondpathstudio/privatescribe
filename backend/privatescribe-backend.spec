@@ -103,13 +103,20 @@ excludes = [
 ]
 
 
+# ---------- local PyInstaller hooks ----------
+# pyinstaller-hooks/ holds project-local hooks — currently a workaround for a
+# scipy + PyInstaller + Python 3.12 crash that otherwise breaks diarized
+# transcription in the packaged app. See the hook file for the full writeup.
+hookspath = [os.path.join(SPECPATH, 'pyinstaller-hooks')]
+
+
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
     hiddenimports=hidden_imports,
-    hookspath=[],
+    hookspath=hookspath,
     runtime_hooks=[],
     excludes=excludes,
     cipher=block_cipher,
