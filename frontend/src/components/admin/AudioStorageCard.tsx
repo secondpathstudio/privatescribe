@@ -11,6 +11,7 @@ type Settings = {
     audio_retention_days: number;
     audio_retention_days_min: number;
     audio_retention_days_max: number;
+    orphaned_audio_purge: boolean;
 };
 
 export default function AudioStorageCard() {
@@ -18,6 +19,7 @@ export default function AudioStorageCard() {
     const [settings, setSettings] = useState<Settings | null>(null);
     const [storageDraft, setStorageDraft] = useState<boolean>(true);
     const [daysDraft, setDaysDraft] = useState<string>("");
+    const [purgeOnDeleteDraft, setPurgeOnDeleteDraft] = useState<boolean>(true);
     // True while the "what about existing audio?" prompt is showing — set when
     // the admin tries to save with storage flipped from on to off.
     const [confirmDisable, setConfirmDisable] = useState(false);
@@ -36,6 +38,7 @@ export default function AudioStorageCard() {
             setSettings(data);
             setStorageDraft(Boolean(data.audio_storage_enabled));
             setDaysDraft(String(data.audio_retention_days));
+            setPurgeOnDeleteDraft(Boolean(data.orphaned_audio_purge));
             setError(null);
         } catch (e: any) {
             setError(e.message || "Could not load settings");
@@ -51,7 +54,8 @@ export default function AudioStorageCard() {
     const dirty =
         settings != null &&
         (storageDraft !== settings.audio_storage_enabled ||
-            daysDraft !== String(settings.audio_retention_days));
+            daysDraft !== String(settings.audio_retention_days) ||
+            purgeOnDeleteDraft !== settings.orphaned_audio_purge);
 
     const doSave = async (purgeExisting: boolean) => {
         const days = parseInt(daysDraft, 10);
@@ -72,6 +76,7 @@ export default function AudioStorageCard() {
                 body: JSON.stringify({
                     storageEnabled: storageDraft,
                     retentionDays: days,
+                    purgeOnNoteDelete: purgeOnDeleteDraft,
                     purgeExisting,
                 }),
             });
@@ -83,11 +88,13 @@ export default function AudioStorageCard() {
                           ...prev,
                           audio_storage_enabled: data.audio_storage_enabled,
                           audio_retention_days: data.audio_retention_days,
+                          orphaned_audio_purge: data.orphaned_audio_purge,
                       }
                     : prev,
             );
             setStorageDraft(Boolean(data.audio_storage_enabled));
             setDaysDraft(String(data.audio_retention_days));
+            setPurgeOnDeleteDraft(Boolean(data.orphaned_audio_purge));
             const purged = data.audio_purged_count;
             setSavedMsg(
                 typeof purged === "number"
@@ -172,6 +179,28 @@ export default function AudioStorageCard() {
                                 keeps audio indefinitely. Current value:{" "}
                                 <strong>{settings.audio_retention_days} day(s)</strong>.
                             </p>
+                        </div>
+
+                        <div>
+                            <label className="flex items-start gap-2 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="mt-1 h-4 w-4 border-2 border-black accent-[#fd3777]"
+                                    checked={purgeOnDeleteDraft}
+                                    onChange={(e) => setPurgeOnDeleteDraft(e.target.checked)}
+                                />
+                                <span className="text-sm">
+                                    <span className="font-black">
+                                        Delete the recording when its note is permanently
+                                        deleted.
+                                    </span>{" "}
+                                    Removes the encrypted audio once no other note still uses
+                                    that recording &mdash; so a permanently deleted note
+                                    leaves nothing behind. When disabled, the recording stays
+                                    on disk until the scheduled{" "}
+                                    <code>flask purge-orphaned-audio</code> job reclaims it.
+                                </span>
+                            </label>
                         </div>
 
                         {error && <p className="text-red-600 text-sm">{error}</p>}

@@ -25,6 +25,7 @@ ABBREVIATIONS = "abbreviations"
 WHISPER_MODEL = "whisper_model"
 AUDIO_STORAGE_ENABLED = "audio_storage_enabled"
 AUDIO_RETENTION_DAYS = "audio_retention_days"
+ORPHANED_AUDIO_PURGE = "orphaned_audio_purge"
 SESSION_IDLE_TIMEOUT_MINUTES = "session_idle_timeout_minutes"
 ONBOARDING_COMPLETED = "onboarding_completed"
 LLM_MODEL = "llm_model"
@@ -76,6 +77,13 @@ DEFAULT_AUDIO_STORAGE_ENABLED = True
 DEFAULT_AUDIO_RETENTION_DAYS = 0
 MIN_AUDIO_RETENTION_DAYS = 0
 MAX_AUDIO_RETENTION_DAYS = 3650
+
+# When True (default), permanently deleting a note also deletes its encrypted
+# audio recording once no other note still references that recording — closing
+# the HIPAA §164.310(d) disposal gap where a "permanent" note delete left the
+# patient's voice recording on disk. When False, the recording is left behind
+# for the scheduled `flask purge-orphaned-audio` sweep to reclaim instead.
+DEFAULT_ORPHANED_AUDIO_PURGE = True
 
 # Idle session timeout. A logged-in user who makes no authenticated request
 # for this many minutes is signed out automatically — the next request is
@@ -239,6 +247,13 @@ def get_audio_retention_days() -> int:
     value = get_int(AUDIO_RETENTION_DAYS, DEFAULT_AUDIO_RETENTION_DAYS)
     # Clamp defensively — a bad row shouldn't make the window negative or absurd.
     return max(MIN_AUDIO_RETENTION_DAYS, min(MAX_AUDIO_RETENTION_DAYS, value))
+
+
+def get_orphaned_audio_purge() -> bool:
+    """Whether permanently deleting a note also deletes its now-unreferenced
+    audio recording. When False, the recording is left for the scheduled
+    `flask purge-orphaned-audio` sweep."""
+    return get_bool(ORPHANED_AUDIO_PURGE, DEFAULT_ORPHANED_AUDIO_PURGE)
 
 
 def get_session_idle_timeout_minutes() -> int:

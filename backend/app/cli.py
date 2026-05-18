@@ -109,7 +109,12 @@ def purge_trash(dry_run, force):
         click.echo("Nothing eligible. Done.")
         return
 
+    from app.services import audio_retention
+
+    group_ids = set()
     for n in notes:
+        if n.transcript_group_id:
+            group_ids.add(n.transcript_group_id)
         log_action(
             'note.delete_permanent',
             resource_type='note',
@@ -125,8 +130,22 @@ def purge_trash(dry_run, force):
             extra={'via': 'purge-trash'},
         )
         db.session.delete(t)
+
+    # Drop the encrypted recording of any note whose group has no surviving
+    # note left. Flush first so the orphan check doesn't see the notes we
+    # just deleted. Gated by the same admin setting as the API delete path —
+    # when off, recordings are left for `flask purge-orphaned-audio`.
+    audio_deleted = 0
+    if group_ids and settings_service.get_orphaned_audio_purge():
+        db.session.flush()
+        for gid in group_ids:
+            audio_deleted += audio_retention.delete_orphaned_audio(gid, via='purge-trash')
+
     db.session.commit()
-    click.echo(f"Purged {len(notes)} note(s) and {len(templates)} template(s).")
+    click.echo(
+        f"Purged {len(notes)} note(s), {len(templates)} template(s), "
+        f"and {audio_deleted} orphaned audio file(s)."
+    )
 
 
 @click.command("purge-audio")
@@ -172,6 +191,45 @@ def purge_audio(dry_run):
         return
 
     click.echo(f"Purged {len(rows)} audio file(s).")
+
+
+@click.command("purge-orphaned-audio")
+@click.option("--dry-run", is_flag=True, help="Report what would be deleted without deleting anything.")
+@with_appcontext
+def purge_orphaned_audio(dry_run):
+    """Permanently delete encrypted audio files no note references anymore.
+
+    Sweeps two kinds of orphan:
+      - recordings left behind by notes that were permanently deleted before
+        orphan cleanup existed (or while it was switched off), and
+      - abandoned uploads whose transcript never became a saved note.
+
+    A recording is an orphan only once no note in its transcript group
+    survives; abandoned (group-less) uploads get a 24h grace period so an
+    in-progress recording is never swept. Unlike `purge-audio` this is not
+    age-gated against a retention window — an orphaned recording has no note,
+    so there is nothing left for a retention policy to protect. Intended to
+    run on a schedule (cron / systemd timer) alongside the other purge jobs.
+    """
+    from app.services import audio_retention
+
+    rows = audio_retention.purge_orphaned(dry_run=dry_run)
+    suffix = " [dry run]" if dry_run else ""
+    click.echo(f"Scanning stored audio for orphans{suffix}.")
+    click.echo(f"  orphaned audio files: {len(rows)}")
+
+    if dry_run:
+        for r in rows:
+            kind = "abandoned upload" if r.transcript_group_id is None else "deleted-note orphan"
+            click.echo(f"  would delete audio {r.id} ({kind}, uploaded {r.created_at})")
+        click.echo("Dry run — no changes made.")
+        return
+
+    if not rows:
+        click.echo("Nothing orphaned. Done.")
+        return
+
+    click.echo(f"Purged {len(rows)} orphaned audio file(s).")
 
 
 @click.command("purge-audit-log")
@@ -272,5 +330,6 @@ def register_cli(app):
     app.cli.add_command(create_admin)
     app.cli.add_command(purge_trash)
     app.cli.add_command(purge_audio)
+    app.cli.add_command(purge_orphaned_audio)
     app.cli.add_command(purge_audit_log)
     app.cli.add_command(verify_audit_log)

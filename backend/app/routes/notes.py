@@ -9,7 +9,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models import AudioFile, Note, NoteAddendum, Participant, Template, User
-from app.services import audio_storage, note_export, note_search
+from app.services import audio_retention, audio_storage, note_export, note_search
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
 
@@ -855,12 +855,25 @@ def delete_note(id):
         resource_id=note.id,
         extra={'transcript_group_id': note.transcript_group_id},
     )
+    group_id = note.transcript_group_id
     db.session.delete(note)
+
+    # HIPAA §164.310(d) disposal: drop the encrypted recording once this was
+    # the last note referencing it. Flush first so the orphan check doesn't
+    # still see the note we just deleted. Gated by an admin setting — when
+    # off, the recording is left for `flask purge-orphaned-audio`.
+    audio_deleted = 0
+    if settings_service.get_orphaned_audio_purge():
+        db.session.flush()
+        audio_deleted = audio_retention.delete_orphaned_audio(
+            group_id, via='note.delete_permanent', user_id=current_user,
+        )
     db.session.commit()
 
     return jsonify({
         "id": note.id,
         "message": "Note permanently deleted.",
+        "audioDeleted": audio_deleted,
     })
 
 

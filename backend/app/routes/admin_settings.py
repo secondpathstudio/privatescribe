@@ -52,6 +52,10 @@ def get_settings():
         "audio_retention_days": settings_service.get_audio_retention_days(),
         "audio_retention_days_min": settings_service.MIN_AUDIO_RETENTION_DAYS,
         "audio_retention_days_max": settings_service.MAX_AUDIO_RETENTION_DAYS,
+        # When true, permanently deleting a note also deletes its encrypted
+        # recording once no other note references it (HIPAA disposal). When
+        # false, the recording is left for `flask purge-orphaned-audio`.
+        "orphaned_audio_purge": settings_service.get_orphaned_audio_purge(),
         # Idle session timeout in minutes (0 = disabled): a logged-in user with
         # no authenticated request for this long is automatically signed out.
         "session_idle_timeout_minutes": settings_service.get_session_idle_timeout_minutes(),
@@ -273,16 +277,20 @@ def update_audit_retention():
 def update_audio_storage():
     """Set audio-storage behavior, and optionally purge stored audio.
 
-    Body: {"storageEnabled": bool, "retentionDays": int, "purgeExisting": bool}.
+    Body: {"storageEnabled": bool, "retentionDays": int,
+           "purgeOnNoteDelete": bool, "purgeExisting": bool}.
     All fields optional — only the ones present take effect.
 
-      storageEnabled — when false, /api/transcribe stops keeping the encrypted
-        recording (transcription still runs; the note is text-only).
-      retentionDays  — days a kept recording survives before `flask purge-audio`
-        deletes it, counted from upload. 0 = keep indefinitely.
-      purgeExisting  — when true, immediately deletes every stored audio file
-        and its row. Used when an admin turns storage off and chooses to wipe
-        prior audio; this is irreversible.
+      storageEnabled    — when false, /api/transcribe stops keeping the
+        encrypted recording (transcription still runs; the note is text-only).
+      retentionDays     — days a kept recording survives before `flask
+        purge-audio` deletes it, counted from upload. 0 = keep indefinitely.
+      purgeOnNoteDelete — when true, permanently deleting a note also deletes
+        its recording once no other note references it. When false, the
+        recording is left for the `flask purge-orphaned-audio` sweep.
+      purgeExisting     — when true, immediately deletes every stored audio
+        file and its row. Used when an admin turns storage off and chooses to
+        wipe prior audio; this is irreversible.
 
     Takes effect immediately — the next /api/transcribe reads the fresh values.
     """
@@ -319,13 +327,26 @@ def update_audio_storage():
         )
         updates.append((settings_service.AUDIO_RETENTION_DAYS, previous, days))
 
+    if 'purgeOnNoteDelete' in data:
+        purge_on_delete = data['purgeOnNoteDelete']
+        if not isinstance(purge_on_delete, bool):
+            return jsonify({"error": "purgeOnNoteDelete must be a boolean"}), 400
+        previous = settings_service.get_orphaned_audio_purge()
+        settings_service.set_value(
+            settings_service.ORPHANED_AUDIO_PURGE, purge_on_delete, updated_by=current_user
+        )
+        updates.append((settings_service.ORPHANED_AUDIO_PURGE, previous, purge_on_delete))
+
     purged_count = None
     if data.get('purgeExisting') is True:
         purged_count = audio_retention.purge_all(user_id=current_user)
 
     if not updates and purged_count is None:
         return jsonify({
-            "error": "nothing to update — supply storageEnabled, retentionDays, and/or purgeExisting",
+            "error": (
+                "nothing to update — supply storageEnabled, retentionDays, "
+                "purgeOnNoteDelete, and/or purgeExisting"
+            ),
         }), 400
 
     for key, old, new in updates:
@@ -341,6 +362,7 @@ def update_audio_storage():
     return jsonify({
         "audio_storage_enabled": settings_service.get_audio_storage_enabled(),
         "audio_retention_days": settings_service.get_audio_retention_days(),
+        "orphaned_audio_purge": settings_service.get_orphaned_audio_purge(),
         "audio_purged_count": purged_count,
     })
 
