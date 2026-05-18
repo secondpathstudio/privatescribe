@@ -738,6 +738,114 @@ def reassign_note_segment(id, index):
         return jsonify({"error": "Failed to reassign segment"}), 500
 
 
+@bp.route('/<string:id>/segments', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def update_note_segments(id):
+    """Replace the full diarized transcript with an edited segment list.
+
+    Backs the diarized-transcript editor, which lets the user edit a turn's
+    text, split a turn into a new line (Enter), merge turns (Backspace), move
+    a turn to a different speaker, and add speakers the diarization missed.
+    Unlike /segments/<index> — a single-turn reassignment that collapses
+    same-speaker runs — this stores exactly the list the editor sends: the
+    user owns the line layout, so a turn deliberately split into two
+    same-speaker lines is preserved.
+
+    Body: {"segments": [{"speaker": str, "text": str,
+                         "start": number, "end": number}, ...]}.
+    Blank-text turns are dropped. Editable only until the note is approved
+    (approved_at set) — the same lock as the raw transcript, the speaker
+    overlay, and per-turn reassignment.
+    """
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(id=id, author_id=current_user).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    if note.approved_at is not None:
+        return jsonify({
+            "error": "The transcript is locked because this note has been approved.",
+        }), 409
+
+    if not isinstance(note.note_content_segments, list) or not note.note_content_segments:
+        return jsonify({"error": "Note has no diarized transcript"}), 400
+
+    data = request.get_json(silent=True) or {}
+    raw_segments = data.get('segments')
+    if not isinstance(raw_segments, list):
+        return jsonify({"error": "segments must be an array"}), 400
+
+    # Validate and normalize each turn. Blank-text turns are dropped (a turn
+    # emptied mid-edit shouldn't persist); a non-numeric start/end falls back
+    # to 0 and end is clamped so it never precedes start.
+    cleaned: list[dict] = []
+    for seg in raw_segments:
+        if not isinstance(seg, dict):
+            continue
+        speaker = seg.get('speaker')
+        text = seg.get('text')
+        if not isinstance(speaker, str) or not speaker.strip():
+            continue
+        if not isinstance(text, str) or not text.strip():
+            continue
+        try:
+            start = float(seg.get('start') or 0.0)
+            end = float(seg.get('end') or 0.0)
+        except (TypeError, ValueError):
+            start, end = 0.0, 0.0
+        if end < start:
+            end = start
+        cleaned.append({
+            "speaker": speaker.strip(),
+            "start": start,
+            "end": end,
+            "text": text.strip(),
+        })
+
+    if not cleaned:
+        return jsonify({
+            "error": "segments must contain at least one non-empty turn",
+        }), 400
+
+    note.note_content_segments = cleaned
+    # Keep the raw transcript (the FTS source and the re-transcribe input) in
+    # step — for a diarized note it is exactly segments_to_text(segments).
+    note.note_content_raw = segments_to_text(cleaned)
+    # Drop labels for any speaker the edit eliminated — how a mis-identified
+    # speaker disappears once its last turn has been moved away.
+    note.speaker_labels = _clean_speaker_labels(
+        note.speaker_labels, cleaned, current_user
+    )
+    note.updated_at = datetime.utcnow()
+    note.version = note.version + 1
+
+    try:
+        log_action(
+            'note.edit_segments',
+            user_id=current_user,
+            resource_type='note',
+            resource_id=note.id,
+            extra={
+                'turns': len(cleaned),
+                'speakers': sorted({s['speaker'] for s in cleaned}),
+                'new_version': note.version,
+            },
+        )
+        db.session.commit()
+        return jsonify({
+            "id": note.id,
+            "noteContentSegments": note.note_content_segments,
+            "noteContentRaw": note.note_content_raw,
+            "speakerLabels": note.speaker_labels,
+            "version": note.version,
+        })
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating note segments: {e}")
+        return jsonify({"error": "Failed to update transcript"}), 500
+
+
 def _relabel_markdown_speakers(note: Note) -> None:
     """Back-fill assigned speaker names into the formatted markdown.
 
