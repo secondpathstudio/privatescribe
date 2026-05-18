@@ -69,48 +69,74 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const [speakerLabels, setSpeakerLabels] = React.useState<SpeakerLabels>(
         note?.speakerLabels ?? {},
     );
-    // Diarized turns, mirrored locally so a per-turn speaker reassignment
-    // re-renders (with consecutive same-speaker turns collapsed) without a
-    // reload. Null for un-diarized notes.
+    // Diarized turns, mirrored locally so transcript edits (text, splits,
+    // merges, speaker changes) re-render immediately without a reload. Null
+    // for un-diarized notes.
     const [segments, setSegments] = React.useState<TranscriptSegment[] | null>(
         note?.noteContentSegments ?? null,
     );
-    const [reassigningSegment, setReassigningSegment] = React.useState(false);
+    // True while a debounced transcript-edit save is in flight.
+    const [savingSegments, setSavingSegments] = React.useState(false);
+    const segmentsTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Transcript saves run strictly in order off this promise chain, so two
+    // debounced PUTs can't race and leave the older edit as the winner.
+    const segmentsSaveChain = React.useRef<Promise<void>>(Promise.resolve());
     const navigation = useNavigate();
 
-    // Move one diarized turn onto a different speaker. The backend collapses
-    // adjacent same-speaker turns and re-renders the raw transcript, so we
-    // re-sync segments, labels, and the raw form field from its response.
-    const reassignSegment = async (index: number, speaker: string) => {
-        setReassigningSegment(true);
+    // Persist the edited diarized transcript. The backend re-renders the raw
+    // transcript from the segments, so sync the raw form field from its
+    // response — a later "Save Note" then won't push a stale raw over it.
+    const persistSegments = async (segs: TranscriptSegment[]) => {
+        setSavingSegments(true);
         try {
-            const res = await fetch(
-                `${API_BASE}/api/notes/${note.id}/segments/${index}`,
-                {
-                    method: 'PUT',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${auth.token}`,
-                    },
-                    body: JSON.stringify({ speaker }),
+            const res = await fetch(`${API_BASE}/api/notes/${note.id}/segments`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${auth.token}`,
                 },
-            );
+                body: JSON.stringify({ segments: segs }),
+            });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
-                throw new Error(err.error || `Reassign failed (${res.status})`);
+                throw new Error(err.error || `Save failed (${res.status})`);
             }
             const data = await res.json();
-            setSegments(data.noteContentSegments ?? []);
-            setSpeakerLabels(data.speakerLabels ?? {});
-            // Raw is re-rendered server-side from the segments; sync the form
-            // field so a later "Save Note" doesn't push a stale raw over it.
             form.setValue('noteContentRaw', data.noteContentRaw ?? '', {
                 shouldDirty: false,
             });
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : 'Could not reassign speaker.');
+            toast.error(
+                e instanceof Error ? e.message : 'Could not save transcript edits.',
+            );
+        } finally {
+            setSavingSegments(false);
         }
-        setReassigningSegment(false);
+    };
+
+    // Called on every edit from the transcript editor: update local state
+    // now, then debounce a save so we don't PUT on every keystroke.
+    const handleSegmentsChange = (segs: TranscriptSegment[]) => {
+        setSegments(segs);
+        if (segmentsTimer.current) clearTimeout(segmentsTimer.current);
+        segmentsTimer.current = setTimeout(() => {
+            segmentsSaveChain.current = segmentsSaveChain.current.then(() =>
+                persistSegments(segs),
+            );
+        }, 800);
+    };
+
+    // Flush a pending transcript edit and wait for it — used before approve
+    // and sign, which lock the transcript and would reject a late save.
+    const flushSegments = async () => {
+        if (segmentsTimer.current) {
+            clearTimeout(segmentsTimer.current);
+            segmentsTimer.current = null;
+            segmentsSaveChain.current = segmentsSaveChain.current.then(() =>
+                persistSegments(segments ?? []),
+            );
+        }
+        await segmentsSaveChain.current;
     };
 
     const assignSpeaker = async (
@@ -179,6 +205,8 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             'Lock the raw transcript? After approval, the raw text is read-only and the confidence highlights are hidden. This cannot be undone.'
         )) return;
         setSavingNote(true);
+        // Flush any debounced transcript edit before approval locks it.
+        await flushSegments();
         try {
             // Save any pending edits first so the locked version reflects
             // what the user is looking at right now.
@@ -303,6 +331,8 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
 
         setSavingNote(true);
         try {
+            // Signing locks the transcript — flush any debounced edit first.
+            if (target === 'signed') await flushSegments();
             if (formState.isDirty && target !== 'draft') {
                 const saveRes = await fetch(`${API_BASE}/api/notes/${note.id}`, {
                     method: 'PUT',
@@ -896,8 +926,8 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                             participants={Array.isArray(note?.participants) ? note.participants : []}
                             editable={approvedAt === null}
                             onAssign={assignSpeaker}
-                            onReassign={reassignSegment}
-                            reassigning={reassigningSegment}
+                            onSegmentsChange={handleSegmentsChange}
+                            saving={savingSegments}
                             onSeek={note?.hasAudio ? (s) => audioPlayerRef.current?.seek(s) : undefined}
                         />
                     </div>
