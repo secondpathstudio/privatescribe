@@ -27,7 +27,7 @@ const NeoAccordion = () => {
     },
     {
       question: "Can a team or practice use this together?",
-      answer: "Yes. There's an admin console for user management, password resets, and a full audit log — including a security alert if an admin ever accesses the encryption key. Login rate-limiting slows down anyone guessing passwords. Each note template can also use a different local AI model, so different document types can be tuned independently."
+      answer: "Yes. There's an admin console for user management, role assignment, extensive security settings, password resets, and a full audit log. Login rate-limiting slows down anyone guessing passwords."
     },
     {
       question: "What does it cost?",
