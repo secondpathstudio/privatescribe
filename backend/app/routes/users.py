@@ -5,7 +5,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, limiter
 from app.models import Organization, Role, User
-from app.security import password_policy, sessions
+from app.security import account_lockout, password_policy, sessions
 from app.security.auth import require_admin
 from app.services import two_factor
 from app.services.audit import log_action
@@ -40,6 +40,13 @@ def get_all_users():
         "lastLogin": user.last_login,
         "twoFactorEnrolled": two_factor.is_enrolled(user),
         "isActive": user.is_active,
+        # Brute-force lockout state. accountLocked reflects an *unexpired* lock;
+        # lockedUntil is the raw timestamp (may be in the past once the lock has
+        # lapsed). failedLoginCount lets admins spot an account under attack
+        # before it actually locks.
+        "accountLocked": account_lockout.is_locked(user),
+        "lockedUntil": user.locked_until,
+        "failedLoginCount": user.failed_login_count,
         "roles": [{"id": r.id, "name": r.name} for r in user.roles],
         "organization": (
             {"id": user.organization.id, "name": user.organization.name}
@@ -269,6 +276,57 @@ def admin_reset_2fa(user_id):
         "message": "2FA reset. User will be prompted to re-enroll if 2FA is required.",
         "userId": target.id,
         "twoFactorEnrolled": False,
+    }), 200
+
+
+@bp.route('/api/admin/users/<string:user_id>/unlock', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+@limiter.limit("10 per minute")
+def admin_unlock_account(user_id):
+    """Clear a user's brute-force lockout and failed-attempt counter so they
+    can sign in again immediately, rather than waiting out the lock window.
+    Requires the admin's own password as re-auth, like the other admin account
+    actions. A locked account also unlocks itself once the window passes — this
+    is the manual override."""
+    data = request.get_json(silent=True) or {}
+    admin_password = data.get('adminPassword')
+    if not isinstance(admin_password, str) or not admin_password:
+        return jsonify({"error": "adminPassword is required"}), 400
+
+    admin_id = get_jwt_identity()
+    admin = User.query.get(admin_id)
+    if not admin or not check_password_hash(admin.password, admin_password):
+        log_action(
+            'admin.account_unlock',
+            user_id=admin_id,
+            user_email=admin.email if admin else None,
+            resource_type='user',
+            resource_id=user_id,
+            status='failure',
+            extra={'reason': 'invalid_admin_password'},
+        )
+        db.session.commit()
+        return jsonify({"error": "Admin password is incorrect"}), 401
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+
+    account_lockout.unlock(target)
+    log_action(
+        'admin.account_unlock',
+        user_id=admin.id,
+        user_email=admin.email,
+        resource_type='user',
+        resource_id=target.id,
+        extra={'target_email': target.email},
+    )
+    db.session.commit()
+    return jsonify({
+        "userId": target.id,
+        "accountLocked": False,
+        "failedLoginCount": 0,
     }), 200
 
 

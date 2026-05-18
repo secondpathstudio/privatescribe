@@ -93,6 +93,15 @@ def get_settings():
         "audit_retention_days_max": settings_service.MAX_AUDIT_RETENTION_DAYS,
         "audit_auto_purge": settings_service.get_audit_auto_purge(),
         "audit_archive_watermark": settings_service.get_audit_archive_watermark(),
+        # Account lockout: consecutive failed password attempts before an
+        # account is temporarily locked, and how long the lock lasts. A
+        # threshold of 0 disables lockout entirely.
+        "account_lockout_threshold": settings_service.get_account_lockout_threshold(),
+        "account_lockout_threshold_min": settings_service.MIN_ACCOUNT_LOCKOUT_THRESHOLD,
+        "account_lockout_threshold_max": settings_service.MAX_ACCOUNT_LOCKOUT_THRESHOLD,
+        "account_lockout_minutes": settings_service.get_account_lockout_minutes(),
+        "account_lockout_minutes_min": settings_service.MIN_ACCOUNT_LOCKOUT_MINUTES,
+        "account_lockout_minutes_max": settings_service.MAX_ACCOUNT_LOCKOUT_MINUTES,
     })
 
 
@@ -438,6 +447,84 @@ def update_session_idle_timeout():
     db.session.commit()
 
     return jsonify({"session_idle_timeout_minutes": value})
+
+
+@bp.route('/account-lockout', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_account_lockout():
+    """Set the account-lockout threshold and lock duration.
+
+    Body: {"threshold": int, "minutes": int}. Both fields optional — only the
+    ones present are updated. threshold is the number of consecutive failed
+    password attempts before an account locks; 0 disables lockout entirely.
+    minutes is how long the lock lasts before the account unlocks itself.
+
+    Takes effect immediately — the next /api/login reads the fresh values
+    (settings are read per-request, not cached). Already-accumulated failure
+    counts are unaffected; the new threshold applies to the next attempt.
+    """
+    data = request.get_json(silent=True) or {}
+    current_user = get_jwt_identity()
+
+    updates = []  # (key, old, new) tuples for the audit log
+
+    if 'threshold' in data:
+        try:
+            threshold = int(data['threshold'])
+        except (ValueError, TypeError):
+            return jsonify({"error": "threshold must be an integer"}), 400
+        if (threshold < settings_service.MIN_ACCOUNT_LOCKOUT_THRESHOLD
+                or threshold > settings_service.MAX_ACCOUNT_LOCKOUT_THRESHOLD):
+            return jsonify({
+                "error": (
+                    f"threshold must be between {settings_service.MIN_ACCOUNT_LOCKOUT_THRESHOLD} "
+                    f"and {settings_service.MAX_ACCOUNT_LOCKOUT_THRESHOLD} "
+                    f"({settings_service.MIN_ACCOUNT_LOCKOUT_THRESHOLD} disables lockout)"
+                ),
+            }), 400
+        previous = settings_service.get_account_lockout_threshold()
+        settings_service.set_value(
+            settings_service.ACCOUNT_LOCKOUT_THRESHOLD, threshold, updated_by=current_user
+        )
+        updates.append((settings_service.ACCOUNT_LOCKOUT_THRESHOLD, previous, threshold))
+
+    if 'minutes' in data:
+        try:
+            minutes = int(data['minutes'])
+        except (ValueError, TypeError):
+            return jsonify({"error": "minutes must be an integer"}), 400
+        if (minutes < settings_service.MIN_ACCOUNT_LOCKOUT_MINUTES
+                or minutes > settings_service.MAX_ACCOUNT_LOCKOUT_MINUTES):
+            return jsonify({
+                "error": (
+                    f"minutes must be between {settings_service.MIN_ACCOUNT_LOCKOUT_MINUTES} "
+                    f"and {settings_service.MAX_ACCOUNT_LOCKOUT_MINUTES}"
+                ),
+            }), 400
+        previous = settings_service.get_account_lockout_minutes()
+        settings_service.set_value(
+            settings_service.ACCOUNT_LOCKOUT_MINUTES, minutes, updated_by=current_user
+        )
+        updates.append((settings_service.ACCOUNT_LOCKOUT_MINUTES, previous, minutes))
+
+    if not updates:
+        return jsonify({"error": "nothing to update — supply threshold and/or minutes"}), 400
+
+    for key, old, new in updates:
+        log_action(
+            'admin.settings_update',
+            user_id=current_user,
+            resource_type='setting',
+            resource_id=key,
+            extra={'old': old, 'new': new},
+        )
+    db.session.commit()
+
+    return jsonify({
+        "account_lockout_threshold": settings_service.get_account_lockout_threshold(),
+        "account_lockout_minutes": settings_service.get_account_lockout_minutes(),
+    })
 
 
 @bp.route('/two-factor-required', methods=['PUT'])
