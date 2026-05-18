@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash
 
 from app.extensions import db
 from app.models import Note, Template, User
-from app.security import password_policy
+from app.security import account_lockout, password_policy
 from app.services import settings as settings_service
 from app.services.audit import log_action
 
@@ -49,6 +49,86 @@ def create_admin(email, first_name, last_name):
     db.session.add(admin_user)
     db.session.commit()
     click.echo(f"Admin user created with ID: {admin_user.id}")
+
+
+@click.command("reset-password")
+@click.option("--email", prompt=True, help="Email of the account to reset")
+@with_appcontext
+def reset_password(email):
+    """Break-glass password reset, run at the machine.
+
+    The offline recovery path for a forgotten password — including the sole
+    admin's, which has no in-app recovery once they're locked out. Anyone able
+    to run this command already holds the SQLCipher key from the .env, so it
+    grants no access the operator doesn't already have. Clears any brute-force
+    lockout and the force-password-change flag in the same step, so the
+    recovered account can sign straight in with the password chosen here.
+    """
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        click.echo(f"No user with email {email}.")
+        return
+
+    password = getpass("Enter new password (input will be hidden): ")
+    password_confirm = getpass("Confirm new password (input will be hidden): ")
+    if password != password_confirm:
+        click.echo("Passwords do not match!")
+        return
+
+    # Same policy the API enforces — the CLI is not a back door around it.
+    pw_err = password_policy.validate(password)
+    if pw_err:
+        click.echo(pw_err)
+        return
+
+    user.password = generate_password_hash(password, method='pbkdf2:sha256')
+    user.force_password_change = False
+    unlocked = account_lockout.unlock(user)
+    log_action(
+        'admin.password_reset',
+        user_id=user.id,
+        user_email=user.email,
+        resource_type='user',
+        resource_id=user.id,
+        extra={'via': 'cli', 'target_email': user.email},
+    )
+    db.session.commit()
+    suffix = " Brute-force lockout cleared." if unlocked else ""
+    click.echo(f"Password reset for {user.email}.{suffix}")
+
+
+@click.command("unlock-account")
+@click.option("--email", prompt=True, help="Email of the locked account")
+@with_appcontext
+def unlock_account(email):
+    """Clear a brute-force lockout so the account can sign in immediately.
+
+    A locked account also unlocks itself once the lockout window passes; this
+    is the manual override for when waiting that out isn't acceptable. It only
+    clears the lock and the failed-attempt counter — the password is untouched.
+    """
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        click.echo(f"No user with email {email}.")
+        return
+
+    was_locked = account_lockout.is_locked(user)
+    had_state = account_lockout.unlock(user)
+    if not had_state:
+        click.echo(f"{user.email} is not locked and has no failed attempts on record. Nothing to do.")
+        return
+
+    log_action(
+        'admin.account_unlock',
+        user_id=user.id,
+        user_email=user.email,
+        resource_type='user',
+        resource_id=user.id,
+        extra={'via': 'cli', 'was_locked': was_locked},
+    )
+    db.session.commit()
+    state = "Lockout cleared" if was_locked else "Failed-attempt counter cleared"
+    click.echo(f"{state} for {user.email}.")
 
 
 @click.command("purge-trash")
@@ -328,6 +408,8 @@ def verify_audit_log():
 
 def register_cli(app):
     app.cli.add_command(create_admin)
+    app.cli.add_command(reset_password)
+    app.cli.add_command(unlock_account)
     app.cli.add_command(purge_trash)
     app.cli.add_command(purge_audio)
     app.cli.add_command(purge_orphaned_audio)
