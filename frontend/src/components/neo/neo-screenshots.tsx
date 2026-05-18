@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import NeoButton from './neo-button';
 import NeoHardwareCallout from './neo-hardware-callout';
 import { GithubIcon } from 'lucide-react';
@@ -22,6 +23,7 @@ const screenshots: Screenshot[] = [
     caption: 'Sortable, searchable list of every transcript and generated note. Soft-delete keeps mistakes recoverable.',
     alt: 'PrivateScribe notes list page with multiple notes sorted by date',
     gradient: 'linear-gradient(135deg, #2b0f54, #5d1d91)',
+    media: 'video'
   },
   {
     slug: 'note-view',
@@ -61,6 +63,8 @@ const screenshots: Screenshot[] = [
 ];
 
 const NeoScreenshots = ({ onNotifyClick }: Props) => {
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
+
   return (
     <section id="screenshots" className="py-20 bg-white border-b-4 border-black">
       <div className="container mx-auto px-4">
@@ -72,37 +76,35 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
         <div className="space-y-20 max-w-6xl mx-auto">
           {screenshots.map((shot, index) => {
             const imageFirst = index % 2 === 0;
+            const hasFailed = failed[shot.slug];
+            const markFailed = () => setFailed((f) => ({ ...f, [shot.slug]: true }));
             return (
               <div key={shot.slug} className="grid md:grid-cols-2 gap-8 items-center">
                 <div className={imageFirst ? '' : 'md:order-2'}>
                   <div
-                    className="aspect-video border-4 border-black overflow-hidden"
+                    className={`border-4 border-black overflow-hidden${hasFailed ? ' aspect-video' : ''}`}
                     style={{
                       background: shot.gradient,
                       boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)',
                     }}
                   >
-                    {shot.media === 'video' ? (
+                    {hasFailed ? null : shot.media === 'video' ? (
                       <video
                         src={`/screenshots/${shot.slug}.mp4`}
                         aria-label={shot.alt}
-                        className="w-full h-full object-cover"
+                        className="w-full h-auto block"
                         autoPlay
                         loop
                         muted
                         playsInline
-                        onError={(e) => {
-                          (e.currentTarget as HTMLVideoElement).style.visibility = 'hidden';
-                        }}
+                        onError={markFailed}
                       />
                     ) : (
                       <img
                         src={`/screenshots/${shot.slug}.png`}
                         alt={shot.alt}
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-                        }}
+                        className="w-full h-auto block"
+                        onError={markFailed}
                       />
                     )}
                   </div>
