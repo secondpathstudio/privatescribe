@@ -1,4 +1,5 @@
 """Flask CLI commands. Registered on the app via register_cli() in the factory."""
+import uuid
 from datetime import datetime, timedelta
 from getpass import getpass
 
@@ -406,6 +407,198 @@ def verify_audit_log():
     raise SystemExit(1)
 
 
+# Sample content for `flask seed-notes`. Each entry pairs a Whisper-style raw
+# transcript with its formatted Markdown, plus the template it suits and a
+# workflow status. The command cycles through this list when asked for more
+# notes than there are samples.
+_SEED_SAMPLES = [
+    {
+        "name": "Follow-up — Hypertension",
+        "template": "SOAP Note",
+        "status": "signed",
+        "raw": "patient is a 54 year old male here for blood pressure follow up "
+               "feeling well no headaches no chest pain taking lisinopril daily "
+               "bp today is 128 over 82 heart rate 72 lungs clear continue "
+               "current dose recheck in three months",
+        "md": "## Subjective\n54-year-old male presenting for hypertension "
+              "follow-up. Reports feeling well with no headaches or chest pain. "
+              "Adherent to daily lisinopril.\n\n## Objective\n- BP: 128/82 mmHg\n"
+              "- HR: 72 bpm\n- Lungs: clear to auscultation\n\n## Assessment\n"
+              "Hypertension, well controlled.\n\n## Plan\nContinue current "
+              "lisinopril dose. Recheck blood pressure in three months.",
+    },
+    {
+        "name": "New patient — Knee pain",
+        "template": "SOAP Note",
+        "status": "finalized",
+        "raw": "thirty two year old runner reports right knee pain for two weeks "
+               "worse with stairs no swelling no trauma exam shows mild "
+               "tenderness over the patella full range of motion likely "
+               "patellofemoral pain advised rest ice and quad strengthening",
+        "md": "## Subjective\n32-year-old recreational runner with two weeks of "
+              "right knee pain, worse climbing stairs. No trauma, no swelling.\n\n"
+              "## Objective\n- Mild tenderness over the patella\n- Full range of "
+              "motion\n- No effusion\n\n## Assessment\nPatellofemoral pain "
+              "syndrome.\n\n## Plan\nRelative rest, ice after activity, quadriceps "
+              "strengthening program. Follow up in four weeks if not improving.",
+    },
+    {
+        "name": "Annual physical — J. Rivera",
+        "template": "Visit Summary",
+        "status": "signed",
+        "raw": "annual wellness visit no new complaints diet and exercise "
+               "discussed labs ordered for lipids and a1c immunizations up to "
+               "date return in one year",
+        "md": "# Visit Summary\n\n**Reason for visit:** Annual wellness exam\n\n"
+              "**Findings:** No new complaints. Diet and exercise reviewed. "
+              "Immunizations up to date.\n\n**Orders:** Lipid panel, HbA1c.\n\n"
+              "**Next steps:** Return in one year for the next annual visit.",
+    },
+    {
+        "name": "Visit — Seasonal allergies",
+        "template": "Visit Summary",
+        "status": "draft",
+        "raw": "patient with itchy eyes and runny nose for the past month started "
+               "an antihistamine with partial relief recommended adding a nasal "
+               "steroid spray follow up if symptoms persist",
+        "md": "# Visit Summary\n\n**Reason for visit:** Seasonal allergy "
+              "symptoms\n\n**Findings:** One month of itchy eyes and rhinorrhea. "
+              "Partial relief from an over-the-counter antihistamine.\n\n"
+              "**Plan:** Add an intranasal corticosteroid spray.\n\n"
+              "**Next steps:** Follow up if symptoms persist.",
+    },
+    {
+        "name": "Telehealth — Medication review",
+        "template": "General Note",
+        "status": "finalized",
+        "raw": "telehealth call to review medications patient tolerating "
+               "metformin well no gi upset reports occasional missed doses "
+               "discussed using a pill organizer",
+        "md": "Telehealth medication review. The patient is tolerating metformin "
+              "well with no GI upset. They report occasionally missing doses; we "
+              "discussed using a weekly pill organizer to improve adherence.",
+    },
+    {
+        "name": "Phone note — Lab results",
+        "template": "General Note",
+        "status": "signed",
+        "raw": "called patient with lab results cholesterol slightly elevated "
+               "a1c within normal limits advised dietary changes and recheck in "
+               "six months",
+        "md": "Called the patient to review lab results. Cholesterol is slightly "
+              "elevated; HbA1c is within normal limits. Advised dietary changes "
+              "and a recheck of the lipid panel in six months.",
+    },
+    {
+        "name": "Weekly engineering sync",
+        "template": "Meeting Summary",
+        "status": "finalized",
+        "raw": "team sync covered the release timeline the auth migration is on "
+               "track for next friday qa flagged two blocking bugs design review "
+               "scheduled for wednesday",
+        "md": "# Meeting Summary\n\n**Topic:** Weekly engineering sync\n\n"
+              "## Discussion\n- Release timeline reviewed\n- Auth migration on "
+              "track for next Friday\n- QA flagged two blocking bugs\n\n"
+              "## Action items\n- Resolve the two blocking bugs before release\n"
+              "- Design review scheduled for Wednesday",
+    },
+    {
+        "name": "Product roadmap planning",
+        "template": "Meeting Summary",
+        "status": "draft",
+        "raw": "roadmap planning meeting prioritized the offline mode feature for "
+               "q3 cloud sync pushed to q4 agreed to draft specs by end of month",
+        "md": "# Meeting Summary\n\n**Topic:** Product roadmap planning\n\n"
+              "## Decisions\n- Offline mode prioritized for Q3\n- Cloud sync "
+              "moved to Q4\n\n## Action items\n- Draft feature specs by end of "
+              "month",
+    },
+    {
+        "name": "Standup — Tuesday",
+        "template": "Standup Notes",
+        "status": "draft",
+        "raw": "yesterday finished the export pdf endpoint today working on the "
+               "audit log viewer no blockers",
+        "md": "# Standup\n\n**Yesterday:** Finished the export-to-PDF endpoint.\n\n"
+              "**Today:** Working on the audit-log viewer.\n\n"
+              "**Blockers:** None.",
+    },
+    {
+        "name": "Standup — Thursday",
+        "template": "Standup Notes",
+        "status": "finalized",
+        "raw": "yesterday wrapped up the audit log viewer today starting on the "
+               "diarization settings page blocked on the hugging face token",
+        "md": "# Standup\n\n**Yesterday:** Wrapped up the audit-log viewer.\n\n"
+              "**Today:** Starting the diarization settings page.\n\n"
+              "**Blockers:** Waiting on a Hugging Face token.",
+    },
+]
+
+
+@click.command("seed-notes")
+@click.argument("count", type=int)
+@click.option("--email", help="Email of the note author (defaults to the first user).")
+@with_appcontext
+def seed_notes(count, email):
+    """Seed COUNT sample notes for development/demo.
+
+    Cycles through a fixed set of sample transcripts, varying the template,
+    workflow status, and date so the notes table looks realistic. Each note
+    gets its own transcript group; the FTS search index updates automatically
+    via the mapper events in services/note_search.py.
+    """
+    if count <= 0:
+        click.echo("COUNT must be a positive integer.")
+        return
+
+    if email:
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            click.echo(f"No user with email {email}.")
+            return
+    else:
+        user = User.query.order_by(User.created_at).first()
+        if not user:
+            click.echo("No users exist — run `flask create-admin` first.")
+            return
+
+    templates = {t.name: t for t in Template.query.all()}
+    author_name = f"{user.first_name} {user.last_name}".strip()
+    now = datetime.utcnow()
+
+    for i in range(count):
+        sample = _SEED_SAMPLES[i % len(_SEED_SAMPLES)]
+        tmpl = templates.get(sample["template"])
+        note_date = now - timedelta(days=3 * i, hours=2 * i)
+        # Disambiguate the title once the sample list wraps around.
+        cycle = i // len(_SEED_SAMPLES)
+        name = sample["name"] if cycle == 0 else f"{sample['name']} ({cycle + 1})"
+        status = sample["status"]
+        note = Note(
+            id=str(uuid.uuid4()),
+            author_name=author_name,
+            author_id=user.id,
+            name=name,
+            note_date=note_date,
+            created_at=note_date,
+            updated_at=note_date,
+            note_content_raw=sample["raw"],
+            note_content_markdown=sample["md"],
+            note_type="text",
+            status=status,
+            template_id=tmpl.id if tmpl else None,
+            transcript_group_id=str(uuid.uuid4()),
+            approved_at=note_date if status in ("finalized", "signed") else None,
+            signed_at=note_date if status == "signed" else None,
+        )
+        db.session.add(note)
+
+    db.session.commit()
+    click.echo(f"Seeded {count} sample note(s) for {user.email}.")
+    click.echo(f"Total notes in DB: {Note.query.count()}")
+
+
 def register_cli(app):
     app.cli.add_command(create_admin)
     app.cli.add_command(reset_password)
@@ -415,3 +608,4 @@ def register_cli(app):
     app.cli.add_command(purge_orphaned_audio)
     app.cli.add_command(purge_audit_log)
     app.cli.add_command(verify_audit_log)
+    app.cli.add_command(seed_notes)
