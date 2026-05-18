@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import tempfile
 import threading
 import time
@@ -39,6 +40,7 @@ from app.services.diarization import (
     diarize_path,
     merge_segments,
 )
+from app.services.ffmpeg import get_ffmpeg
 from app.services.whisper import transcribe_path
 
 logger = logging.getLogger(__name__)
@@ -169,18 +171,81 @@ def _append_chunk(audio_path: str, chunk_file) -> None:
         f.write(chunk_file.read())
 
 
+def _webm_to_wav(src_path: str) -> str:
+    """Transcode the session's growing webm to a temp 16 kHz mono WAV.
+
+    Returns the wav path; the caller owns its deletion.
+
+    We deliberately do NOT decode the webm with ``AudioSegment.from_file()``:
+    for a non-wav input pydub shells out to ``ffprobe`` for stream info, and
+    the packaged desktop app bundles only ``ffmpeg`` (via the imageio-ffmpeg
+    wheel), not ``ffprobe``. There, ``from_file(webm)`` raises
+    ``FileNotFoundError`` and the live tick 500s — which is the bug this
+    function exists to avoid. A direct ffmpeg subprocess needs no ffprobe,
+    and loading the resulting ``.wav`` afterwards takes pydub's ffprobe-free
+    ``_from_safe_wav`` fast path. This mirrors ``whisper._transcode_to_wav``.
+    """
+    ffmpeg_bin = get_ffmpeg() or AudioSegment.converter
+    wav_fd, wav_path = tempfile.mkstemp(suffix=".wav")
+    os.close(wav_fd)
+    cmd = [
+        ffmpeg_bin,
+        "-nostdin",
+        "-loglevel", "error",
+        "-y",
+        "-i", src_path,
+        "-vn",            # drop any video stream
+        "-ac", "1",       # mono
+        "-ar", "16000",   # 16 kHz — Whisper's and pyannote's working rate
+        "-f", "wav",
+        wav_path,
+    ]
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=120,
+        )
+    except Exception:
+        try:
+            os.unlink(wav_path)
+        except OSError:
+            pass
+        raise
+    if proc.returncode != 0:
+        try:
+            os.unlink(wav_path)
+        except OSError:
+            pass
+        lines = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        detail = lines[-1] if lines else f"ffmpeg exited {proc.returncode}"
+        raise RuntimeError(f"Could not decode the live audio: {detail}")
+    return wav_path
+
+
 def _decode_and_slice(audio_path: str) -> tuple[str, float, float]:
     """Decode the growing webm to a temp WAV containing the last WINDOW_SECONDS.
 
     Returns (wav_path, window_start_absolute, total_duration). Caller owns
     deletion of the returned wav_path.
 
-    The cost of this scales with total session length because pydub re-decodes
-    the whole webm each tick — acceptable for typical session lengths
+    The cost of this scales with total session length because the whole webm
+    is re-decoded each tick — acceptable for typical session lengths
     (a few minutes). If long sessions become common, switch to a long-running
     ffmpeg subprocess that streams PCM into a growing WAV.
     """
-    audio = AudioSegment.from_file(audio_path)
+    full_wav = _webm_to_wav(audio_path)
+    try:
+        # from_wav takes pydub's wave-module fast path — no ffprobe call.
+        audio = AudioSegment.from_wav(full_wav)
+    finally:
+        try:
+            os.unlink(full_wav)
+        except OSError:
+            pass
+
     total_ms = len(audio)
     total_duration = total_ms / 1000.0
     window_ms = int(WINDOW_SECONDS * 1000)
