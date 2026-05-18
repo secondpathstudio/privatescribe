@@ -20,7 +20,7 @@ const NeoHero = (props: Props) => {
               </p>
               <div className="flex flex-wrap gap-2 mb-8 xl:justify-start justify-center">
                 <div className="border-2 border-white text-white font-bold text-sm px-3 py-1 uppercase tracking-wider bg-black/30">
-                  100% Offline
+                  Works Offline
                 </div>
                 <div className="border-2 border-white text-white font-bold text-sm px-3 py-1 uppercase tracking-wider bg-black/30">
                   256-Bit Encrypted
