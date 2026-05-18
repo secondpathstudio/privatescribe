@@ -21,7 +21,7 @@ import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 import NoteAudioPlayer, { type NoteAudioPlayerHandle } from '@/components/recording/note-audio-player'
-import DiarizedTranscript, { type SpeakerLabels } from '@/components/recording/diarized-transcript'
+import DiarizedTranscript, { type SpeakerLabels, type TranscriptSegment } from '@/components/recording/diarized-transcript'
 import { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
 import EditableConfidenceText from '@/components/transcription/EditableConfidenceText'
 
@@ -70,7 +70,49 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const [speakerLabels, setSpeakerLabels] = React.useState<SpeakerLabels>(
         note?.speakerLabels ?? {},
     );
+    // Diarized turns, mirrored locally so a per-turn speaker reassignment
+    // re-renders (with consecutive same-speaker turns collapsed) without a
+    // reload. Null for un-diarized notes.
+    const [segments, setSegments] = React.useState<TranscriptSegment[] | null>(
+        note?.noteContentSegments ?? null,
+    );
+    const [reassigningSegment, setReassigningSegment] = React.useState(false);
     const navigation = useNavigate();
+
+    // Move one diarized turn onto a different speaker. The backend collapses
+    // adjacent same-speaker turns and re-renders the raw transcript, so we
+    // re-sync segments, labels, and the raw form field from its response.
+    const reassignSegment = async (index: number, speaker: string) => {
+        setReassigningSegment(true);
+        try {
+            const res = await fetch(
+                `${API_BASE}/api/notes/${note.id}/segments/${index}`,
+                {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${auth.token}`,
+                    },
+                    body: JSON.stringify({ speaker }),
+                },
+            );
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.error || `Reassign failed (${res.status})`);
+            }
+            const data = await res.json();
+            setSegments(data.noteContentSegments ?? []);
+            setSpeakerLabels(data.speakerLabels ?? {});
+            // Raw is re-rendered server-side from the segments; sync the form
+            // field so a later "Save Note" doesn't push a stale raw over it.
+            form.setValue('noteContentRaw', data.noteContentRaw ?? '', {
+                shouldDirty: false,
+            });
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Could not reassign speaker.');
+        }
+        setReassigningSegment(false);
+    };
 
     const assignSpeaker = async (
         rawSpeaker: string,
@@ -826,15 +868,17 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             </TabsContent>
 
             <TabsContent value="transcript">
-                {note?.noteContentSegments ? (
+                {segments ? (
                     <div className="flex flex-col mt-4 gap-1">
                         <FormLabel>Raw Transcription</FormLabel>
                         <DiarizedTranscript
-                            segments={note.noteContentSegments}
+                            segments={segments}
                             speakerLabels={speakerLabels}
                             participants={Array.isArray(note?.participants) ? note.participants : []}
                             editable={approvedAt === null}
                             onAssign={assignSpeaker}
+                            onReassign={reassignSegment}
+                            reassigning={reassigningSegment}
                             onSeek={note?.hasAudio ? (s) => audioPlayerRef.current?.seek(s) : undefined}
                         />
                     </div>
