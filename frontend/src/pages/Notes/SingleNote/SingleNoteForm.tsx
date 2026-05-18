@@ -222,6 +222,16 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             }
             const data = await res.json();
             setApprovedAt(data.approvedAt);
+            // Locking the transcript back-fills the assigned speaker names into
+            // the markdown (any "Speaker N" left over from formatting before
+            // the speakers were named). Sync the editor so it shows without a
+            // reload — pending edits were already saved above.
+            if (data.noteContentMarkdown != null) {
+                form.setValue('noteContentMarkdown', data.noteContentMarkdown, {
+                    shouldDirty: false,
+                });
+                mdxEditorRef.current?.setMarkdown(data.noteContentMarkdown);
+            }
         } catch (e: any) {
             toast.error(e.message ?? 'Could not approve note.');
         }
@@ -338,6 +348,16 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             setStatus(data.status);
             setSignedAt(data.signedAt ?? null);
             if (data.approvedAt) setApprovedAt(data.approvedAt);
+            // Signing locks the transcript and back-fills the assigned speaker
+            // names into the markdown — sync the editor. Only on sign: other
+            // transitions don't touch the body, and a draft transition skips
+            // the pre-save above, so we must not clobber unsaved edits.
+            if (target === 'signed' && data.noteContentMarkdown != null) {
+                form.setValue('noteContentMarkdown', data.noteContentMarkdown, {
+                    shouldDirty: false,
+                });
+                mdxEditorRef.current?.setMarkdown(data.noteContentMarkdown);
+            }
         } catch (e: any) {
             toast.error(e.message ?? 'Could not change note status.');
         }

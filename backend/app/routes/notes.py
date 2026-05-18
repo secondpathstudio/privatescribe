@@ -12,7 +12,7 @@ from app.models import AudioFile, Note, NoteAddendum, Participant, Template, Use
 from app.services import audio_retention, audio_storage, note_export, note_search
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
-from app.services.diarization import collapse_segments, segments_to_text
+from app.services.diarization import collapse_segments, relabel_speakers, segments_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -738,6 +738,23 @@ def reassign_note_segment(id, index):
         return jsonify({"error": "Failed to reassign segment"}), 500
 
 
+def _relabel_markdown_speakers(note: Note) -> None:
+    """Back-fill assigned speaker names into the formatted markdown.
+
+    The markdown is often generated before the user names the diarized
+    speakers, so it still carries the anonymous "Speaker N" labels. When the
+    transcript is locked (approve / sign) the names are final, so rewrite any
+    remaining "Speaker N" mentions in the note body to match the raw transcript.
+    No-op when the note has no markdown or no named speakers; idempotent once
+    applied (relabel_speakers only rewrites labels it still finds).
+    """
+    if not note.note_content_markdown or not note.speaker_labels:
+        return
+    note.note_content_markdown = relabel_speakers(
+        note.note_content_markdown, note.speaker_labels,
+    )
+
+
 @bp.route('/<string:id>/approve', methods=['PUT'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
@@ -754,6 +771,9 @@ def approve_note(id):
 
     if note.approved_at is None:
         note.approved_at = datetime.utcnow()
+        # The transcript is now locked — the speaker names are final, so push
+        # them through the already-generated markdown.
+        _relabel_markdown_speakers(note)
         log_action(
             'note.approve',
             user_id=current_user,
@@ -762,7 +782,10 @@ def approve_note(id):
         )
         db.session.commit()
 
-    return jsonify({"approvedAt": note.approved_at})
+    return jsonify({
+        "approvedAt": note.approved_at,
+        "noteContentMarkdown": note.note_content_markdown,
+    })
 
 
 # Workflow states and the legal moves between them. draft<->finalized is
@@ -782,6 +805,7 @@ def _status_payload(note: Note) -> dict:
         "status": note.status,
         "signedAt": note.signed_at,
         "approvedAt": note.approved_at,
+        "noteContentMarkdown": note.note_content_markdown,
     }
 
 
@@ -822,9 +846,12 @@ def update_note_status(id):
     if target == 'signed':
         now = datetime.utcnow()
         note.signed_at = now
-        # Signing implies approval — lock the raw transcript too.
+        # Signing implies approval — lock the raw transcript too. If this is
+        # the lock point (note wasn't already approved), back-fill the final
+        # speaker names into the markdown, same as approve_note does.
         if note.approved_at is None:
             note.approved_at = now
+            _relabel_markdown_speakers(note)
 
     log_action(
         'note.status_change',
