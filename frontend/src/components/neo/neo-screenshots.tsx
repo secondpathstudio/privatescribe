@@ -35,7 +35,7 @@ const screenshots: Screenshot[] = [
   {
     slug: 'audio-playback',
     title: 'Audio playback inside every note',
-    caption: 'When the exact wording matters, scrub back to the original recording — encrypted on disk, never uploaded.',
+    caption: 'When the exact wording matters, scrub back to the original recording — stored locally, never uploaded.',
     alt: 'Audio playback bar inside a note, showing waveform and time scrubber',
     gradient: 'linear-gradient(135deg, #fd3777, #ff9900)',
   },
@@ -54,11 +54,12 @@ const screenshots: Screenshot[] = [
     gradient: 'linear-gradient(135deg, #9d4edd, #00ffff)',
   },
   {
-    slug: 'admin-audit',
-    title: 'A self-watching audit log',
-    caption: 'Every login, password reset, role change, and key access is recorded — with a security alert when an admin views the encryption key.',
-    alt: 'Admin audit log showing timestamped entries with a highlighted key-access alert',
+    slug: 'admin-controls',
+    title: 'Robust administrative controls',
+    caption: 'Manage users and roles, set retention and storage policies, and require 2FA — all backed by a self-watching audit log that records every login, password reset, and key access.',
+    alt: 'Admin settings area showing user management, retention policies, and the audit log',
     gradient: 'linear-gradient(135deg, #2b0f54, #fd3777)',
+    media: 'video',
   },
 ];
 
