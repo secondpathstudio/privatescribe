@@ -85,10 +85,19 @@ mac:
 
 dmg:
   title: PrivateScribe ${version}
+  # Branded install window. background is a multi-rep .tiff (540x380 @1x +
+  # 1080x760 @2x); window dimensions are in points and match the @1x art.
+  background: build-resources/dmg-background.tiff
+  window:
+    width: 540
+    height: 380
+  iconSize: 100
+  # Icons sit low in the window, in the darker band below the sun artwork,
+  # so the white icon labels stay legible.
   contents:
     - x: 130
-      y: 220
+      y: 250
     - x: 410
-      y: 220
+      y: 250
       type: link
       path: /Applications
