@@ -30,6 +30,11 @@ export async function startBackend(ollamaHost: string): Promise<BackendInfo> {
   );
   const dataDir = app.getPath('userData');
 
+  // The bundled pyannote model weights, staged by scripts/fetch-pyannote.mjs
+  // and copied into Resources/pyannote-models/ by electron-builder. The backend
+  // loads speaker diarization from here with no HuggingFace token or network.
+  const pyannoteModelsDir = path.join(process.resourcesPath, 'pyannote-models');
+
   const child = spawn(binaryPath, [], {
     env: {
       ...process.env,
@@ -37,6 +42,7 @@ export async function startBackend(ollamaHost: string): Promise<BackendInfo> {
       // The Ollama main.ts resolved for us — a reused system instance or the
       // bundled runtime. The backend's ollama client reads OLLAMA_HOST.
       OLLAMA_HOST: ollamaHost,
+      PYANNOTE_MODELS_DIR: pyannoteModelsDir,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

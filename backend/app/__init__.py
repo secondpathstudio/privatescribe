@@ -77,6 +77,12 @@ def create_app() -> Flask:
     # nothing pending.
     audio_storage.recover_pending_reencryption()
 
+    # Resolve the ffmpeg binary pydub shells out to and pin AudioSegment at
+    # it. The packaged desktop app has no system ffmpeg on PATH, so without
+    # this an upload fails with "No such file or directory: 'ffmpeg'".
+    from app.services import ffmpeg as ffmpeg_service
+    ffmpeg_service.configure()
+
     # Live-transcription sessions keep a temp webm in the OS temp dir; the
     # registry tracking them doesn't survive a restart, so sweep any
     # leftovers from a previous run.
@@ -147,10 +153,11 @@ def create_app() -> Flask:
             diarization.set_configured_device("auto")
 
     # Pre-warm the pyannote pipeline in a background thread so the first
-    # /api/transcribe doesn't pay cold-load cost. Gated on HF_TOKEN being set —
-    # otherwise get_pipeline() raises DiarizationUnavailable on every boot,
-    # which we'd just have to swallow and log noisily.
-    if os.getenv("HF_TOKEN"):
+    # /api/transcribe doesn't pay cold-load cost. Gated on diarization being
+    # configured at all (bundled weights staged, or HF_TOKEN set) — otherwise
+    # get_pipeline() raises DiarizationUnavailable on every boot, which we'd
+    # just have to swallow and log noisily.
+    if diarization.is_available():
         def _prewarm():
             try:
                 from app.services.diarization import get_pipeline

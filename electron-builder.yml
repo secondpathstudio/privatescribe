@@ -48,6 +48,15 @@ extraResources:
     to: ollama-runtime
     filter:
       - "**/*"
+  # The pyannote speaker-diarization model weights (staged by
+  # scripts/fetch-pyannote.mjs). Lands at Resources/pyannote-models/ — the
+  # backend loads diarization from here with no HF token or network when
+  # Electron passes PYANNOTE_MODELS_DIR (see electron/backend-process.ts and
+  # backend/app/services/diarization.py).
+  - from: build-resources/pyannote
+    to: pyannote-models
+    filter:
+      - "**/*"
 
 mac:
   category: public.app-category.productivity

@@ -1,13 +1,20 @@
 """Speaker diarization via pyannote.audio.
 
-The pretrained pipeline `pyannote/speaker-diarization-3.1` is downloaded from
-HuggingFace on first use into ~/.cache/huggingface/. It is a gated model: the
-admin must accept the user conditions on huggingface.co and set HF_TOKEN in
-backend/.env once. After the first download everything runs offline — set
-HF_HUB_OFFLINE=1 if you want to be sure.
+Two ways the pyannote `speaker-diarization-3.1` pipeline is loaded, in order:
+
+1. Bundled weights (the packaged app, and dev once `npm run build:pyannote`
+   has run). `scripts/fetch-pyannote.mjs` stages the three MIT-licensed model
+   repos under build-resources/pyannote/; the packaged app ships them at
+   Resources/pyannote-models/ and the Electron shell points the backend at
+   them via PYANNOTE_MODELS_DIR. Loading rewrites the pipeline config to
+   reference the local weight files, so it needs no HF_TOKEN and no network.
+2. HuggingFace download (fallback). With no bundled weights the pipeline is
+   pulled from HuggingFace on first use — a gated model, so an admin must
+   accept the user conditions on huggingface.co and set HF_TOKEN in
+   backend/.env once.
 
 Pipeline loading is lazy because it is slow (hundreds of MB of weights) and
-because we don't want the whole backend to refuse to boot just because HF_TOKEN
+because we don't want the whole backend to refuse to boot when diarization
 isn't configured. The first /api/transcribe call with diarize=true will stall
 for ~5–10s on cold load; subsequent calls reuse the cached pipeline.
 
@@ -22,9 +29,18 @@ import logging
 import os
 import re
 import threading
+from pathlib import Path
 from typing import Optional
 
+from app.paths import data_dir
+
 logger = logging.getLogger(__name__)
+
+# The pipeline repo and its two sub-model repos, as staged by
+# scripts/fetch-pyannote.mjs into per-repo subfolders.
+_PIPELINE_SUBDIR = "speaker-diarization-3.1"
+_SEGMENTATION_SUBDIR = "segmentation-3.0"
+_EMBEDDING_SUBDIR = "wespeaker-voxceleb-resnet34-LM"
 
 # In-memory state. Mutated by configure_device() / get_pipeline(). Holding the
 # lock around mutations keeps concurrent /api/transcribe and admin-PUT calls
@@ -48,6 +64,58 @@ def _detect_torch():
         return torch
     except ImportError:
         return None
+
+
+def bundled_models_dir() -> Optional[Path]:
+    """Return the directory holding the bundled pyannote model weights, or
+    None when they have not been staged.
+
+    Resolution order:
+      1. PYANNOTE_MODELS_DIR — set by the Electron shell to the packaged
+         Resources/pyannote-models/ folder.
+      2. build-resources/pyannote/ in the repo — present once a developer has
+         run `npm run build:pyannote`, so `flask run` gets token-free
+         diarization too.
+    A candidate counts only if the pipeline config is actually present.
+    """
+    candidates: list[Path] = []
+    env = os.getenv("PYANNOTE_MODELS_DIR")
+    if env:
+        candidates.append(Path(env))
+    # backend/app/services/diarization.py -> repo root is parents[3].
+    candidates.append(Path(__file__).resolve().parents[3] / "build-resources" / "pyannote")
+    for d in candidates:
+        if (d / _PIPELINE_SUBDIR / "config.yaml").is_file():
+            return d
+    return None
+
+
+def is_available() -> bool:
+    """True when diarization can run: bundled weights are staged, or HF_TOKEN
+    is set for the HuggingFace-download fallback. Used to gate the boot-time
+    pre-warm so a backend without diarization configured doesn't log noise."""
+    return bundled_models_dir() is not None or bool(os.getenv("HF_TOKEN"))
+
+
+def _local_pipeline_config(models_dir: Path) -> Path:
+    """Write a pipeline config.yaml whose segmentation/embedding sub-models
+    point at the bundled weight files by absolute path, and return its path.
+
+    pyannote's `Pipeline.from_pretrained` only reads a checkpoint id or a
+    config file, so the local weights are wired in by rewriting the staged
+    config. Absolute paths mean the written config works regardless of where
+    it or the app bundle live. Regenerated on each load — it is a few hundred
+    bytes — so a moved/reinstalled app always gets correct paths.
+    """
+    import yaml
+
+    cfg = yaml.safe_load((models_dir / _PIPELINE_SUBDIR / "config.yaml").read_text())
+    params = cfg["pipeline"]["params"]
+    params["segmentation"] = str(models_dir / _SEGMENTATION_SUBDIR / "pytorch_model.bin")
+    params["embedding"] = str(models_dir / _EMBEDDING_SUBDIR / "pytorch_model.bin")
+    out = data_dir() / "pyannote-pipeline.yaml"
+    out.write_text(yaml.safe_dump(cfg))
+    return out
 
 
 def available_devices() -> list[str]:
@@ -129,13 +197,6 @@ def get_pipeline():
         if _pipeline is not None:
             return _pipeline
 
-        token = os.getenv("HF_TOKEN")
-        if not token:
-            raise DiarizationUnavailable(
-                "HF_TOKEN is not set. Add HF_TOKEN=hf_... to backend/.env and accept the user "
-                "conditions for `pyannote/speaker-diarization-3.1` on huggingface.co."
-            )
-
         try:
             # Imported lazily so the rest of the backend can boot without torch installed
             # (e.g. in a stripped-down deploy that doesn't use diarization).
@@ -145,9 +206,28 @@ def get_pipeline():
                 "pyannote.audio is not installed. Run `pip install -r requirements.txt`."
             ) from e
 
+        # Prefer the bundled weights — no token, no network. Fall back to a
+        # HuggingFace download (gated, needs HF_TOKEN) only when nothing is
+        # staged.
+        models_dir = bundled_models_dir()
+        if models_dir is not None:
+            checkpoint = _local_pipeline_config(models_dir)
+            token = None
+            logger.info(f"Loading bundled diarization pipeline from {models_dir}")
+        else:
+            token = os.getenv("HF_TOKEN")
+            if not token:
+                raise DiarizationUnavailable(
+                    "Speaker identification is unavailable: no bundled pyannote models were "
+                    "found and HF_TOKEN is not set. Stage the models with `npm run "
+                    "build:pyannote`, or add HF_TOKEN=hf_... to backend/.env and accept the "
+                    "user conditions for `pyannote/speaker-diarization-3.1` on huggingface.co."
+                )
+            checkpoint = "pyannote/speaker-diarization-3.1"
+
         try:
             pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
+                checkpoint,
                 use_auth_token=token,
             )
         except ModuleNotFoundError as e:
@@ -158,9 +238,14 @@ def get_pipeline():
                 "Run `pip install -r requirements.txt` to install it."
             ) from e
         except Exception as e:
-            raise DiarizationUnavailable(
-                f"Could not load pyannote pipeline: {type(e).__name__}: {e}. "
+            hint = (
                 "Verify HF_TOKEN is valid and that you've accepted the model's user conditions."
+                if token
+                else "The bundled pyannote model files may be missing or corrupt; re-stage "
+                "them with `npm run build:pyannote`."
+            )
+            raise DiarizationUnavailable(
+                f"Could not load pyannote pipeline: {type(e).__name__}: {e}. {hint}"
             ) from e
 
         # Move pipeline onto the configured device. If MPS is configured but

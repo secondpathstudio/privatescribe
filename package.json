@@ -12,10 +12,11 @@
     "dev": "concurrently -k -n vite,electron -c blue,magenta \"cd frontend && npm run dev\" \"wait-on tcp:3000 && npm run electron:dev\"",
     "build:frontend": "cd frontend && npm run build",
     "build:electron": "tsc -p electron",
-    "build:backend": "cd backend && . venv/bin/activate && pyinstaller privatescribe-backend.spec",
+    "build:backend": "cd backend && . venv/bin/activate && pyinstaller --noconfirm privatescribe-backend.spec",
     "build:ollama": "node scripts/fetch-ollama.mjs",
-    "dist": "npm run build:frontend && npm run build:electron && npm run build:ollama && dotenv -e .env.notarize -- electron-builder",
-    "release": "npm run build:frontend && npm run build:electron && npm run build:ollama && dotenv -e .env.notarize -- electron-builder --publish always"
+    "build:pyannote": "node scripts/fetch-pyannote.mjs",
+    "dist": "npm run build:frontend && npm run build:electron && npm run build:ollama && npm run build:pyannote && dotenv -e .env.notarize -- electron-builder",
+    "release": "npm run build:frontend && npm run build:electron && npm run build:ollama && npm run build:pyannote && dotenv -e .env.notarize -- electron-builder --publish always"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

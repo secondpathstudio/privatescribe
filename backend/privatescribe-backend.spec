@@ -51,6 +51,7 @@ hidden_imports += [
     'dotenv',
     'ollama',
     'pydub',
+    'imageio_ffmpeg',
     'httpx',
 ]
 
@@ -79,6 +80,11 @@ datas += collect_data_files('pyannote.core')
 datas += collect_data_files('pyannote.database')
 datas += collect_data_files('pyannote.pipeline')
 datas += collect_data_files('huggingface_hub')
+# imageio-ffmpeg carries a static ffmpeg binary under its `binaries/` dir;
+# pydub shells out to it to decode uploaded audio. collect_data_files grabs
+# the binary — the packaged app has no system ffmpeg, and app/services/ffmpeg.py
+# restores its executable bit at runtime (collect_data_files drops it).
+datas += collect_data_files('imageio_ffmpeg')
 
 
 # ---------- excludes ----------
