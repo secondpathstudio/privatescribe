@@ -58,25 +58,43 @@ const NoteAudioPlayer = forwardRef<NoteAudioPlayerHandle, Props>(({ noteId, file
         setError(null);
         setBlobUrl(null);
 
+        // The audio endpoint can transiently fail at the network layer in the
+        // moments right after a transcription run — Chromium reuses a pooled
+        // keep-alive socket the backend has already closed, surfacing as a
+        // thrown "Failed to fetch". Reopening the note always works, so a short
+        // retry on network errors clears it. HTTP-status errors are
+        // deterministic (404, 401, ...) and never retried.
+        const MAX_ATTEMPTS = 3;
         const fetchAudio = async () => {
-            try {
-                const response = await fetch(`${API_BASE}/api/notes/${noteId}/audio`, {
-                    headers: { Authorization: `Bearer ${auth.token}` },
-                });
-                if (!response.ok) {
-                    const body = await response.json().catch(() => ({}));
-                    throw new Error(body.error || `Audio fetch failed: ${response.status}`);
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                try {
+                    const response = await fetch(`${API_BASE}/api/notes/${noteId}/audio`, {
+                        headers: { Authorization: `Bearer ${auth.token}` },
+                    });
+                    if (!response.ok) {
+                        const body = await response.json().catch(() => ({}));
+                        throw new Error(body.error || `Audio fetch failed: ${response.status}`);
+                    }
+                    const blob = await response.blob();
+                    if (cancelled) return;
+                    const url = URL.createObjectURL(blob);
+                    createdUrlRef.current = url;
+                    setBlobUrl(url);
+                    setLoading(false);
+                    return;
+                } catch (e: unknown) {
+                    if (cancelled) return;
+                    // fetch() throws a TypeError only on a network-layer
+                    // failure; an HTTP-status Error won't change on a retry.
+                    if (e instanceof TypeError && attempt < MAX_ATTEMPTS) {
+                        await new Promise((r) => setTimeout(r, attempt * 400));
+                        if (cancelled) return;
+                        continue;
+                    }
+                    setError(e instanceof Error ? e.message : 'Failed to load audio');
+                    setLoading(false);
+                    return;
                 }
-                const blob = await response.blob();
-                if (cancelled) return;
-                const url = URL.createObjectURL(blob);
-                createdUrlRef.current = url;
-                setBlobUrl(url);
-            } catch (e: unknown) {
-                if (cancelled) return;
-                setError(e instanceof Error ? e.message : 'Failed to load audio');
-            } finally {
-                if (!cancelled) setLoading(false);
             }
         };
 
