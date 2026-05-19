@@ -42,6 +42,10 @@ for pkg in (
 # PyInstaller misses, so we eagerly walk their submodule trees.
 hidden_imports += collect_submodules('pyannote')
 hidden_imports += collect_submodules('huggingface_hub')
+# pyannote's speaker-embedding model loads speechbrain dynamically (string
+# import of speechbrain.lobes.*), so PyInstaller's tracing misses the
+# package entirely. Walk it explicitly.
+hidden_imports += collect_submodules('speechbrain')
 
 # Misc explicit imports that aren't picked up
 hidden_imports += [
@@ -80,6 +84,19 @@ datas += collect_data_files('pyannote.core')
 datas += collect_data_files('pyannote.database')
 datas += collect_data_files('pyannote.pipeline')
 datas += collect_data_files('huggingface_hub')
+# pyannote.audio pulls in Lightning; each package reads a `version.info`
+# data file at import time. Without these the diarization import fails with
+# "No such file or directory: .../lightning_fabric/version.info".
+datas += collect_data_files('lightning')
+datas += collect_data_files('lightning_fabric')
+datas += collect_data_files('pytorch_lightning')
+# speechbrain reads version.txt / log-config.yaml by relative path, and its
+# lazy-import machinery (lazy_export_all -> os.listdir of the package dir)
+# walks the on-disk source tree at import time. PyInstaller normally puts
+# .py source in the PYZ archive, leaving subdirs like speechbrain/lobes/
+# physically absent — so os.listdir throws FileNotFoundError. include_py_files
+# materializes the full source tree on disk so the directory walk succeeds.
+datas += collect_data_files('speechbrain', include_py_files=True)
 # imageio-ffmpeg carries a static ffmpeg binary under its `binaries/` dir;
 # pydub shells out to it to decode uploaded audio. collect_data_files grabs
 # the binary — the packaged app has no system ffmpeg, and app/services/ffmpeg.py
@@ -103,20 +120,13 @@ excludes = [
 ]
 
 
-# ---------- local PyInstaller hooks ----------
-# pyinstaller-hooks/ holds project-local hooks — currently a workaround for a
-# scipy + PyInstaller + Python 3.12 crash that otherwise breaks diarized
-# transcription in the packaged app. See the hook file for the full writeup.
-hookspath = [os.path.join(SPECPATH, 'pyinstaller-hooks')]
-
-
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
     hiddenimports=hidden_imports,
-    hookspath=hookspath,
+    hookspath=[],
     runtime_hooks=[],
     excludes=excludes,
     cipher=block_cipher,
