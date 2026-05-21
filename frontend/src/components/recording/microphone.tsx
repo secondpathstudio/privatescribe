@@ -1,26 +1,18 @@
 // Import necessary modules and components
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import CassetteSVG from "../neo/cassette";
 import { Circle, Pause, Save } from "lucide-react";
 import NeoButton from "../neo/neo-button";
+import {
+  acquireRecordingStream,
+  describeCaptureError,
+  listMicrophones,
+  systemAudioSupported,
+  type AudioSourceMode,
+} from "@/lib/audio-capture";
 
-// Maps a getUserMedia rejection to a clear, actionable message. getUserMedia
-// rejects with a DOMException whose `name` identifies the cause.
-function describeMicError(err: unknown): string {
-  const name = err instanceof DOMException ? err.name : "";
-  switch (name) {
-    case "NotAllowedError":
-    case "SecurityError":
-      return "Microphone access was denied. Allow it for PrivateScribe in System Settings → Privacy & Security → Microphone, then try again.";
-    case "NotFoundError":
-      return "No microphone was found. Connect a microphone and try again.";
-    case "NotReadableError":
-      return "Your microphone could not be started — it may be in use by another app. Close other apps using it, then try again.";
-    default:
-      return "Could not access the microphone. Check your microphone connection and permissions, then try again.";
-  }
-}
-
+// Sentinel select value for the system-audio source (vs. a real mic deviceId).
+const SYSTEM_AUDIO_VALUE = "__system_audio__";
 
   // Export the MicrophoneComponent function component
   export default function Microphone({
@@ -48,18 +40,54 @@ function describeMicError(err: unknown): string {
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Audio source selection. `sourceMode` is mic vs. system audio; `micDeviceId`
+  // is the chosen microphone (empty = default); `includeMic` mixes the mic in
+  // when recording system audio (e.g. a teleconference). Tears down via the
+  // captureCleanupRef on stop.
+  const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
+  const [sourceMode, setSourceMode] = useState<AudioSourceMode>("mic");
+  const [micDeviceId, setMicDeviceId] = useState<string>("");
+  const [includeMic, setIncludeMic] = useState(true);
+  const captureCleanupRef = useRef<(() => void) | null>(null);
+  const systemSupported = systemAudioSupported();
+
+  // Populate the microphone picker, refreshing on hotplug. Device labels are
+  // empty until mic permission is granted once, so we also re-enumerate after
+  // the first recording starts (see startRecording).
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      listMicrophones()
+        .then((found) => {
+          if (!cancelled) setMics(found);
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    navigator.mediaDevices?.addEventListener?.("devicechange", refresh);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices?.removeEventListener?.("devicechange", refresh);
+    };
+  }, []);
+
   const startRecording = async () => {
     setError(null);
 
-    let stream: MediaStream;
+    let capture: Awaited<ReturnType<typeof acquireRecordingStream>>;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      capture = await acquireRecordingStream({ sourceMode, micDeviceId, includeMic });
     } catch (err) {
-      // Most often the user denied the mic prompt, or access is turned off
-      // in System Settings — without this the click silently does nothing.
-      setError(describeMicError(err));
+      // Most often a denied permission prompt (mic, or Screen Recording for
+      // system audio) — without this the click silently does nothing.
+      setError(describeCaptureError(err, sourceMode));
       return;
     }
+    const stream = capture.stream;
+    captureCleanupRef.current = capture.cleanup;
+    // Labels populate once permission is granted; refresh so the picker shows
+    // real device names next time.
+    listMicrophones().then(setMics).catch(() => undefined);
 
     mediaRecorderRef.current = new MediaRecorder(stream, {
       mimeType: 'audio/webm' // Change this to 'audio/wav' if you want WAV format
@@ -106,6 +134,9 @@ function describeMicError(err: unknown): string {
       onRecordingFinished(audioBlob);
       isRecordingRef.current = false;
       audioContext.close();
+      // Stop the underlying mic/system tracks and close any mixing graph.
+      captureCleanupRef.current?.();
+      captureCleanupRef.current = null;
     };
 
     // 2s timeslice in liveMode so each chunk is small enough for the live
@@ -128,9 +159,10 @@ function describeMicError(err: unknown): string {
   };
 
   const stopRecording = () => {
+    // stop() triggers onstop, which runs captureCleanupRef to stop the
+    // underlying tracks — no need to stop the (possibly mixed) recorder
+    // stream's tracks here.
     mediaRecorderRef.current?.stop();
-    mediaRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
-    
     setIsRecording(false);
   };
 
@@ -138,6 +170,63 @@ function describeMicError(err: unknown): string {
   return (
     <div className="flex flex-col justify-center w-full">
       <div className="w-full">
+        {!audioBlob && (
+          <div className="mb-4 flex flex-col gap-2 border-2 border-black bg-white p-3">
+            <label className="text-sm font-semibold" htmlFor="audio-source">
+              Audio source
+            </label>
+            <select
+              id="audio-source"
+              className="border-2 border-black bg-white p-2 text-sm disabled:opacity-50"
+              value={sourceMode === "system" ? SYSTEM_AUDIO_VALUE : micDeviceId}
+              disabled={isRecording || disabled}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === SYSTEM_AUDIO_VALUE) {
+                  setSourceMode("system");
+                } else {
+                  setSourceMode("mic");
+                  setMicDeviceId(v);
+                }
+              }}
+            >
+              <optgroup label="Microphone">
+                <option value="">Default microphone</option>
+                {mics
+                  .filter((m) => m.deviceId && m.deviceId !== "default")
+                  .map((m, i) => (
+                    <option key={m.deviceId} value={m.deviceId}>
+                      {m.label || `Microphone ${i + 1}`}
+                    </option>
+                  ))}
+              </optgroup>
+              {systemSupported && (
+                <optgroup label="System">
+                  <option value={SYSTEM_AUDIO_VALUE}>
+                    System audio (this device's output)
+                  </option>
+                </optgroup>
+              )}
+            </select>
+            {sourceMode === "system" && (
+              <>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={includeMic}
+                    disabled={isRecording || disabled}
+                    onChange={(e) => setIncludeMic(e.target.checked)}
+                  />
+                  Also record my microphone
+                </label>
+                <p className="text-xs text-gray-600">
+                  Captures the audio playing on this device (e.g. a meeting).
+                  macOS will ask for Screen Recording permission the first time.
+                </p>
+              </>
+            )}
+          </div>
+        )}
         <div className="flex flex-col items-center w-full">
           <div className="flex flex-col items-center w-full">
             <CassetteSVG

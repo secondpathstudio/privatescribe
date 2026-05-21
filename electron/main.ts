@@ -1,4 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeImage,
+  shell,
+} from 'electron';
 import * as path from 'path';
 import {
   onBackendCrash,
@@ -179,6 +188,26 @@ async function createWindow(apiBase: string): Promise<void> {
     },
   });
   mainWindow = win;
+
+  // System-audio capture for recording teleconference notes. The renderer
+  // calls getDisplayMedia() only when the user picks "System audio"; we
+  // auto-grant the primary screen as the carrier for loopback audio (no
+  // source picker), and the renderer discards the video track, keeping just
+  // the audio. macOS still gates this behind the OS Screen Recording prompt
+  // the first time. Without this handler getDisplayMedia rejects outright.
+  win.webContents.session.setDisplayMediaRequestHandler((_request, callback) => {
+    desktopCapturer
+      .getSources({ types: ['screen'] })
+      .then((sources) => {
+        callback(
+          sources.length
+            ? { video: sources[0], audio: 'loopback' }
+            : // No screen available — deny by granting nothing.
+              { video: undefined },
+        );
+      })
+      .catch(() => callback({ video: undefined }));
+  });
 
   if (isDev) {
     await win.loadURL('http://localhost:3000/#/login');
