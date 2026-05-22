@@ -35,4 +35,10 @@ def open_keyed_connection():
     # Safe because SQLAlchemy's pool serializes access to each connection.
     conn = sqlcipher3.connect(_state["db_path"], check_same_thread=False)
     conn.execute(f"PRAGMA key = \"x'{_state['key']}'\"")
+    # The packaged backend serves on waitress with 8 threads, so multiple
+    # connections write concurrently. Without a busy timeout SQLite raises
+    # "database is locked" the instant two writers contend (seen in the wild
+    # as dropped audit writes). 5s lets a writer wait for the lock instead of
+    # failing immediately — the standard fix for multi-threaded SQLite.
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
