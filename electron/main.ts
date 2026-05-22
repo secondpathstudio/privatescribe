@@ -178,6 +178,10 @@ async function createWindow(apiBase: string): Promise<void> {
     height: 800,
     title: 'PrivateScribe',
     icon: ICON_PNG,
+    // Created hidden and shown only after the content finishes loading, so the
+    // user never sees a blank white frame while the renderer boots. The caller
+    // closes the splash window once this one is shown.
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -220,30 +224,118 @@ async function createWindow(apiBase: string): Promise<void> {
       { hash: '/login' },
     );
   }
+  // loadFile/loadURL resolve once the document is loaded — reveal the window
+  // now so the splash can hand off to a painted UI rather than a white flash.
+  win.show();
+  win.focus();
+}
+
+/**
+ * Tiny frameless window shown the moment the app launches, so the user sees
+ * "PrivateScribe is starting" instead of a bare Dock icon while the Python
+ * backend (and possibly Ollama) spin up. Closed by the caller once the main
+ * window is ready. No preload/IPC — it's a static splash.
+ */
+function createSplash(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 440,
+    height: 320,
+    frame: false,
+    resizable: false,
+    center: true,
+    show: true,
+    title: 'PrivateScribe',
+    backgroundColor: '#ffffff',
+    icon: ICON_PNG,
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+    <style>
+      html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+      body{display:flex;flex-direction:column;align-items:center;justify-content:center;
+        background:#fff;border:3px solid #000;box-sizing:border-box;color:#000;}
+      h1{font-size:28px;font-weight:900;margin:0 0 6px;letter-spacing:-0.5px;}
+      p{margin:0;font-size:14px;color:#444;}
+      .spinner{margin-top:22px;width:34px;height:34px;border:4px solid #000;
+        border-top-color:#fd3777;border-radius:50%;animation:spin 0.8s linear infinite;}
+      @keyframes spin{to{transform:rotate(360deg);}}
+    </style></head>
+    <body>
+      <h1>PrivateScribe</h1>
+      <p>Starting your private workspace…</p>
+      <div class="spinner"></div>
+    </body></html>`;
+  splash.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  return splash;
+}
+
+/**
+ * Poll the backend until it actually serves a request, not just until its
+ * process exists. /api/setup/status is unauthenticated and queries the DB, so
+ * a 200 confirms HTTP is up *and* the encrypted DB opened. Resolves true once
+ * ready, or false if it never answers within the timeout (the caller proceeds
+ * anyway and lets the in-app error UI take over).
+ */
+async function waitForBackendReady(
+  apiBase: string,
+  timeoutMs = 30_000,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${apiBase}/api/setup/status`);
+      if (res.ok) return true;
+    } catch {
+      // Backend not accepting connections yet — keep polling.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  return false;
 }
 
 function handleBackendCrash(code: number | null, stderrTail: string): void {
   // The Python backend exited on its own after a clean start — every API
-  // call from the renderer will now fail. Tell the user plainly and offer a
-  // restart rather than leaving them with a silently broken window.
+  // call from the renderer will now fail. Show a plain-language message and
+  // offer a restart rather than leaving a silently broken window. The raw
+  // log (usually a Python traceback) is kept behind a "Show details…" button
+  // so a non-technical user isn't confronted with a stack trace.
   const tail = stderrTail.trim();
-  const detail =
-    `The PrivateScribe engine stopped unexpectedly (exit code ${code ?? 'unknown'}).\n\n` +
-    'The app needs to restart to keep working.' +
-    (tail ? `\n\nLast log output:\n${tail.slice(-1500)}` : '');
-  const choice = dialog.showMessageBoxSync({
-    type: 'error',
-    title: 'PrivateScribe stopped working',
-    message: 'The PrivateScribe engine stopped unexpectedly.',
-    detail,
-    buttons: ['Restart', 'Quit'],
-    defaultId: 0,
-    cancelId: 1,
-  });
-  if (choice === 0) {
-    app.relaunch();
+  const friendlyDetail =
+    "PrivateScribe's engine stopped running, so the app can't continue.\n\n" +
+    'This is usually temporary — restarting normally fixes it. If it keeps ' +
+    'happening, please contact support.';
+
+  // Loop so "Show details…" can return the user to the restart/quit choice.
+  for (;;) {
+    const buttons = tail
+      ? ['Restart', 'Quit', 'Show details…']
+      : ['Restart', 'Quit'];
+    const choice = dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'PrivateScribe stopped working',
+      message: 'PrivateScribe stopped unexpectedly.',
+      detail: friendlyDetail,
+      buttons,
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (choice === 2) {
+      dialog.showMessageBoxSync({
+        type: 'none',
+        title: 'Technical details',
+        message: `Engine exit code: ${code ?? 'unknown'}`,
+        detail: tail.slice(-3000),
+        buttons: ['Back'],
+        defaultId: 0,
+      });
+      continue;
+    }
+    if (choice === 0) {
+      app.relaunch();
+    }
+    app.quit();
+    return;
   }
-  app.quit();
 }
 
 app.whenReady().then(async () => {
@@ -267,11 +359,17 @@ app.whenReady().then(async () => {
   registerOllamaIpc();
 
   let apiBase: string;
+  let splash: BrowserWindow | null = null;
 
   if (isDev) {
     // Developer is expected to have `flask run` going on :5000.
     apiBase = 'http://127.0.0.1:5000';
   } else {
+    // Show the splash immediately so the first thing the user sees is a
+    // branded "starting…" screen, not a bare Dock icon, while Ollama and the
+    // Python backend come up.
+    splash = createSplash();
+
     // Resolve Ollama before the backend: the backend reads OLLAMA_HOST at
     // spawn time, so it must be known first. resolveOllama() reuses a running
     // system Ollama, starts the bundled runtime if that was the user's
@@ -286,6 +384,7 @@ app.whenReady().then(async () => {
       // The bundled Python backend failed to launch. Without it the app is
       // just an empty shell, so surface a clear error and quit rather than
       // leaving a dead Dock icon with no window.
+      if (splash && !splash.isDestroyed()) splash.close();
       const detail = err instanceof Error ? err.message : String(err);
       dialog.showErrorBox(
         'PrivateScribe could not start',
@@ -300,9 +399,16 @@ app.whenReady().then(async () => {
     // mid-session crash surfaces a dialog instead of a silently broken UI.
     onBackendCrash(backend, handleBackendCrash);
     apiBase = `http://127.0.0.1:${backend.port}`;
+
+    // The backend announced its port, but Flask may still be a beat away from
+    // serving (DB open, FTS index, blueprint registration). Hold the splash
+    // until it actually answers so the renderer's first fetch can't race it.
+    await waitForBackendReady(apiBase);
   }
 
   await createWindow(apiBase);
+  // Main window is painted and shown — retire the splash.
+  if (splash && !splash.isDestroyed()) splash.close();
 
   // Check for app updates in the background — packaged builds only. A newer
   // release downloads silently and installs on the next quit (see updater.ts).

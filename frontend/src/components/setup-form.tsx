@@ -142,6 +142,14 @@ export default function SetupForm({ onDone }: SetupFormProps) {
                 <p className="text-red-500 text-sm">{errors.passwordConfirm.message as string}</p>
               )}
             </div>
+            <div className="border-2 border-black bg-yellow-100 p-3 text-sm">
+              <p className="font-black">⚠ Write your password down somewhere safe.</p>
+              <p className="mt-1">
+                PrivateScribe is fully offline — there is no email reset and{" "}
+                <span className="font-bold">no way to recover a forgotten password</span>.
+                If you lose it, your notes stay encrypted and cannot be opened.
+              </p>
+            </div>
             {error && <p className="text-red-600 text-sm">{error}</p>}
             <div className="flex justify-center items-center pt-2">
               <NeoButton
