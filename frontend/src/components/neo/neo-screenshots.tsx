@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import NeoButton from './neo-button';
 import NeoHardwareCallout from './neo-hardware-callout';
-import { GithubIcon } from 'lucide-react';
+import { GithubIcon, DownloadIcon } from 'lucide-react';
+
+// Direct link to the current release's macOS installer. Versioned filename, so
+// bump this when you cut a new release (or point it at /releases/latest).
+const DOWNLOAD_URL =
+  'https://github.com/secondpathstudio/privatescribe/releases/download/v1.0.0/PrivateScribe-1.0.0-arm64.dmg';
 
 type Props = {
   onNotifyClick: () => void;
@@ -131,7 +135,7 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
         >
           <h3 className="text-3xl md:text-4xl font-black mb-2 text-center">GET IT ON YOUR MACHINE</h3>
           <p className="text-base md:text-lg text-center mb-8 max-w-2xl mx-auto">
-            PrivateScribe is open source. You can run it today if you're comfortable with a terminal — a standalone download-and-install app is in development for everyone else.
+            PrivateScribe is open source. Run it from source if you're comfortable with a terminal, or download the ready-to-run Mac app — everything runs on your device either way.
           </p>
           <div className="grid md:grid-cols-2 gap-6">
             <div className="border-4 border-black p-6 bg-white">
@@ -152,11 +156,27 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
             <div className="border-4 border-black p-6 bg-white">
               <h4 className="text-xl font-black mb-2 uppercase">For everyone else</h4>
               <p className="text-sm mb-4">
-                Interested in a standalone Mac or Windows app you can download and install? It's currently in development — tell us about your workflow and we'll be in touch with more details.
+                Download the Mac app, drag it to your Applications folder, and open it. No terminal, no setup — the transcription and AI both run entirely on your device.
               </p>
-              <NeoButton onClick={onNotifyClick} backgroundColor="#fd3777" textColor="#ffffff">
-                Contact us
-              </NeoButton>
+              <a
+                href={DOWNLOAD_URL}
+                className="inline-flex items-center gap-2 border-4 border-black bg-[#fd3777] text-white font-bold uppercase tracking-wider px-4 py-2"
+                style={{ boxShadow: '4px 4px 0px 0px rgba(0,0,0,1)' }}
+              >
+                <DownloadIcon size={18} /> Download for Mac
+              </a>
+              <p className="text-xs text-gray-600 mt-2">Requires Apple Silicon (M1 or later).</p>
+              <p className="text-sm mt-3">
+                Windows &amp; Intel Macs coming soon —{' '}
+                <button
+                  type="button"
+                  onClick={onNotifyClick}
+                  className="underline font-semibold"
+                >
+                  notify me
+                </button>
+                .
+              </p>
             </div>
           </div>
 
