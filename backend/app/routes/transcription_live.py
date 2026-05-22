@@ -1,22 +1,28 @@
 """Live (batched-window) transcription.
 
-The browser records via MediaRecorder.start(2000) and POSTs each 2s timeslice
-chunk to /api/transcribe/live. The server appends chunks to a per-session
-webm file in tempdir, re-transcribes (and optionally diarizes) the trailing
-30s of audio, and returns committed + interim segments. The final
-authoritative transcript is still produced by the existing /api/transcribe
-endpoint on stop.
+The browser records via MediaRecorder.start(2000) and, on every 2s timeslice,
+POSTs the *full accumulated recording so far* to /api/transcribe/live. The
+server overwrites the per-session webm file with that upload, re-transcribes
+(and optionally diarizes) the trailing 30s of audio, and returns committed +
+interim segments. The final authoritative transcript is still produced by the
+existing /api/transcribe endpoint on stop.
+
+Why the client re-sends the whole blob each tick rather than just the new
+tail: only the first MediaRecorder chunk carries the webm/EBML header, so a
+tail-only upload is headerless data ffmpeg rejects with "Invalid data found".
+Posting the complete blob makes every request a self-contained, valid webm,
+so a transient failure on one tick never poisons the rest of the session —
+the next tick simply re-sends and recovers. Over loopback the re-upload is
+cheap, and the server already re-decodes the whole window each tick anyway.
 
 This is intentionally separate from /api/transcribe so the live preview is
 best-effort and additive: failures here don't affect the final transcript.
 
 Session storage: per-session webm files live in tempfile.gettempdir(). They
-are NOT routed through audio_storage's encrypted-at-rest scheme — that codec
-is one-shot (write-once), and appending live chunks would require rewriting
-the whole file each tick. The live file is short-lived (deleted on
-/finalize or after 10 min idle) and is a subset of audio the user is about
-to upload through the normal encrypted path anyway. The final-on-stop pass
-through /api/transcribe is what gets encrypted.
+are NOT routed through audio_storage's encrypted-at-rest scheme. The live
+file is short-lived (deleted on /finalize or after 10 min idle) and is a
+subset of audio the user is about to upload through the normal encrypted path
+anyway. The final-on-stop pass through /api/transcribe is what gets encrypted.
 """
 from __future__ import annotations
 
@@ -68,8 +74,8 @@ MAX_SESSIONS_PER_USER = 3
 
 
 class SessionSizeExceeded(Exception):
-    """Raised by _append_chunk when a chunk would push the session file past
-    MAX_SESSION_BYTES."""
+    """Raised by _write_session_audio when the uploaded recording is larger
+    than MAX_SESSION_BYTES."""
 
 
 def _truthy(value: str | None) -> bool:
@@ -149,26 +155,25 @@ def _new_session_locked(user_id: str) -> tuple[str, _LiveSession]:
     return session_id, sess
 
 
-def _append_chunk(audio_path: str, chunk_file) -> None:
-    """Append an uploaded chunk to the session's webm file.
+def _write_session_audio(audio_path: str, upload_file) -> None:
+    """Overwrite the session's webm file with the uploaded recording.
 
-    Raises SessionSizeExceeded — before writing anything — when the chunk
-    would push the file past MAX_SESSION_BYTES, so the file is never grown
-    beyond the cap.
+    The client posts the full accumulated recording each tick (only the first
+    webm chunk carries the header), so each upload is a complete, self-contained
+    webm and we replace the file wholesale rather than appending a tail.
+
+    Raises SessionSizeExceeded — before writing anything — when the upload is
+    larger than MAX_SESSION_BYTES, so the file is never written beyond the cap.
+    The save streams to disk, so the recording is never held whole in memory.
     """
-    chunk_file.seek(0, os.SEEK_END)
-    incoming = chunk_file.tell()
-    chunk_file.seek(0)
-    try:
-        current = os.path.getsize(audio_path)
-    except OSError:
-        current = 0
-    if current + incoming > MAX_SESSION_BYTES:
+    upload_file.seek(0, os.SEEK_END)
+    incoming = upload_file.tell()
+    upload_file.seek(0)
+    if incoming > MAX_SESSION_BYTES:
         raise SessionSizeExceeded(
-            f"live session file would exceed {MAX_SESSION_BYTES} bytes"
+            f"live session recording would exceed {MAX_SESSION_BYTES} bytes"
         )
-    with open(audio_path, "ab") as f:
-        f.write(chunk_file.read())
+    upload_file.save(audio_path)
 
 
 def _webm_to_wav(src_path: str) -> str:
@@ -363,12 +368,12 @@ def transcribe_live():
     with sess.lock:
         chunk = request.files["chunk"]
         try:
-            _append_chunk(sess.audio_path, chunk)
+            _write_session_audio(sess.audio_path, chunk)
         except SessionSizeExceeded:
-            # The session file is frozen at the cap; further chunks keep being
-            # rejected and the session ages out via the TTL. The browser keeps
-            # recording — the full audio still goes through /api/transcribe on
-            # stop.
+            # The recording outgrew the live-preview cap; every subsequent
+            # full-blob upload will too, so the preview stops updating and the
+            # session ages out via the TTL. The browser keeps recording — the
+            # full audio still goes through /api/transcribe on stop.
             return jsonify({
                 "error": "session_limit",
                 "message": "Live preview reached its size limit. Stop the recording to transcribe the full audio.",

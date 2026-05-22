@@ -56,8 +56,6 @@ const LiveTranscript = forwardRef<LiveTranscriptHandle, Props>(function LiveTran
   const [interim, setInterim] = useState<LiveSegment[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Cursor into `chunks`: index of the first chunk we haven't sent yet.
-  const cursorRef = useRef(0);
   const sessionIdRef = useRef<string | null>(null);
   const inflightRef = useRef(false);
   const pendingRef = useRef(false);
@@ -88,7 +86,7 @@ const LiveTranscript = forwardRef<LiveTranscriptHandle, Props>(function LiveTran
   );
 
   useEffect(() => {
-    if (chunks.length <= cursorRef.current) return;
+    if (chunks.length === 0) return;
 
     const tick = async () => {
       if (inflightRef.current) {
@@ -98,17 +96,17 @@ const LiveTranscript = forwardRef<LiveTranscriptHandle, Props>(function LiveTran
       inflightRef.current = true;
       pendingRef.current = false;
 
-      // Snapshot the cursor BEFORE the await; everything from here up to
-      // the current length goes in this request. Bundling multiple
-      // queued chunks into one POST keeps us from falling behind when
-      // the server is slower than 2s/tick.
-      const from = cursorRef.current;
+      // Send the FULL accumulated recording each tick, not just the new
+      // chunks. Only the first MediaRecorder chunk carries the webm header,
+      // so a tail-only upload is headerless data ffmpeg rejects ("Invalid
+      // data found"). Posting the whole blob makes every request a valid,
+      // self-contained webm, so a transient failure on one tick can't poison
+      // the rest of the session — the next tick just re-sends and recovers.
+      // The re-upload is over loopback (cheap) and the server re-decodes the
+      // whole window each tick regardless.
       const to = chunks.length;
-      cursorRef.current = to;
-
       try {
-        const slice = chunks.slice(from, to);
-        const blob = new Blob(slice, { type: "audio/webm" });
+        const blob = new Blob(chunks.slice(0, to), { type: "audio/webm" });
         const fd = new FormData();
         fd.append("chunk", blob, "chunk.webm");
         fd.append("diarize", diarize ? "true" : "false");
@@ -120,7 +118,18 @@ const LiveTranscript = forwardRef<LiveTranscriptHandle, Props>(function LiveTran
           body: fd,
         });
         if (!resp.ok) {
-          setError(`Live transcribe HTTP ${resp.status}`);
+          // Best-effort preview: surface the server's reason (helps support),
+          // keep the session, and let the next tick retry. The authoritative
+          // transcript is produced by /api/transcribe on stop regardless.
+          let detail = `HTTP ${resp.status}`;
+          try {
+            const body = await resp.json();
+            if (body?.message) detail = body.message;
+          } catch {
+            // non-JSON error body — keep the status code
+          }
+          console.warn("Live transcribe failed:", detail);
+          setError(detail);
           return;
         }
         const data: LiveResponse = await resp.json();
