@@ -16,6 +16,7 @@ diarization can read it without re-decoding.
 import os
 import subprocess
 import tempfile
+import threading
 
 from faster_whisper import WhisperModel
 from pydub import AudioSegment
@@ -27,6 +28,12 @@ _model = None
 # stale cache (setting changed without reload_model being called) is at
 # least detectable.
 _model_size: str | None = None
+# Serializes first-use model construction. The packaged backend serves on
+# waitress with 8 threads, so without this two concurrent transcribe requests
+# (e.g. a live tick and a batch upload) would both enter the constructor on a
+# fresh install and race on the same HuggingFace download — corrupting the
+# cache and 500ing. Double-checked below so the steady-state path stays lock-free.
+_model_lock = threading.Lock()
 
 
 def get_model() -> WhisperModel:
@@ -40,8 +47,14 @@ def get_model() -> WhisperModel:
     """
     global _model, _model_size
     if _model is None:
-        _model_size = settings_service.get_whisper_model()
-        _model = WhisperModel(_model_size, device="cpu", compute_type="int8")
+        with _model_lock:
+            # Re-check inside the lock: another thread may have finished the
+            # load while we were waiting to acquire it.
+            if _model is None:
+                size = settings_service.get_whisper_model()
+                model = WhisperModel(size, device="cpu", compute_type="int8")
+                _model_size = size
+                _model = model
     return _model
 
 
