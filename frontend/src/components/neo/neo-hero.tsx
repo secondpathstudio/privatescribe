@@ -34,7 +34,7 @@ const NeoHero = (props: Props) => {
                 {(window.electron || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
                 <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
                 }
-                <NeoAnchorButton href={DOWNLOAD_URL} backgroundColor='#ffffff' textColor="#000000">
+                <NeoAnchorButton href={DOWNLOAD_URL} backgroundColor='#fd3777' textColor="#ffffff">
                   <span className="flex items-center gap-2"><DownloadIcon /> Download</span>
                 </NeoAnchorButton>
                 <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">
