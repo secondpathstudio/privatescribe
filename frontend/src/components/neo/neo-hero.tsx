@@ -35,7 +35,7 @@ const NeoHero = (props: Props) => {
                 <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
                 }
                 <NeoAnchorButton href={DOWNLOAD_URL} backgroundColor='#fd3777' textColor="#ffffff">
-                  <span className="flex items-center gap-2"><DownloadIcon /> Download</span>
+                  <span className="flex items-center gap-2"><DownloadIcon /> Free Download</span>
                 </NeoAnchorButton>
                 <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">
                   <GithubIcon />
