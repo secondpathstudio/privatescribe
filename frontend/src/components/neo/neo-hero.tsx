@@ -1,6 +1,10 @@
-import { GithubIcon } from 'lucide-react'
+import { GithubIcon, DownloadIcon } from 'lucide-react'
 import NeoLinkButton from './neo-link-button'
 import NeoAnchorButton from './neo-a-button'
+
+// bump this when you cut a new release (or point it at /releases/latest).
+const DOWNLOAD_URL =
+  'https://github.com/secondpathstudio/privatescribe/releases/download/v1.0.0/PrivateScribe-1.0.0-arm64.dmg'
 
 type Props = {}
 
@@ -30,6 +34,9 @@ const NeoHero = (props: Props) => {
                 {(window.electron || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
                 <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
                 }
+                <NeoAnchorButton href={DOWNLOAD_URL} backgroundColor='#ffffff' textColor="#000000">
+                  <span className="flex items-center gap-2"><DownloadIcon /> Download</span>
+                </NeoAnchorButton>
                 <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">
                   <GithubIcon />
                 </NeoAnchorButton>
