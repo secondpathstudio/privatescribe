@@ -68,6 +68,17 @@ extraResources:
     to: caddy-runtime
     filter:
       - "**/*"
+  # The Caddyfile template the server's service layer renders at setup time
+  # (electron/server/service-config.ts). Lands next to the Caddy binary.
+  - from: build-resources/Caddyfile.template
+    to: caddy-runtime/Caddyfile.template
+  # A plain (non-asar) copy of the built SPA for Caddy to file-serve in server
+  # mode — an external process can't read frontend/dist from inside app.asar.
+  # Lands at Resources/frontend/.
+  - from: frontend/dist
+    to: frontend
+    filter:
+      - "**/*"
 
 mac:
   category: public.app-category.productivity
