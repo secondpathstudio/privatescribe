@@ -147,6 +147,9 @@ def create_app() -> Flask:
 
     with app.app_context():
         db.create_all()
+        # Pick the search backend for the bound engine (SQLite → FTS5) before
+        # touching the index, so the seam is explicit rather than defaulted.
+        note_search.select_backend()
         # The FTS5 virtual table can't be expressed via SQLAlchemy metadata,
         # so db.create_all() doesn't create it. Migrations do, but fresh
         # boots that skip Alembic still need it — DDL is idempotent.
