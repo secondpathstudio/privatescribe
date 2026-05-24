@@ -192,6 +192,7 @@ def log_action(
     resource_id: str | None = None,
     status: str = 'success',
     extra: Mapping[str, Any] | None = None,
+    organization_id: str | None = None,
 ) -> None:
     """Record one audit log row.
 
@@ -200,6 +201,12 @@ def log_action(
     row is added inside a SAVEPOINT — the caller's own pending work is flushed
     first — so a failed audit write rolls back only the audit row and never
     the caller's transaction.
+
+    `organization_id` overrides the org this row is attributed to. Normally it
+    is left None and `services/org_stamp.py` stamps it from the actor; pass it
+    explicitly when the row belongs to a *different* org than the actor — e.g.
+    a super-admin's cross-org break-glass should be attributed to the target's
+    org so that org's admin sees it in their scoped audit viewer.
     """
     try:
         ip = None
@@ -243,6 +250,10 @@ def log_action(
                 ip_address=ip,
                 user_agent=ua,
                 created_at=datetime.utcnow(),
+                # When given, attributes the row to a specific org (e.g. a
+                # break-glass target). When None, org_stamp fills it from the
+                # actor at insert. Not part of the hash chain (_chain_fields).
+                organization_id=organization_id,
             )
 
             # Assign seq/prev_hash and let _chain_entry append a chain_broken
