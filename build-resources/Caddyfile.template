@@ -13,15 +13,21 @@
 	# Caddy's own admin API off — this is a fixed single-site config, and the
 	# endpoint would otherwise listen on localhost:2019.
 	admin off
-	# Self-signed certs are minted by Caddy's internal CA; no public ACME.
-	# `email` / external issuers are intentionally unset for a LAN/VPN server.
+	# Don't try to install Caddy's CA into the system trust store (it would
+	# prompt for / fail on sudo in a daemon). Clients pin the cert fingerprint
+	# on first connect instead (trust-on-first-use), so system trust isn't needed.
+	skip_install_trust
 }
 
-# {{LISTEN_ADDR}} is the LAN bind, e.g. https://0.0.0.0:8443 (the pairing URL
-# clients connect to). TLS internal => Caddy's local CA issues the leaf cert
-# clients pin on first connect (trust-on-first-use, Phase 10 pairing).
-{{LISTEN_ADDR}} {
-	tls internal
+# Listen on the LAN port for ANY host. tls internal + on_demand makes Caddy's
+# local CA mint a leaf cert on the fly for whatever host/IP a client connects
+# as (localhost on this Mac, the LAN IP from clients) — so a single bind serves
+# every reachable name without knowing them up front. No public CA, no internet;
+# clients trust-on-first-use the fingerprint (Phase 10 pairing).
+:{{LAN_PORT}} {
+	tls internal {
+		on_demand
+	}
 
 	# API → backend on loopback (plain HTTP; never leaves the host).
 	handle /api/* {

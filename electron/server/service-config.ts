@@ -137,6 +137,9 @@ export function backendPlist(cfg: ServerConfig): string {
     label: LABELS.backend,
     programArguments: [p.backend],
     environment: {
+      // launchd gives daemons no HOME; tools that expect one (matplotlib's
+      // font cache, etc.) need it. Point it at the writable data dir.
+      HOME: cfg.dataDir,
       PRIVATESCRIBE_MODE: 'server',
       PRIVATESCRIBE_DATA_DIR: cfg.dataDir,
       // Backend binds loopback only — Caddy is the LAN face. This overrides
@@ -157,6 +160,8 @@ export function ollamaPlist(cfg: ServerConfig): string {
     label: LABELS.ollama,
     programArguments: [p.ollama, 'serve'],
     environment: {
+      // Ollama hard-errors ("$HOME is not defined") under launchd without HOME.
+      HOME: cfg.dataDir,
       OLLAMA_HOST: `127.0.0.1:${cfg.ollamaPort}`,
       // Persist pulled models in the shared data dir, not root's home.
       OLLAMA_MODELS: path.join(cfg.dataDir, 'ollama-models'),
@@ -179,6 +184,8 @@ export function caddyPlist(cfg: ServerConfig): string {
       'caddyfile',
     ],
     environment: {
+      // launchd sets no HOME; Caddy warns and may misplace assets without it.
+      HOME: cfg.dataDir,
       // Caddy persists its internal CA + leaf cert here so the cert (and the
       // fingerprint clients pin) is stable across restarts.
       XDG_DATA_HOME: path.join(cfg.dataDir, 'caddy', 'data'),
@@ -193,7 +200,7 @@ export function caddyPlist(cfg: ServerConfig): string {
 export function renderCaddyfile(template: string, cfg: ServerConfig): string {
   const p = serverPaths(cfg.resourcesPath);
   return template
-    .replace(/{{LISTEN_ADDR}}/g, `https://0.0.0.0:${cfg.lanPort}`)
+    .replace(/{{LAN_PORT}}/g, String(cfg.lanPort))
     .replace(/{{BACKEND_PORT}}/g, String(cfg.backendPort))
     .replace(/{{FRONTEND_ROOT}}/g, p.frontend);
 }
