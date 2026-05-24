@@ -96,6 +96,17 @@ def configured_port(mode: str) -> int | None:
     return None
 
 
+def debug_enabled() -> bool:
+    """Whether to run Flask's dev server with the interactive debugger.
+
+    Defaults to **off**. The Werkzeug debugger exposes an RCE console and
+    tracebacks that can leak PHI variable values, so it must never be on by
+    accident — opt in explicitly with ``PRIVATESCRIBE_DEBUG=1`` for local dev.
+    """
+    raw = (os.getenv("PRIVATESCRIBE_DEBUG") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def cors_origins(mode: str) -> list[str]:
     """Return the allowed CORS origins.
 
