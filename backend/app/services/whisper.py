@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 import threading
 
-from faster_whisper import WhisperModel
+from faster_whisper import BatchedInferencePipeline, WhisperModel
 from pydub import AudioSegment
 
 from app.services import settings as settings_service
@@ -28,6 +28,12 @@ _model = None
 # stale cache (setting changed without reload_model being called) is at
 # least detectable.
 _model_size: str | None = None
+# BatchedInferencePipeline wrapping _model, built lazily on first batched
+# transcription. It VAD-chunks the audio and runs the chunks through the
+# encoder in batches — ~2-4x faster on a whole file than the sequential
+# path. We only use it for file uploads; live 2s ticks stay on the plain
+# model (batching a single short chunk buys nothing and adds latency).
+_batched_model: BatchedInferencePipeline | None = None
 # Serializes first-use model construction. The packaged backend serves on
 # waitress with 8 threads, so without this two concurrent transcribe requests
 # (e.g. a live tick and a batch upload) would both enter the constructor on a
@@ -58,13 +64,33 @@ def get_model() -> WhisperModel:
     return _model
 
 
+def get_batched_model() -> BatchedInferencePipeline:
+    """Return the cached BatchedInferencePipeline, building it on first use.
+
+    The pipeline wraps the same underlying WhisperModel as get_model(), so it
+    inherits the admin-selected size and adds no extra weights in memory.
+    """
+    global _batched_model
+    if _batched_model is None:
+        # Resolve the model *outside* the lock — get_model() takes _model_lock
+        # itself, and threading.Lock is not reentrant, so acquiring it here
+        # first would deadlock.
+        model = get_model()
+        with _model_lock:
+            if _batched_model is None:
+                _batched_model = BatchedInferencePipeline(model=model)
+    return _batched_model
+
+
 def reload_model() -> None:
     """Drop the cached model so the next get_model() reloads from the
     current `whisper_model` setting. Called after the admin installs and
     activates a different size."""
-    global _model, _model_size
+    global _model, _model_size, _batched_model
     _model = None
     _model_size = None
+    # Drop the batched wrapper too — it holds a reference to the old model.
+    _batched_model = None
 
 
 def loaded_model_size() -> str | None:
@@ -151,11 +177,18 @@ def _transcode_to_wav(src_path: str, wav_path: str) -> None:
         raise RuntimeError(f"Could not decode the uploaded audio: {detail}")
 
 
+# Chunks decoded per encoder batch in batched mode. Kept modest so the win
+# holds on a CPU-only box (the documented baseline) without ballooning memory.
+_DEFAULT_BATCH_SIZE = 8
+
+
 def transcribe_path_streaming(
     audio_path: str,
     language: str = "en",
     *,
     initial_prompt: str | None = None,
+    batched: bool = False,
+    batch_size: int = _DEFAULT_BATCH_SIZE,
 ):
     """Generator variant of transcribe_path that yields progress events.
 
@@ -164,11 +197,21 @@ def transcribe_path_streaming(
     been consumed. Progress is computed against ``info.duration`` (the
     total audio length faster-whisper reports up front), so it stays
     honest even when VAD trims silence.
+
+    Set ``batched=True`` to run through the BatchedInferencePipeline (~2-4x
+    faster on a whole file). Reserve it for complete uploads — it VAD-chunks
+    and batches, which is pure overhead for a single short live tick. The
+    yielded shape is identical either way, so callers don't branch.
     """
     kwargs: dict = {"language": language, "word_timestamps": True}
     if initial_prompt:
         kwargs["initial_prompt"] = initial_prompt
-    segments, info = get_model().transcribe(audio_path, **kwargs)
+    if batched:
+        segments, info = get_batched_model().transcribe(
+            audio_path, batch_size=batch_size, **kwargs
+        )
+    else:
+        segments, info = get_model().transcribe(audio_path, **kwargs)
     total_duration = float(getattr(info, "duration", 0) or 0)
 
     out_segments: list[dict] = []

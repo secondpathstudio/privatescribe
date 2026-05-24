@@ -174,6 +174,10 @@ def transcribe():
             for kind, payload in transcribe_path_streaming(
                 audio_path,
                 initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
+                # Whole-file upload — use the batched pipeline for the ~2-4x
+                # speedup. (Live ticks call transcribe_path, which stays
+                # sequential.)
+                batched=True,
             ):
                 if kind == "progress":
                     yield json.dumps({
