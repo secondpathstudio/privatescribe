@@ -20,7 +20,7 @@ from flask import Flask
 from flask_cors import CORS
 
 from app.cli import register_cli
-from app.deployment import resolve_mode
+from app.deployment import cors_origins, resolve_mode
 from app.errors import register_error_handlers
 from app.extensions import db, jwt, limiter, migrate
 from app.json_provider import ISODateJSONProvider
@@ -51,7 +51,14 @@ def create_app() -> Flask:
     app.config["DEPLOYMENT_MODE"] = resolve_mode()
     logger.info("Deployment mode: %s", app.config["DEPLOYMENT_MODE"])
 
-    CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
+    # Allowed CORS origins come from the mode + PRIVATESCRIBE_CORS_ORIGINS.
+    # Standalone keeps trusting the local frontend (http://localhost:3000); a
+    # server denies cross-origin until its clients are whitelisted via the env.
+    CORS(
+        app,
+        supports_credentials=True,
+        origins=cors_origins(app.config["DEPLOYMENT_MODE"]),
+    )
 
     # Secrets — generated and persisted to backend/.env on first boot.
     app.config["JWT_SECRET_KEY"] = ensure_jwt_secret()

@@ -33,6 +33,10 @@ _BACKEND_MODES = {STANDALONE, SERVER}
 # port and reports it to Electron, so this default never applies there.
 DEFAULT_SERVER_PORT = 5000
 
+# The origin the standalone dev/Electron frontend calls from. Kept as the
+# standalone default so today's app is unchanged.
+DEFAULT_DEV_ORIGIN = "http://localhost:3000"
+
 
 def resolve_mode() -> str:
     """Return the resolved backend deployment mode (``standalone`` or ``server``).
@@ -90,3 +94,19 @@ def configured_port(mode: str) -> int | None:
     if is_server(mode):
         return DEFAULT_SERVER_PORT
     return None
+
+
+def cors_origins(mode: str) -> list[str]:
+    """Return the allowed CORS origins.
+
+    ``PRIVATESCRIBE_CORS_ORIGINS`` (comma-separated) overrides the default —
+    that's how a server deployment whitelists its clients' origins. With
+    nothing set, standalone trusts the local dev/Electron frontend, while a
+    server denies all cross-origin requests until the operator configures it
+    (same-origin requests, e.g. the frontend the server itself serves, never
+    need CORS). Fail-safe: an unconfigured server is locked down, not open.
+    """
+    raw = (os.getenv("PRIVATESCRIBE_CORS_ORIGINS") or "").strip()
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    return [] if is_server(mode) else [DEFAULT_DEV_ORIGIN]
