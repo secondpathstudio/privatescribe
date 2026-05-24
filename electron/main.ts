@@ -26,6 +26,7 @@ import {
 } from './ollama-process';
 import { initAutoUpdater } from './updater';
 import * as fs from 'fs';
+import * as os from 'os';
 import { defaultServerConfig } from './server/service-config';
 import {
   installServer,
@@ -137,6 +138,21 @@ function registerOllamaIpc(): void {
 }
 
 /**
+ * Best-effort LAN IPv4 for the pairing URL: the first non-internal IPv4 across
+ * the machine's interfaces. Returns null if none is found (e.g. offline), in
+ * which case callers fall back to a placeholder. The dashboard QR uses the
+ * backend's own resolver; this mirrors it for the pre-relaunch wizard screen.
+ */
+function lanIp(): string | null {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family === 'IPv4' && !a.internal) return a.address;
+    }
+  }
+  return null;
+}
+
+/**
  * Wire up the renderer-facing server-mode IPC for the "Become a server" wizard
  * (Phase 9). install/uninstall shell out to launchctl behind a single admin
  * prompt (electron/server/service-control.ts); errors are returned to the
@@ -189,7 +205,10 @@ function registerServerIpc(): void {
 
   ipcMain.handle('server:info', () => {
     const cfg = defaultServerConfig(process.resourcesPath);
-    return { lanPort: cfg.lanPort, pairingUrl: `https://<this-mac-ip>:${cfg.lanPort}` };
+    const host = lanIp() ?? '<this-mac-ip>';
+    // Deep-link to /login: a plain browser has no window.electron, so the SPA's
+    // root route shows the public marketing page instead of the login screen.
+    return { lanPort: cfg.lanPort, pairingUrl: `https://${host}:${cfg.lanPort}/login` };
   });
 }
 

@@ -57,9 +57,11 @@ export default function ServerDashboard() {
 
   // The scannable pairing URL: the server's LAN IP (from the backend, since the
   // admin usually views this via localhost) + the port the dashboard was served
-  // on (Caddy's LAN port). Null until we know the LAN IP.
+  // on (Caddy's LAN port). Deep-links to /login — a plain browser has no
+  // window.electron, so the root route renders the public marketing page rather
+  // than the login screen. Null until we know the LAN IP.
   const pairingUrl = status?.lanIp
-    ? `${window.location.protocol}//${status.lanIp}${window.location.port ? `:${window.location.port}` : ""}`
+    ? `${window.location.protocol}//${status.lanIp}${window.location.port ? `:${window.location.port}` : ""}/login`
     : null;
 
   if (!isSuperAdmin(auth.user?.role)) {
