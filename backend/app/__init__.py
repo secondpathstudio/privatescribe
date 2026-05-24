@@ -20,6 +20,7 @@ from flask import Flask
 from flask_cors import CORS
 
 from app.cli import register_cli
+from app.deployment import resolve_mode
 from app.errors import register_error_handlers
 from app.extensions import db, jwt, limiter, migrate
 from app.json_provider import ISODateJSONProvider
@@ -42,6 +43,13 @@ def create_app() -> Flask:
     # storage outside the read-only app bundle.
     app = Flask(__name__, instance_path=str(data_dir()))
     app.json = ISODateJSONProvider(app)
+
+    # Deployment role (standalone | server), resolved from PRIVATESCRIBE_MODE.
+    # Stored once here so every later config decision (bind host, CORS, debug)
+    # reads one resolved value rather than re-parsing the env. Defaults to the
+    # loopback-only standalone posture; nothing keys off it yet.
+    app.config["DEPLOYMENT_MODE"] = resolve_mode()
+    logger.info("Deployment mode: %s", app.config["DEPLOYMENT_MODE"])
 
     CORS(app, supports_credentials=True, origins=["http://localhost:3000"])
 
