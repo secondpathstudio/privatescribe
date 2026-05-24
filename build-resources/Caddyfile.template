@@ -1,0 +1,38 @@
+# Caddyfile template for PrivateScribe server mode (roadmap Phase 9).
+#
+# Rendered at server-setup time by the service layer (Phase 9 item 3): the
+# {{PLACEHOLDERS}} are substituted with the deployment's real values, the
+# result is written next to the data dir, and the bundled Caddy
+# (Resources/caddy-runtime/caddy) is launched with `caddy run --config <file>`.
+#
+# Caddy is the only LAN-facing process: it terminates TLS, serves the built
+# SPA, and reverse-proxies the API to the backend on loopback. The backend
+# itself never binds anything but 127.0.0.1.
+
+{
+	# Caddy's own admin API off — this is a fixed single-site config, and the
+	# endpoint would otherwise listen on localhost:2019.
+	admin off
+	# Self-signed certs are minted by Caddy's internal CA; no public ACME.
+	# `email` / external issuers are intentionally unset for a LAN/VPN server.
+}
+
+# {{LISTEN_ADDR}} is the LAN bind, e.g. https://0.0.0.0:8443 (the pairing URL
+# clients connect to). TLS internal => Caddy's local CA issues the leaf cert
+# clients pin on first connect (trust-on-first-use, Phase 10 pairing).
+{{LISTEN_ADDR}} {
+	tls internal
+
+	# API → backend on loopback (plain HTTP; never leaves the host).
+	handle /api/* {
+		reverse_proxy 127.0.0.1:{{BACKEND_PORT}}
+	}
+
+	# Everything else is the built single-page app. try_files makes client-side
+	# routes (deep links / refresh) resolve to index.html.
+	handle {
+		root * {{FRONTEND_ROOT}}
+		try_files {path} /index.html
+		file_server
+	}
+}

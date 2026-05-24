@@ -5,6 +5,7 @@
 #   - electron/dist/        (npm run build:electron)
 #   - backend/dist/privatescribe-backend/  (npm run build:backend, slow)
 #   - build-resources/ollama/  (npm run build:ollama — run automatically by `npm run dist`)
+#   - build-resources/caddy/   (npm run build:caddy  — run automatically by `npm run dist`)
 #
 # Run: npm run dist  →  release/PrivateScribe-<ver>.dmg
 
@@ -55,6 +56,16 @@ extraResources:
   # backend/app/services/diarization.py).
   - from: build-resources/pyannote
     to: pyannote-models
+    filter:
+      - "**/*"
+  # The bundled Caddy web server (static macOS arm64 binary, staged by
+  # scripts/fetch-caddy.mjs). Lands at Resources/caddy-runtime/ — in server
+  # mode the service layer launches caddy-runtime/caddy to terminate TLS,
+  # serve the built SPA, and reverse-proxy /api to the loopback backend
+  # (roadmap Phase 9). Signed + notarized by the same mac signing flow as the
+  # other bundled binaries.
+  - from: build-resources/caddy
+    to: caddy-runtime
     filter:
       - "**/*"
 
