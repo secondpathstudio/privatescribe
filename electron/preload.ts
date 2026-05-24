@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('electron', {
     /** Stop + remove the server daemons (prompts for admin). */
     uninstall: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('server:uninstall'),
+    /** Restart the server daemons (prompts for admin) — e.g. after an update. */
+    restart: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('server:restart'),
     /** The pairing info clients need: the LAN URL + port. */
     info: (): Promise<{ lanPort: number; pairingUrl: string } | null> =>
       ipcRenderer.invoke('server:info'),

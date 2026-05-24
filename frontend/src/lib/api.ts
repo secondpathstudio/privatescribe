@@ -14,6 +14,7 @@ export type ElectronServer = {
   isInstalled: () => Promise<boolean>;
   install: (opts: { lanPort?: number }) => Promise<{ ok: boolean; error?: string }>;
   uninstall: () => Promise<{ ok: boolean; error?: string }>;
+  restart: () => Promise<{ ok: boolean; error?: string }>;
   info: () => Promise<{ lanPort: number; pairingUrl: string } | null>;
 };
 

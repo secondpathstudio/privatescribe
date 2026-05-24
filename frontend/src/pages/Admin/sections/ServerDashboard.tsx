@@ -76,6 +76,12 @@ export default function ServerDashboard() {
     if (!res.ok) setError(res.error || "Failed to stop the server.");
   };
 
+  const restartServer = async () => {
+    if (!window.electron?.server) return;
+    const res = await window.electron.server.restart();
+    if (!res.ok) setError(res.error || "Failed to restart the server.");
+  };
+
   return (
     <>
       <SectionHeader title="Server" description="Status of the PrivateScribe server this Mac is running." />
@@ -121,10 +127,14 @@ export default function ServerDashboard() {
         <div className="border-2 border-red-600 p-4">
           <div className="font-black text-red-700">Danger zone</div>
           <p className="text-sm text-muted-foreground mt-1 mb-3">
-            Stops the background services and removes them. Clients lose access
-            until the server is set up again. Your data is left untouched.
+            Restart the services (e.g. to apply an update), or stop and remove
+            them entirely. Clients lose access while the server is stopped. Your
+            data is left untouched.
           </p>
-          <NeoButton label="Stop &amp; remove server" backgroundColor="#dc2626" textColor="#ffffff" onClick={stopServer} />
+          <div className="flex flex-wrap gap-2">
+            <NeoButton label="Restart services" backgroundColor="#000000" textColor="#ffffff" onClick={restartServer} />
+            <NeoButton label="Stop &amp; remove server" backgroundColor="#dc2626" textColor="#ffffff" onClick={stopServer} />
+          </div>
         </div>
       )}
     </>

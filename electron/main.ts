@@ -23,10 +23,12 @@ import {
   stopOllama,
 } from './ollama-process';
 import { initAutoUpdater } from './updater';
+import * as fs from 'fs';
 import { defaultServerConfig } from './server/service-config';
 import {
   installServer,
   isServerInstalled,
+  restartServer,
   uninstallServer,
 } from './server/service-control';
 
@@ -110,10 +112,65 @@ function registerServerIpc(): void {
     }
   });
 
+  ipcMain.handle('server:restart', async () => {
+    try {
+      await restartServer();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('server:info', () => {
     const cfg = defaultServerConfig(process.resourcesPath);
     return { lanPort: cfg.lanPort, pairingUrl: `https://<this-mac-ip>:${cfg.lanPort}` };
   });
+}
+
+// --- Post-update service restart (Phase 9 item 7) -------------------------
+// The daemons run binaries *inside* the .app bundle. An auto-update replaces
+// the bundle (same path, new binaries), but the already-running daemons keep
+// executing the old code until restarted. The control-panel app only updates
+// when it's launched, so on launch we compare the recorded version to the
+// current one and, if this Mac is a server, kickstart the daemons to pick up
+// the new binaries (one admin prompt, with the operator right there).
+
+function serverVersionMarkerPath(): string {
+  return path.join(app.getPath('userData'), 'server-version.json');
+}
+
+function readLastServerVersion(): string | null {
+  try {
+    return JSON.parse(fs.readFileSync(serverVersionMarkerPath(), 'utf8'))?.version ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeServerVersion(version: string): void {
+  try {
+    fs.writeFileSync(serverVersionMarkerPath(), JSON.stringify({ version }), 'utf8');
+  } catch (err) {
+    console.error('[server] failed to record version marker:', err);
+  }
+}
+
+async function maybeRestartServerAfterUpdate(): Promise<void> {
+  // Only relevant on a server box; a no-op for standalone/client/dev.
+  if (!isServerInstalled()) return;
+  const current = app.getVersion();
+  const last = readLastServerVersion();
+  if (last && last !== current) {
+    console.log(`[server] app updated ${last} → ${current}; restarting daemons`);
+    try {
+      await restartServer();
+    } catch (err) {
+      // Best-effort: a failed restart shouldn't block launch. The daemons keep
+      // running the old binaries; the operator can restart from the dashboard.
+      console.error('[server] post-update daemon restart failed:', err);
+    }
+  }
+  writeServerVersion(current);
 }
 
 // Single-instance lock: a second PrivateScribe would spawn a second backend
@@ -399,6 +456,9 @@ app.whenReady().then(async () => {
   buildMenu();
   registerOllamaIpc();
   registerServerIpc();
+  // If this Mac is a server and the app was just updated, restart the daemons
+  // so they run the new binaries. No-op for standalone/dev.
+  await maybeRestartServerAfterUpdate();
 
   let apiBase: string;
   let splash: BrowserWindow | null = null;
