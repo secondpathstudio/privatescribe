@@ -79,7 +79,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
               <button
                 type="button"
                 onClick={onStandalone}
-                className="w-full border-2 border-black p-4 text-left hover:bg-yellow-50"
+                className="w-full border-2 border-black p-4 text-left transition-colors hover:border-[#fd3777] hover:bg-[#fd3777]/5"
               >
                 <p className="font-black">Use this Mac</p>
                 <p className="text-sm text-muted-foreground">
@@ -89,7 +89,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
               <button
                 type="button"
                 onClick={() => setStep("configure")}
-                className="w-full border-2 border-black p-4 text-left hover:bg-yellow-50"
+                className="w-full border-2 border-black p-4 text-left transition-colors hover:border-[#fd3777] hover:bg-[#fd3777]/5"
               >
                 <p className="font-black">Set up a server</p>
                 <p className="text-sm text-muted-foreground">
