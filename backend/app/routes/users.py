@@ -6,11 +6,30 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from app.extensions import db, limiter
 from app.models import Organization, Role, User
 from app.security import account_lockout, password_policy, sessions
-from app.security.auth import require_admin
+from app.security.auth import (ROLE_ADMIN, ROLE_SUPER_ADMIN, is_super_admin,
+                               require_admin)
 from app.services import two_factor
 from app.services.audit import log_action
 
 bp = Blueprint("users", __name__)
+
+
+def _users_in_scope(actor):
+    """Base User query limited to what `actor` may manage: every user for a
+    super-admin, else only the actor's own organization."""
+    if is_super_admin(actor):
+        return User.query
+    return User.query.filter(User.organization_id == actor.organization_id)
+
+
+def _can_manage_target(actor, target) -> bool:
+    """Whether `actor` may act on `target`. Super-admins manage anyone; an
+    org-admin manages only non-super-admin users in their own organization."""
+    if is_super_admin(actor):
+        return True
+    if is_super_admin(target):
+        return False  # an org-admin must never act on a super-admin
+    return actor.organization_id == target.organization_id
 
 
 def _validate_new_password(value) -> str | None:
@@ -26,7 +45,9 @@ def _validate_new_password(value) -> str | None:
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def get_all_users():
-    users = User.query.all()
+    # Org-admins see only their own organization's users; super-admins see all.
+    actor = User.query.get(get_jwt_identity())
+    users = _users_in_scope(actor).all()
     if not users:
         return jsonify({"error": "No users found"}), 404
 
@@ -71,15 +92,29 @@ def admin_create_user():
     if pw_err:
         return jsonify({"error": pw_err}), 400
 
+    actor = User.query.get(get_jwt_identity())
+
+    # Role escalation guard: an org-admin may create users and org-admins;
+    # only a super-admin may mint another super-admin.
     role = data.get('role', 'user')
-    if role not in ('user', 'admin'):
+    allowed_roles = {'user', ROLE_ADMIN}
+    if is_super_admin(actor):
+        allowed_roles.add(ROLE_SUPER_ADMIN)
+    if role not in allowed_roles:
         return jsonify({"error": "Invalid role"}), 400
 
     if User.query.filter_by(email=data['email']).first():
         return jsonify({"error": "User email already exists"}), 400
 
-    # New users inherit the install's organization (one org per install).
-    org = Organization.query.first()
+    # Org assignment: org-admins create within their own organization; a
+    # super-admin may place the user in any org via organizationId (else their
+    # own, which may be none for central IT).
+    if is_super_admin(actor) and data.get('organizationId'):
+        org = Organization.query.get(data['organizationId'])
+        if not org:
+            return jsonify({"error": "organizationId does not exist"}), 400
+    else:
+        org = actor.organization
 
     new_user = User(
         first_name=data['firstName'],
@@ -205,7 +240,7 @@ def admin_reset_password(user_id):
         return jsonify({"error": "Admin password is incorrect"}), 401
 
     target = User.query.get(user_id)
-    if not target:
+    if not target or not _can_manage_target(admin, target):
         return jsonify({"error": "User not found"}), 404
 
     target.password = generate_password_hash(new_password, method='pbkdf2:sha256')
@@ -257,7 +292,7 @@ def admin_reset_2fa(user_id):
         return jsonify({"error": "Admin password is incorrect"}), 401
 
     target = User.query.get(user_id)
-    if not target:
+    if not target or not _can_manage_target(admin, target):
         return jsonify({"error": "User not found"}), 404
     if not two_factor.is_enrolled(target) and not target.totp_secret:
         return jsonify({"error": "User is not enrolled in 2FA"}), 400
@@ -310,7 +345,7 @@ def admin_unlock_account(user_id):
         return jsonify({"error": "Admin password is incorrect"}), 401
 
     target = User.query.get(user_id)
-    if not target:
+    if not target or not _can_manage_target(admin, target):
         return jsonify({"error": "User not found"}), 404
 
     account_lockout.unlock(target)
@@ -363,17 +398,32 @@ def admin_deactivate_user(user_id):
         return jsonify({"error": "Admin password is incorrect"}), 401
 
     target = User.query.get(user_id)
-    if not target:
+    if not target or not _can_manage_target(admin, target):
         return jsonify({"error": "User not found"}), 404
     if not target.is_active:
         return jsonify({"error": "User is already deactivated"}), 400
-    # Don't strand the install with no way back in.
-    if target.role == 'admin':
-        other_admins = User.query.filter(
-            User.role == 'admin', User.is_active.is_(True), User.id != target.id
+    # Don't strand an administrative scope with no way back in.
+    if target.role == ROLE_SUPER_ADMIN:
+        # Server-wide scope: protected unless another active super-admin remains.
+        others = User.query.filter(
+            User.role == ROLE_SUPER_ADMIN, User.is_active.is_(True), User.id != target.id
         ).count()
-        if other_admins == 0:
-            return jsonify({"error": "Can't deactivate the last active admin"}), 409
+        if others == 0:
+            return jsonify({"error": "Can't deactivate the last active super-admin"}), 409
+    elif target.role == ROLE_ADMIN:
+        # Org scope: covered by another active org-admin of the same org, or by
+        # any active super-admin (who can administer every org).
+        others = User.query.filter(
+            User.is_active.is_(True),
+            User.id != target.id,
+            db.or_(
+                User.role == ROLE_SUPER_ADMIN,
+                db.and_(User.role == ROLE_ADMIN,
+                        User.organization_id == target.organization_id),
+            ),
+        ).count()
+        if others == 0:
+            return jsonify({"error": "Can't deactivate the last active admin for this organization"}), 409
 
     target.is_active = False
     revoked = sessions.revoke_user_sessions(target.id, 'user_deactivated')
@@ -420,7 +470,7 @@ def admin_activate_user(user_id):
         return jsonify({"error": "Admin password is incorrect"}), 401
 
     target = User.query.get(user_id)
-    if not target:
+    if not target or not _can_manage_target(admin, target):
         return jsonify({"error": "User not found"}), 404
     if target.is_active:
         return jsonify({"error": "User is already active"}), 400
@@ -450,8 +500,9 @@ def admin_set_user_roles(user_id):
     if not isinstance(role_ids, list):
         return jsonify({"error": "roleIds must be a list"}), 400
 
+    actor = User.query.get(get_jwt_identity())
     target = User.query.get(user_id)
-    if not target:
+    if not target or not _can_manage_target(actor, target):
         return jsonify({"error": "User not found"}), 404
 
     roles = Role.query.filter(Role.id.in_(role_ids)).all()

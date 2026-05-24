@@ -23,6 +23,7 @@ from flask_jwt_extended import get_jwt_identity
 from app.deployment import SERVER
 from app.extensions import db
 from app.models import User
+from app.security.auth import is_super_admin
 
 
 def org_id_for_user(user_id: str | None) -> str | None:
@@ -46,6 +47,19 @@ def current_org_id() -> str | None:
     if "current_org_id" not in g:
         g.current_org_id = org_id_for_user(get_jwt_identity())
     return g.current_org_id
+
+
+def can_view_org(actor: User, org_id: str | None) -> bool:
+    """Whether ``actor`` may see/act on resources in organization ``org_id``.
+
+    Super-admins span every org; everyone else is confined to their own. The
+    ``actor.organization_id == org_id`` comparison naturally covers standalone,
+    where a single org (or all-org-less ``None == None``) means an org-admin
+    sees everyone.
+    """
+    if actor is None:
+        return False
+    return is_super_admin(actor) or actor.organization_id == org_id
 
 
 def _server_mode() -> bool:
