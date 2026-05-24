@@ -1,5 +1,6 @@
 import { useNavigate } from "react-router";
 import { useAuth } from "@/context/auth-context";
+import { isAdmin } from "@/lib/roles";
 
 /**
  * Persistent warning shown to admins who haven't yet backed up the SQLCipher
@@ -12,7 +13,7 @@ export default function PendingBackupKeyBanner() {
   const auth = useAuth();
   const navigate = useNavigate();
 
-  if (auth.user?.role !== "admin" || !auth.user.pendingBackupKeyAcknowledgment) {
+  if (!isAdmin(auth.user?.role) || !auth.user.pendingBackupKeyAcknowledgment) {
     return null;
   }
 

@@ -1,4 +1,5 @@
 import { API_BASE } from "@/lib/api";
+import { isAdmin } from "@/lib/roles";
 import { Navigate } from 'react-router'
 import { useAuth } from "@/context/auth-context";
 import { useEffect, useState } from 'react';
@@ -25,7 +26,7 @@ const RequireAdmin = ({ children }: { children: JSX.Element }) => {
         }
 
         const data = await response.json();
-        setStatus(data.user?.role === 'admin' ? 'allow' : 'deny');
+        setStatus(isAdmin(data.user?.role) ? 'allow' : 'deny');
       } catch {
         auth.logout();
         setStatus('deny');

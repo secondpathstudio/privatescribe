@@ -1,6 +1,7 @@
 import { API_BASE } from "@/lib/api";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/context/auth-context";
+import { isAdmin } from "@/lib/roles";
 
 interface ExportEntry {
   adminEmail: string;
@@ -15,7 +16,7 @@ export default function KeyExportBanner() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (auth.user?.role !== "admin" || !auth.token) {
+    if (!isAdmin(auth.user?.role) || !auth.token) {
       setExports([]);
       setLoaded(false);
       return;

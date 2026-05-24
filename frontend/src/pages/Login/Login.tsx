@@ -4,6 +4,7 @@ import { API_BASE } from "@/lib/api";
 import LoginForm from "@/components/login-form";
 import SetupForm from "@/components/setup-form";
 import { useAuth } from "@/context/auth-context";
+import { isAdmin } from "@/lib/roles";
 
 export default function Login() {
   const auth = useAuth();
@@ -35,7 +36,7 @@ export default function Login() {
     // setup wizard; a new non-admin user gets the lighter intro; everyone
     // else lands on their notes.
     if (needsSetup) return <Navigate to="/welcome" replace />;
-    if (auth.user && auth.user.role !== "admin" && !auth.user.hasOnboarded) {
+    if (auth.user && !isAdmin(auth.user.role) && !auth.user.hasOnboarded) {
       return <Navigate to="/getting-started" replace />;
     }
     return <Navigate to="/notes" replace />;

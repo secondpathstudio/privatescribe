@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router";
 import { useAuth } from "@/context/auth-context";
+import { isAdmin } from "@/lib/roles";
 import NeoButton from "./neo/neo-button";
 import { NeoDropdown, NeoDropdownItem }  from "./neo/neo-dropdown";
 
@@ -31,7 +32,7 @@ export default function AuthButtons() {
             <NeoDropdownItem id="menu-account" route='/account'>
                 Account
             </NeoDropdownItem>
-            {auth.user.role === 'admin' && (
+            {isAdmin(auth.user.role) && (
                 <NeoDropdownItem id="menu-admin" route='/admin'>
                     Admin
                 </NeoDropdownItem>

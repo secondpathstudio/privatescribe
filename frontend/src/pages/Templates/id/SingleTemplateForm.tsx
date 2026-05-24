@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { useAuth } from '../../../context/auth-context'
+import { isAdmin } from '@/lib/roles'
 import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import { Trash2 } from 'lucide-react'
@@ -44,7 +45,7 @@ const SingleTemplateForm = ({ template }: Props) => {
     // read-only; only the owner can edit, delete, or re-share it.
     const isOwner = template?.authorId === auth.user?.id;
     const readOnly = !isOwner;
-    const canShare = auth.user?.role === 'admin' && isOwner && !template?.isDeleted;
+    const canShare = isAdmin(auth.user?.role) && isOwner && !template?.isDeleted;
     const navigate = useNavigate();
 
     const form = useForm({
