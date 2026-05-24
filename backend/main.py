@@ -4,16 +4,16 @@ Used by:
 - PyInstaller-bundled binaries spawned by Electron.
 - Anyone running a non-debug server outside `flask run`.
 
-Picks a free port (or honors PRIVATESCRIBE_PORT), prints it to stdout
-so the parent process can discover where to send API requests, then
-serves the WSGI app via waitress.
+Binds from the deployment mode: standalone stays loopback + free port (and
+reports it to Electron over stdout); server binds all interfaces on a stable
+port. PRIVATESCRIBE_HOST / PRIVATESCRIBE_PORT override either default.
 """
-import os
 import socket
 
 from waitress import serve
 
 from app import create_app
+from app.deployment import bind_host, configured_port, resolve_mode
 
 
 def _pick_free_port() -> int:
@@ -23,15 +23,20 @@ def _pick_free_port() -> int:
 
 
 def main() -> None:
-    port_override = os.environ.get("PRIVATESCRIBE_PORT")
-    port = int(port_override) if port_override else _pick_free_port()
+    mode = resolve_mode()
+    host = bind_host(mode)
+    # None means standalone with no explicit port — pick a free one so two
+    # instances never collide, and report it to Electron below.
+    port = configured_port(mode)
+    if port is None:
+        port = _pick_free_port()
 
     app = create_app()
 
     # Electron parses this line to learn the port. Keep the format stable.
     print(f"PRIVATESCRIBE_PORT={port}", flush=True)
 
-    serve(app, host="127.0.0.1", port=port, threads=8)
+    serve(app, host=host, port=port, threads=8)
 
 
 if __name__ == "__main__":
