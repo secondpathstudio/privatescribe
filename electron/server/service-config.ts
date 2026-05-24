@@ -28,6 +28,11 @@ export const LABELS = {
   caddy: 'com.secondpath.privatescribe.caddy',
 } as const;
 
+// The app bundle id. Stamped into each daemon's plist as
+// AssociatedBundleIdentifiers so macOS groups them under "PrivateScribe" in
+// Login Items & Extensions, rather than under the signing identity.
+export const APP_BUNDLE_ID = 'com.secondpath.privatescribe';
+
 // Defaults. Only the LAN port is user-visible (the pairing URL); the other two
 // are private loopback ports the operator never needs to know.
 export const DEFAULT_PORTS = { lan: 8443, backend: 5111, ollama: 11435 } as const;
@@ -60,7 +65,7 @@ export function serverPaths(resourcesPath: string) {
   return {
     backend: path.join(resourcesPath, 'backend', 'privatescribe-backend'),
     ollama: path.join(resourcesPath, 'ollama-runtime', 'ollama'),
-    caddy: path.join(resourcesPath, 'caddy-runtime', 'caddy'),
+    caddy: path.join(resourcesPath, 'caddy-runtime', 'privatescribe-webserver'),
     caddyfileTemplate: path.join(resourcesPath, 'caddy-runtime', 'Caddyfile.template'),
     // Plain (non-asar) SPA files for Caddy to serve — see extraResources.
     frontend: path.join(resourcesPath, 'frontend'),
@@ -108,13 +113,17 @@ export function renderPlist(spec: PlistSpec): string {
   const workdir = spec.workingDirectory
     ? `\t<key>WorkingDirectory</key>\n\t<string>${xmlEscape(spec.workingDirectory)}</string>\n`
     : '';
+  // Attribute the daemon to the app so macOS groups it under "PrivateScribe"
+  // (not the Developer ID) in Login Items & Extensions.
+  const assoc =
+    `\t<key>AssociatedBundleIdentifiers</key>\n\t<string>${xmlEscape(APP_BUNDLE_ID)}</string>\n`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 \t<key>Label</key>
 \t<string>${xmlEscape(spec.label)}</string>
-\t<key>ProgramArguments</key>
+${assoc}\t<key>ProgramArguments</key>
 \t<array>
 ${args}
 \t</array>

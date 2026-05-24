@@ -7,7 +7,9 @@ import {
   Menu,
   nativeImage,
   shell,
+  Tray,
 } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import {
   onBackendCrash,
@@ -69,6 +71,51 @@ const ICON_PNG = path.join(ASSETS_DIR, 'icon.png'); // used at dev runtime for D
 
 let backend: BackendInfo | null = null;
 let mainWindow: BrowserWindow | null = null;
+// Menu-bar icon shown only in server mode (the control panel). Kept resident so
+// closing the window doesn't lose access to the dashboard.
+let serverTray: Tray | null = null;
+
+/**
+ * Create the menu-bar (Tray) icon for a server box. The server daemons run
+ * independently of this app, so the tray is just the control panel: reopen the
+ * dashboard, check for updates, or quit the panel (the server keeps serving).
+ */
+function createServerTray(apiBase: string): void {
+  if (serverTray) return;
+  const icon = nativeImage.createFromPath(ICON_PNG).resize({ width: 18, height: 18 });
+  serverTray = new Tray(icon);
+  serverTray.setToolTip('PrivateScribe Server');
+  serverTray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: 'PrivateScribe Server', enabled: false },
+      { type: 'separator' },
+      {
+        label: 'Open Dashboard',
+        click: () => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+            mainWindow.focus();
+          } else {
+            void createWindow(apiBase);
+          }
+        },
+      },
+      {
+        label: 'Check for Updates…',
+        click: () => {
+          if (!isDev) {
+            autoUpdater
+              .checkForUpdatesAndNotify()
+              .catch((e) => console.error('[updater] manual check failed:', e));
+          }
+        },
+      },
+      { type: 'separator' },
+      // Quits the control panel; the launchd daemons keep serving.
+      { label: 'Quit PrivateScribe', click: () => app.quit() },
+    ]),
+  );
+}
 
 /**
  * Wire up the renderer-facing Ollama IPC. The onboarding wizard and OllamaGate
@@ -553,6 +600,12 @@ app.whenReady().then(async () => {
   // Main window is painted and shown — retire the splash.
   if (splash && !splash.isDestroyed()) splash.close();
 
+  // Server box: add the menu-bar control panel so the dashboard is reachable
+  // even after the window is closed.
+  if (appMode.mode === 'server') {
+    createServerTray(apiBase);
+  }
+
   // Check for app updates in the background — packaged builds only. A newer
   // release downloads silently and installs on the next quit (see updater.ts).
   if (!isDev) {
@@ -577,10 +630,11 @@ app.on('certificate-error', (event, _webContents, url, _error, certificate, call
 });
 
 app.on('window-all-closed', () => {
-  // PrivateScribe is a single-window app with a bundled backend — there's
-  // nothing useful to keep resident once the window closes, so quit on all
-  // platforms (macOS would normally stay alive). before-quit stops the
-  // backend.
+  // Server mode: the daemons serve independently and the menu-bar tray is the
+  // control panel — stay resident so the dashboard can be reopened from it.
+  if (readAppMode().mode === 'server') return;
+  // Standalone/client: nothing useful to keep resident once the window closes,
+  // so quit (macOS would normally stay alive). before-quit stops the backend.
   app.quit();
 });
 

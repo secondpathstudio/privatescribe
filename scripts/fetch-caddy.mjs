@@ -144,10 +144,15 @@ async function main() {
   log('extracting binary…');
   execFileSync('tar', ['xzf', TGZ_PATH, '-C', OUT_DIR], { stdio: 'inherit' });
 
-  const binary = path.join(OUT_DIR, 'caddy');
-  if (!(await exists(binary))) {
-    throw new Error(`expected caddy binary at ${binary} after extraction`);
+  const extracted = path.join(OUT_DIR, 'caddy');
+  if (!(await exists(extracted))) {
+    throw new Error(`expected caddy binary at ${extracted} after extraction`);
   }
+  // Rename to a PrivateScribe-specific name so it's identifiable in Activity
+  // Monitor as our web server, not a generic "caddy" (Caddy doesn't care about
+  // its own filename). service-config.ts launches it under this name.
+  const binary = path.join(OUT_DIR, 'privatescribe-webserver');
+  await fs.rename(extracted, binary);
   await fs.chmod(binary, 0o755);
 
   // Ship Caddy's license (Apache-2.0) alongside the binary. Best-effort.
