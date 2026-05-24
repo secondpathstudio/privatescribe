@@ -15,11 +15,13 @@ restore path verifies the per-file checksums recorded in the manifest.
 import hashlib
 import io
 import json
+import shutil
 import tarfile
 import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import sqlcipher3
 from flask import current_app
 
 from app.security import sqlcipher
@@ -131,3 +133,149 @@ def create_backup(out_path: Path, *, include_audio: bool = True) -> dict:
             staging.rmdir()
         except OSError:
             pass
+
+
+class RestoreError(Exception):
+    """A restore was refused or failed a safety check; nothing was changed."""
+
+
+def _safe_members(tar: tarfile.TarFile) -> list[tarfile.TarInfo]:
+    """Return the archive members, rejecting anything outside the expected set.
+
+    Guards against path traversal (absolute paths / ``..``) and stray members
+    on Python 3.11, which has no built-in extraction filter. Only the DB, the
+    manifest, and ``audio/<name>`` files are allowed.
+    """
+    members: list[tarfile.TarInfo] = []
+    for m in tar.getmembers():
+        name = m.name
+        if name in (DB_NAME, MANIFEST_NAME):
+            members.append(m)
+            continue
+        if name.startswith("audio/"):
+            # No nested dirs, no traversal: exactly one path segment after audio/.
+            tail = name[len("audio/"):]
+            if tail and "/" not in tail and tail not in (".", ".."):
+                members.append(m)
+                continue
+        raise RestoreError(f"Archive contains an unexpected or unsafe entry: {name!r}")
+    return members
+
+
+def _verify_decryptable(db_file: Path) -> None:
+    """Confirm the snapshot opens with the *current* SQLCipher key.
+
+    Catches a key mismatch (snapshot from a different install / before a key
+    rotation) before any live data is touched — restoring a DB the operator
+    can't decrypt would brick the install. Requires the matching ``.env`` key
+    to already be in place.
+    """
+    conn = sqlcipher3.connect(str(db_file))
+    try:
+        conn.execute(f"PRAGMA key = \"x'{sqlcipher.current_key()}'\"")
+        # First statement that actually reads pages — fails on a wrong key.
+        conn.execute("SELECT count(*) FROM sqlite_master")
+    except sqlcipher3.DatabaseError as e:
+        raise RestoreError(
+            "The backup's database does not open with the current SQLCIPHER_KEY. "
+            "Restore the matching .env / key first, then re-run restore. "
+            f"({e})"
+        )
+    finally:
+        conn.close()
+
+
+def restore_backup(
+    archive_path: Path,
+    *,
+    force: bool = False,
+    include_audio: bool = True,
+) -> dict:
+    """Restore a backup archive into the instance directory.
+
+    Verifies the manifest checksums and that the snapshot decrypts with the
+    current key *before* changing anything. The existing DB and audio are moved
+    aside into a timestamped ``pre-restore-*`` folder (never deleted), so a
+    mistaken restore is recoverable. Refuses to clobber a live DB unless
+    ``force`` is set. The server should be stopped during a restore.
+    """
+    archive_path = Path(archive_path).resolve()
+    if not archive_path.is_file():
+        raise RestoreError(f"Archive not found: {archive_path}")
+
+    instance = Path(current_app.instance_path)
+    live_db = instance / DB_NAME
+    live_audio = instance / "audio"
+
+    if live_db.exists() and not force:
+        raise RestoreError(
+            f"A database already exists at {live_db}. Re-run with --force to "
+            "replace it (the current data is moved aside, not deleted)."
+        )
+
+    staging = Path(tempfile.mkdtemp(prefix="ps-restore-"))
+    try:
+        # 1. Extract only safe members.
+        with tarfile.open(archive_path, "r:*") as tar:
+            members = _safe_members(tar)
+            names = {m.name for m in members}
+            if DB_NAME not in names or MANIFEST_NAME not in names:
+                raise RestoreError("Archive is missing the database or manifest.")
+            tar.extractall(staging, members=members)
+
+        # 2. Manifest + format check.
+        manifest = json.loads((staging / MANIFEST_NAME).read_text("utf-8"))
+        if manifest.get("format_version") != FORMAT_VERSION:
+            raise RestoreError(
+                f"Unsupported backup format_version "
+                f"{manifest.get('format_version')!r} (expected {FORMAT_VERSION})."
+            )
+
+        # 3. Verify every recorded file's checksum.
+        for rel, meta in manifest["files"].items():
+            f = staging / rel
+            if not f.is_file():
+                raise RestoreError(f"Archive is missing a manifest file: {rel}")
+            sha, _ = _sha256(f)
+            if sha != meta["sha256"]:
+                raise RestoreError(f"Checksum mismatch for {rel} — archive is corrupt.")
+
+        # 4. Confirm the snapshot decrypts with the current key.
+        _verify_decryptable(staging / DB_NAME)
+
+        # --- All checks passed; from here we mutate the instance dir. ---
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        pre_restore = instance / f"pre-restore-{ts}"
+        pre_restore.mkdir(parents=True, exist_ok=True)
+
+        # 5. Move the current DB (and its WAL sidecars) aside.
+        for suffix in ("", "-wal", "-shm"):
+            p = Path(str(live_db) + suffix)
+            if p.exists():
+                shutil.move(str(p), str(pre_restore / p.name))
+        # And the current audio dir.
+        if live_audio.exists():
+            shutil.move(str(live_audio), str(pre_restore / "audio"))
+
+        # 6. Put the restored DB in place. The snapshot came from VACUUM INTO,
+        #    so it has no WAL sidecars — the old ones are now in pre-restore.
+        shutil.move(str(staging / DB_NAME), str(live_db))
+
+        # 7. Restore audio.
+        restored_audio = 0
+        staged_audio = staging / "audio"
+        live_audio.mkdir(parents=True, exist_ok=True)
+        if include_audio and staged_audio.is_dir():
+            for f in staged_audio.iterdir():
+                if f.is_file():
+                    shutil.move(str(f), str(live_audio / f.name))
+                    restored_audio += 1
+
+        return {
+            "archive_path": str(archive_path),
+            "pre_restore_path": str(pre_restore),
+            "restored_audio": restored_audio,
+            "created_at": manifest.get("created_at"),
+        }
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)

@@ -434,6 +434,54 @@ def backup(out, no_audio):
     ))
 
 
+@click.command("restore")
+@click.argument("archive", type=click.Path(exists=True, dir_okay=False))
+@click.option("--force", is_flag=True, help="Replace the existing database (moved aside, not deleted).")
+@with_appcontext
+def restore(archive, force):
+    """Restore an encrypted backup archive created by `flask backup`.
+
+    Verifies the manifest checksums and that the snapshot decrypts with the
+    current SQLCIPHER_KEY *before* touching live data. The existing DB and audio
+    are moved aside into a timestamped pre-restore-* folder (never deleted), so
+    a mistaken restore is recoverable. Refuses to overwrite a live DB without
+    --force. Stop the server before restoring, and restart it afterward.
+    """
+    from app.services import backup as backup_service
+
+    # Release pooled connections so the on-disk DB file can be swapped cleanly.
+    db.engine.dispose()
+    try:
+        summary = backup_service.restore_backup(Path(archive), force=force)
+    except backup_service.RestoreError as e:
+        raise click.ClickException(str(e))
+    # Fresh connections after this point bind to the restored DB.
+    db.engine.dispose()
+
+    # Best-effort audit row in the restored DB's chain (log_action swallows
+    # failures, e.g. an HMAC-key mismatch, so it can't undo a good restore).
+    log_action(
+        "admin.restore",
+        resource_type="backup",
+        extra={
+            "via": "cli",
+            "archive": summary["archive_path"],
+            "backup_created_at": summary["created_at"],
+            "pre_restore_path": summary["pre_restore_path"],
+            "restored_audio": summary["restored_audio"],
+        },
+    )
+    db.session.commit()
+
+    click.echo(f"Restored from {summary['archive_path']}")
+    click.echo(f"  backup taken: {summary['created_at']}")
+    click.echo(f"  audio files restored: {summary['restored_audio']}")
+    click.echo(f"  previous data moved to: {summary['pre_restore_path']}")
+    click.echo(click.style(
+        "Restart the server to pick up the restored database.", fg="yellow"
+    ))
+
+
 @click.command("verify-audit-log")
 @with_appcontext
 def verify_audit_log():
@@ -668,4 +716,5 @@ def register_cli(app):
     app.cli.add_command(purge_audit_log)
     app.cli.add_command(verify_audit_log)
     app.cli.add_command(backup)
+    app.cli.add_command(restore)
     app.cli.add_command(seed_notes)
