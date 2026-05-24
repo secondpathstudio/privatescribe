@@ -2,6 +2,7 @@
 import uuid
 from datetime import datetime, timedelta
 from getpass import getpass
+from pathlib import Path
 
 import click
 from flask.cli import with_appcontext
@@ -375,6 +376,64 @@ def purge_audit_log(dry_run, force):
     click.echo(f"Purged {summary['eligible_count']} audit row(s).")
 
 
+@click.command("backup")
+@click.option(
+    "--out",
+    required=True,
+    type=click.Path(),
+    help="Archive path (.tar.gz), or a directory to write a timestamped archive into.",
+)
+@click.option("--no-audio", is_flag=True, help="Back up the database only, skipping audio recordings.")
+@with_appcontext
+def backup(out, no_audio):
+    """Create an encrypted backup archive (database + audio).
+
+    Snapshots the SQLCipher DB with VACUUM INTO (consistent, same-key-encrypted,
+    safe while serving) and bundles it with the encrypted audio files into one
+    gzip tar plus a checksum manifest. Both are already ciphertext — the archive
+    holds no plaintext PHI.
+
+    The SQLCIPHER_KEY (.env) is NOT in the archive and must be backed up
+    separately; without it the archive cannot be decrypted. Intended to run on
+    a schedule (cron / systemd timer) alongside the purge jobs.
+    """
+    from app.services import backup as backup_service
+
+    out_path = Path(out)
+    if out_path.is_dir():
+        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        out_path = out_path / f"privatescribe-backup-{ts}.tar.gz"
+
+    summary = backup_service.create_backup(out_path, include_audio=not no_audio)
+
+    log_action(
+        "admin.backup_create",
+        resource_type="backup",
+        extra={
+            "via": "cli",
+            "out_path": summary["out_path"],
+            "includes_audio": summary["includes_audio"],
+            "audio_count": summary["audio_count"],
+            "archive_bytes": summary["archive_bytes"],
+        },
+    )
+    db.session.commit()
+
+    mb = summary["archive_bytes"] / (1024 * 1024)
+    click.echo(f"Backup written to {summary['out_path']} ({mb:.1f} MiB).")
+    click.echo(f"  database snapshot: {summary['db_bytes'] / (1024 * 1024):.1f} MiB")
+    if summary["includes_audio"]:
+        click.echo(f"  audio recordings:  {summary['audio_count']}")
+    else:
+        click.echo("  audio recordings:  skipped (--no-audio)")
+    click.echo(f"  sha256: {summary['archive_sha256']}")
+    click.echo(click.style(
+        "Reminder: this archive is encrypted with SQLCIPHER_KEY. Back up the "
+        "key (.env) separately — without it the backup is unrecoverable.",
+        fg="yellow",
+    ))
+
+
 @click.command("verify-audit-log")
 @with_appcontext
 def verify_audit_log():
@@ -608,4 +667,5 @@ def register_cli(app):
     app.cli.add_command(purge_orphaned_audio)
     app.cli.add_command(purge_audit_log)
     app.cli.add_command(verify_audit_log)
+    app.cli.add_command(backup)
     app.cli.add_command(seed_notes)
