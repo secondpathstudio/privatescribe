@@ -20,6 +20,18 @@ export type ElectronServer = {
   finishSetup: () => Promise<void>;
 };
 
+/** Client-pairing controls exposed by the Electron preload (desktop app only),
+ *  used by the "Connect to a server" wizard. */
+export type ElectronClient = {
+  /** Validate a candidate server URL (reachable + is a PrivateScribe backend).
+   *  Returns the normalized origin and cert fingerprint, or a user-facing error. */
+  probe: (
+    url: string,
+  ) => Promise<{ ok: boolean; origin?: string; fingerprint?: string; error?: string }>;
+  /** Switch into client mode for `url` and relaunch (does not resolve). */
+  connect: (url: string) => Promise<void>;
+};
+
 declare global {
   interface Window {
     electron?: {
@@ -28,6 +40,7 @@ declare global {
       mode?: string;
       ollama?: ElectronOllama;
       server?: ElectronServer;
+      client?: ElectronClient;
     };
   }
 }

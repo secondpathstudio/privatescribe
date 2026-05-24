@@ -52,4 +52,18 @@ contextBridge.exposeInMainWorld('electron', {
     info: (): Promise<{ lanPort: number; pairingUrl: string } | null> =>
       ipcRenderer.invoke('server:info'),
   },
+  // Client-pairing controls for the "Connect to a server" wizard (Phase 10).
+  // probe() validates a candidate server is reachable and is a PrivateScribe
+  // backend; connect() persists client mode and relaunches into it.
+  client: {
+    /** Check a candidate server URL. Returns the normalized origin + cert
+     *  fingerprint on success, or a user-facing error. Does not change mode. */
+    probe: (
+      url: string,
+    ): Promise<{ ok: boolean; origin?: string; fingerprint?: string; error?: string }> =>
+      ipcRenderer.invoke('client:probe', url),
+    /** Switch this app into client mode for `url` and relaunch. Does not
+     *  resolve — the app exits and reopens pointing at the server. */
+    connect: (url: string): Promise<void> => ipcRenderer.invoke('client:connect', url),
+  },
 });

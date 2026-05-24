@@ -27,6 +27,7 @@ import {
 import { initAutoUpdater } from './updater';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as https from 'https';
 import { defaultServerConfig } from './server/service-config';
 import {
   installServer,
@@ -209,6 +210,90 @@ function registerServerIpc(): void {
     // Deep-link to /login: a plain browser has no window.electron, so the SPA's
     // root route shows the public marketing page instead of the login screen.
     return { lanPort: cfg.lanPort, pairingUrl: `https://${host}:${cfg.lanPort}/login` };
+  });
+}
+
+/**
+ * Normalize whatever the user typed/scanned into a clean server origin:
+ * default to https, drop any path/query (the pairing URL deep-links to /login,
+ * but we want the bare origin), strip a trailing slash, and default the port to
+ * the standard LAN port when none is given. Throws on input that isn't a URL.
+ */
+function normalizeServerUrl(input: string): string {
+  const trimmed = input.trim();
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const u = new URL(withScheme); // throws on garbage
+  // Force https — a PrivateScribe server is always TLS (Caddy).
+  u.protocol = 'https:';
+  if (!u.port) u.port = String(defaultServerConfig(process.resourcesPath).lanPort);
+  return `https://${u.hostname}:${u.port}`;
+}
+
+/**
+ * Wire up the renderer-facing client-pairing IPC (Phase 10). `probe` reaches a
+ * candidate server with cert verification OFF (a PrivateScribe server is
+ * self-signed; the real trust decision is trust-on-first-use when the app
+ * relaunches into client mode) purely to confirm it's reachable AND actually a
+ * PrivateScribe backend before we commit. `connect` persists client mode and
+ * relaunches; the existing serverOrigin/certificate-error path then takes over.
+ */
+function registerClientIpc(): void {
+  ipcMain.handle('client:probe', async (_event, rawUrl: unknown) => {
+    let origin: string;
+    try {
+      origin = normalizeServerUrl(String(rawUrl ?? ''));
+    } catch {
+      return { ok: false, error: "That doesn't look like a valid server address." };
+    }
+    return await new Promise<{ ok: boolean; origin?: string; fingerprint?: string; error?: string }>(
+      (resolve) => {
+        const req = https.get(
+          `${origin}/api/setup/status`,
+          // Self-signed is expected here; this probe is a reachability + identity
+          // check, not the security boundary. TOFU pinning happens on first load.
+          { rejectUnauthorized: false, timeout: 8000 },
+          (res) => {
+            const cert = (res.socket as import('tls').TLSSocket).getPeerCertificate?.();
+            let body = '';
+            res.on('data', (c) => {
+              body += c;
+              if (body.length > 64_000) req.destroy(); // guard against a non-API endpoint
+            });
+            res.on('end', () => {
+              try {
+                const json = JSON.parse(body);
+                // The setup-status shape is PrivateScribe's signature — a random
+                // HTTPS server won't return it, so a typo'd host fails cleanly.
+                if (res.statusCode === 200 && json && 'needs_setup' in json) {
+                  resolve({ ok: true, origin, fingerprint: cert?.fingerprint256 });
+                  return;
+                }
+              } catch {
+                /* fall through to the error below */
+              }
+              resolve({ ok: false, error: "That address responded, but it isn't a PrivateScribe server." });
+            });
+          },
+        );
+        req.on('timeout', () => {
+          req.destroy();
+          resolve({ ok: false, error: "Couldn't reach that server. Check the address and that you're on the same network." });
+        });
+        req.on('error', () => {
+          resolve({ ok: false, error: "Couldn't reach that server. Check the address and that you're on the same network." });
+        });
+      },
+    );
+  });
+
+  // Commit: persist client mode (clearing any prior cert pin so the new server
+  // is trusted fresh on first connect) and relaunch into it. Does not resolve —
+  // the app exits and relaunches pointing at the server.
+  ipcMain.handle('client:connect', (_event, rawUrl: unknown) => {
+    const origin = normalizeServerUrl(String(rawUrl ?? ''));
+    writeAppMode({ mode: 'client', serverUrl: origin });
+    app.relaunch();
+    app.exit(0);
   });
 }
 
@@ -550,6 +635,7 @@ app.whenReady().then(async () => {
   buildMenu();
   registerOllamaIpc();
   registerServerIpc();
+  registerClientIpc();
   // If this Mac is a server and the app was just updated, restart the daemons
   // so they run the new binaries. No-op for standalone/dev.
   await maybeRestartServerAfterUpdate();

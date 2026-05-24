@@ -23,7 +23,7 @@ import NeoButton from "@/components/neo/neo-button";
 
 const DEFAULT_LAN_PORT = 8443;
 
-type Step = "choose" | "configure" | "installing" | "paired";
+type Step = "choose" | "configure" | "installing" | "paired" | "connect";
 
 type Props = {
   /** User chose to run everything locally — render the standard setup form. */
@@ -39,7 +39,32 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
   const [pairingUrl, setPairingUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
+  // Client-pairing state ("Connect to a server").
+  const [serverUrl, setServerUrl] = useState("");
+  const [probing, setProbing] = useState(false);
+  const [probed, setProbed] = useState<{ origin: string; fingerprint?: string } | null>(null);
+
   const server = window.electron?.server;
+  const client = window.electron?.client;
+
+  const probe = async () => {
+    if (!client) return;
+    setError(null);
+    setProbed(null);
+    setProbing(true);
+    try {
+      const res = await client.probe(serverUrl);
+      if (res.ok && res.origin) {
+        setProbed({ origin: res.origin, fingerprint: res.fingerprint });
+      } else {
+        setError(res.error || "Couldn't connect to that server.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't connect to that server.");
+    } finally {
+      setProbing(false);
+    }
+  };
 
   const install = async () => {
     if (!server) {
@@ -101,6 +126,21 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                   their own devices over your network.
                 </p>
               </div>
+              {client && (
+                <div>
+                  <NeoButton
+                    label="Connect to a server"
+                    backgroundColor="#fd3777"
+                    textColor="#ffffff"
+                    className="w-full"
+                    onClick={() => { setError(null); setStep("connect"); }}
+                  />
+                  <p className="text-sm text-muted-foreground mt-2">
+                    Your team already runs a PrivateScribe server. Connect this
+                    Mac to it; all transcription happens on the server.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </>
         )}
@@ -181,6 +221,68 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                     // on the daemon (behind Caddy), not the local backend.
                     await server?.finishSetup();
                   }} />
+              </div>
+            </CardContent>
+          </>
+        )}
+
+        {step === "connect" && (
+          <>
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl font-black">CONNECT TO A SERVER</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Enter the address your administrator gave you (it's shown on the
+                server's dashboard, e.g. <span className="font-mono">https://10.0.1.75:8443</span>).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div>
+                <Label htmlFor="serverUrl" className="font-black">SERVER ADDRESS</Label>
+                <Input
+                  id="serverUrl"
+                  type="text"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  placeholder="https://10.0.1.75:8443"
+                  value={serverUrl}
+                  onChange={(e) => { setServerUrl(e.target.value); setProbed(null); setError(null); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !probing && !probed) probe(); }}
+                />
+              </div>
+
+              {error && <p className="text-red-600 text-sm">{error}</p>}
+
+              {probed && (
+                <div className="border-2 border-black bg-green-100 p-3 text-sm">
+                  <p className="font-black">Found a PrivateScribe server ✓</p>
+                  <p className="mt-1 font-mono break-all">{probed.origin}</p>
+                  {probed.fingerprint && (
+                    <p className="mt-2 text-xs text-muted-foreground break-all">
+                      Security fingerprint: {probed.fingerprint}
+                    </p>
+                  )}
+                  <p className="mt-2">
+                    This Mac will connect to it and won't store any data locally —
+                    transcription and notes live on the server.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-1">
+                <NeoButton label="Back" backgroundColor="#e5e5e5" textColor="#000000"
+                  onClick={() => { setError(null); setProbed(null); setStep("choose"); }} />
+                {probed ? (
+                  <NeoButton label="Connect &amp; restart" backgroundColor="#fd3777" textColor="#ffffff"
+                    onClick={() => client?.connect(probed.origin)} />
+                ) : (
+                  <NeoButton
+                    label={probing ? "Checking…" : "Connect"}
+                    backgroundColor="#fd3777"
+                    textColor="#ffffff"
+                    onClick={() => { if (!probing) probe(); }}
+                  />
+                )}
               </div>
             </CardContent>
           </>
