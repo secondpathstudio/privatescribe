@@ -60,6 +60,10 @@ class Note(db.Model):
 
     template_id = db.Column(db.String(36), db.ForeignKey('template.id'), nullable=True)
     author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    # Tenant boundary (Phase 8): denormalized from the author's organization so
+    # cross-org filtering is a direct indexed column, not a join through user.
+    # Nullable for standalone/legacy rows; stamped on insert (services/org_stamp.py).
+    organization_id = db.Column(db.String(36), db.ForeignKey('organization.id'), nullable=True, index=True)
 
     participants = db.relationship('Participant', secondary='note_participants', back_populates='notes')
     # Append-only timestamped entries added after a note is signed. Ordered

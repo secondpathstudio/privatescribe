@@ -30,6 +30,10 @@ class Template(db.Model):
     shared_roles = db.relationship('Role', secondary='template_roles', backref='templates', lazy=True)
 
     author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False)
+    # Tenant boundary (Phase 8): denormalized from the author's organization so
+    # cross-org filtering is a direct indexed column, not a join through user.
+    # Nullable for standalone/legacy rows; stamped on insert (services/org_stamp.py).
+    organization_id = db.Column(db.String(36), db.ForeignKey('organization.id'), nullable=True, index=True)
 
     def __repr__(self):
         return f"<Template {self.name}>"

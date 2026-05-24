@@ -136,6 +136,11 @@ def create_app() -> Flask:
     # of notes maintains the FTS5 index in lockstep.
     from .services import note_search  # noqa: F401
 
+    # Importing org_stamp registers before_insert listeners that denormalize
+    # organization_id onto new PHI rows (Phase 8 tenant boundary). Like
+    # note_search, it must load before any flush so every insert is stamped.
+    from .services import org_stamp  # noqa: F401
+
     register_blueprints(app)
     register_error_handlers(app)
     register_cli(app)

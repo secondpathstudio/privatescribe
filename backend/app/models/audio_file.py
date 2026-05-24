@@ -15,6 +15,10 @@ class AudioFile(db.Model):
     """
     id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     author_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=False, index=True)
+    # Tenant boundary (Phase 8): denormalized from the author's organization so
+    # cross-org filtering is a direct indexed column, not a join through user.
+    # Nullable for standalone/legacy rows; stamped on insert (services/org_stamp.py).
+    organization_id = db.Column(db.String(36), db.ForeignKey('organization.id'), nullable=True, index=True)
     # Set when the first note is created from this audio. Null = orphaned
     # upload (transcribe ran but the user never saved a note); a periodic
     # sweep can prune these.

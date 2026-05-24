@@ -31,6 +31,10 @@ class AuditLog(db.Model):
     # *at the time of the action*, not whatever their role is when an admin
     # later reviews the log.
     user_id = db.Column(db.String(36), db.ForeignKey('user.id'), nullable=True, index=True)
+    # Tenant boundary (Phase 8): denormalized from the actor's organization
+    # (user_id) when there is one — failed logins and system actions stay NULL.
+    # Indexed so the org-scoped audit-log viewer filters directly.
+    organization_id = db.Column(db.String(36), db.ForeignKey('organization.id'), nullable=True, index=True)
     user_email = db.Column(db.String(255), nullable=True)
     user_role = db.Column(db.String(32), nullable=True)
 
