@@ -50,13 +50,18 @@ export default function Login() {
   // Brief blank while we check setup state. Fast (one localhost roundtrip).
   if (needsSetup === null) return null;
 
-  // First-run, desktop app: offer the standalone-vs-server choice. The web
-  // build (or any without the server bridge) goes straight to standalone setup.
-  const canChooseServer = !!window.electron?.server;
+  // First-run flow. Once the app is already in server mode (relaunched after a
+  // server install), go straight to the org-less super-admin setup against the
+  // daemon. Otherwise, in the desktop app, offer the standalone-vs-server
+  // choice; the web build (no server bridge) goes straight to standalone setup.
+  const isServerMode = window.electron?.mode === "server";
+  const canChooseServer = !!window.electron?.server && !isServerMode;
 
   let setupContent;
   if (!needsSetup) {
     setupContent = <LoginForm />;
+  } else if (isServerMode) {
+    setupContent = <SetupForm serverMode />;
   } else if (canChooseServer && setupPath === "choose") {
     setupContent = (
       <ServerSetupWizard

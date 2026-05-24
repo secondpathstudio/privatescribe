@@ -31,6 +31,12 @@ import {
   restartServer,
   uninstallServer,
 } from './server/service-control';
+import {
+  readAppMode,
+  serverOrigin,
+  trustServerCert,
+  writeAppMode,
+} from './server/app-mode';
 
 // Set early so app.getName() and macOS menus pick this up instead of "Electron".
 // In a packaged build this comes from CFBundleName in Info.plist (driven by
@@ -97,6 +103,10 @@ function registerServerIpc(): void {
       const cfg = defaultServerConfig(process.resourcesPath);
       if (opts && typeof opts.lanPort === 'number') cfg.lanPort = opts.lanPort;
       await installServer(cfg);
+      // Remember this is now a server box so the next launch targets the daemon
+      // (behind Caddy) instead of spawning a local backend. The wizard shows the
+      // pairing URL, then calls server:finish-setup to relaunch into that mode.
+      writeAppMode({ mode: 'server', lanPort: cfg.lanPort });
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -106,10 +116,19 @@ function registerServerIpc(): void {
   ipcMain.handle('server:uninstall', async () => {
     try {
       await uninstallServer();
+      // Back to standalone so the app stops targeting the (now-removed) daemon.
+      writeAppMode({ mode: 'standalone' });
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  });
+
+  // Relaunch into the just-configured server mode (called from the wizard's
+  // final step) so the app points at the daemon for admin creation onward.
+  ipcMain.handle('server:finish-setup', () => {
+    app.relaunch();
+    app.exit(0);
   });
 
   ipcMain.handle('server:restart', async () => {
@@ -271,6 +290,7 @@ function buildMenu(): void {
 }
 
 async function createWindow(apiBase: string): Promise<void> {
+  const deploymentMode = readAppMode().mode;
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -284,9 +304,9 @@ async function createWindow(apiBase: string): Promise<void> {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // Passed through to preload.ts so the renderer learns which port the
-      // backend ended up on. Read in preload via process.argv.
-      additionalArguments: [`--api-base=${apiBase}`],
+      // Passed through to preload.ts so the renderer learns the backend URL
+      // and the deployment role. Read in preload via process.argv.
+      additionalArguments: [`--api-base=${apiBase}`, `--mode=${deploymentMode}`],
     },
   });
   mainWindow = win;
@@ -314,8 +334,13 @@ async function createWindow(apiBase: string): Promise<void> {
   if (isDev) {
     await win.loadURL('http://localhost:3000/#/login');
     win.webContents.openDevTools({ mode: 'detach' });
+  } else if (deploymentMode === 'server' || deploymentMode === 'client') {
+    // Load the SPA *from the server* (Caddy) so the page and /api are
+    // same-origin — no CORS, and the cert-error handler trusts the load. This
+    // is also how a client renders a remote server's UI (Phase 10).
+    await win.loadURL(`${apiBase}/#/login`);
   } else {
-    // HashRouter handles `#/login` cleanly from file:// URLs where
+    // Standalone: HashRouter handles `#/login` cleanly from file:// URLs where
     // BrowserRouter can't reason about the pathname.
     await win.loadFile(
       path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html'),
@@ -463,10 +488,23 @@ app.whenReady().then(async () => {
   let apiBase: string;
   let splash: BrowserWindow | null = null;
 
+  const appMode = readAppMode();
+  const remoteOrigin = serverOrigin(appMode);
+
   if (isDev) {
     // Developer is expected to have `flask run` going on :5000.
     apiBase = 'http://127.0.0.1:5000';
+  } else if (remoteOrigin) {
+    // Server-controller or client mode: the backend is a daemon behind Caddy
+    // (server) or a remote server (client). Don't spawn a local backend or
+    // Ollama — just point at it. The renderer's requests are trusted by the
+    // certificate-error handler (trust-on-first-use). The daemons are managed
+    // by launchd, so we don't block on readiness here; the Login page polls
+    // /api/setup/status and the dashboard reflects live health.
+    splash = createSplash();
+    apiBase = remoteOrigin;
   } else {
+    // Standalone: spawn our own backend.
     // Show the splash immediately so the first thing the user sees is a
     // branded "starting…" screen, not a bare Dock icon, while Ollama and the
     // Python backend come up.
@@ -517,6 +555,22 @@ app.whenReady().then(async () => {
   if (!isDev) {
     initAutoUpdater();
   }
+});
+
+// Trust the target server's self-signed certificate (server/client mode).
+// PrivateScribe servers use a self-signed cert (Caddy's internal CA) on a
+// private network, which Electron would otherwise reject. We trust it only for
+// our configured server origin, and only trust-on-first-use: the first cert is
+// pinned and any later mismatch is rejected (see server/app-mode.ts). Every
+// other certificate error falls through to the default (reject).
+app.on('certificate-error', (event, _webContents, url, _error, certificate, callback) => {
+  const origin = serverOrigin(readAppMode());
+  if (origin && url.startsWith(origin)) {
+    event.preventDefault();
+    callback(trustServerCert(certificate.fingerprint));
+    return;
+  }
+  callback(false);
 });
 
 app.on('window-all-closed', () => {

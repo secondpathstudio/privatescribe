@@ -170,7 +170,13 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
               </div>
               <div className="flex justify-center items-center pt-1">
                 <NeoButton label="Create administrator account" backgroundColor="#fd3777"
-                  textColor="#ffffff" onClick={() => onServerReady(pairingUrl)} />
+                  textColor="#ffffff"
+                  onClick={async () => {
+                    onServerReady(pairingUrl);
+                    // Relaunch into server mode so the admin account is created
+                    // on the daemon (behind Caddy), not the local backend.
+                    await server?.finishSetup();
+                  }} />
               </div>
             </CardContent>
           </>

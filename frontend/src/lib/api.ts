@@ -16,11 +16,19 @@ export type ElectronServer = {
   uninstall: () => Promise<{ ok: boolean; error?: string }>;
   restart: () => Promise<{ ok: boolean; error?: string }>;
   info: () => Promise<{ lanPort: number; pairingUrl: string } | null>;
+  /** Relaunch into server mode after install (targets the daemon thereafter). */
+  finishSetup: () => Promise<void>;
 };
 
 declare global {
   interface Window {
-    electron?: { apiBase: string; ollama?: ElectronOllama; server?: ElectronServer };
+    electron?: {
+      apiBase: string;
+      /** 'standalone' | 'server' | 'client' */
+      mode?: string;
+      ollama?: ElectronOllama;
+      server?: ElectronServer;
+    };
   }
 }
 

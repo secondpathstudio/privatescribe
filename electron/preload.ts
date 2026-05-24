@@ -5,8 +5,16 @@ function readApiBase(): string {
   return arg ? arg.slice('--api-base='.length) : 'http://127.0.0.1:5000';
 }
 
+function readMode(): string {
+  const arg = process.argv.find((a) => a.startsWith('--mode='));
+  return arg ? arg.slice('--mode='.length) : 'standalone';
+}
+
 contextBridge.exposeInMainWorld('electron', {
   apiBase: readApiBase(),
+  // Deployment role: 'standalone' | 'server' | 'client'. Lets the renderer
+  // tailor first-run (e.g. the org-less super-admin setup in server mode).
+  mode: readMode(),
   // Ollama controls used by the onboarding wizard and OllamaGate. The bundled
   // runtime is only ever started through startBundled() — never automatically.
   ollama: {
@@ -36,6 +44,10 @@ contextBridge.exposeInMainWorld('electron', {
     /** Restart the server daemons (prompts for admin) — e.g. after an update. */
     restart: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('server:restart'),
+    /** Relaunch the app into server mode (after install) so it targets the
+     *  daemon for first-run admin creation onward. Does not resolve — the app
+     *  exits and relaunches. */
+    finishSetup: (): Promise<void> => ipcRenderer.invoke('server:finish-setup'),
     /** The pairing info clients need: the LAN URL + port. */
     info: (): Promise<{ lanPort: number; pairingUrl: string } | null> =>
       ipcRenderer.invoke('server:info'),
