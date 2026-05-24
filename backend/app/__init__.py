@@ -20,6 +20,7 @@ from flask import Flask
 from flask_cors import CORS
 
 from app.cli import register_cli
+from app.database import engine_config
 from app.deployment import cors_origins, resolve_mode
 from app.errors import register_error_handlers
 from app.extensions import db, jwt, limiter, migrate
@@ -104,8 +105,12 @@ def create_app() -> Flask:
     from app.routes.transcription_live import cleanup_stale_session_files
     cleanup_stale_session_files()
 
-    app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
-    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'creator': sqlcipher.open_keyed_connection}
+    # Engine selection lives in one place (app/database.py) so the later
+    # Postgres tier is an additive branch, not a create_app() rewrite. Today
+    # this returns the encrypted-SQLite + SQLCipher-creator config unchanged.
+    uri, engine_options = engine_config(db_path)
+    app.config['SQLALCHEMY_DATABASE_URI'] = uri
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # Provisional upload cap; the real value is loaded from the system_setting
