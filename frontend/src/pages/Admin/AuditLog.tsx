@@ -37,6 +37,11 @@ const formatDateTime = (value: string | null | undefined) => {
 const statusColor = (status: string) =>
     status === 'failure' ? 'text-[#fd3777] font-semibold' : 'text-muted-foreground';
 
+// Emergency-access (GAP-08) events get flagged prominently in the trail: an
+// admin reaching another user's note outside normal author scoping is exactly
+// what an auditor needs to spot at a glance.
+const isBreakGlass = (action: string) => action.startsWith('note.break_glass');
+
 const AuditLogPage = () => {
     const auth = useAuth();
     const [entries, setEntries] = useState<AuditEntry[]>([]);
@@ -198,7 +203,17 @@ const AuditLogPage = () => {
             accessorKey: 'action',
             header: 'Action',
             size: 180,
-            cell: ({ row }) => <code className='text-xs'>{row.original.action}</code>,
+            cell: ({ row }) =>
+                isBreakGlass(row.original.action) ? (
+                    <span className='inline-flex items-center gap-1.5'>
+                        <span className='text-[10px] font-black uppercase tracking-wide bg-[#fd3777] text-white px-1.5 py-0.5 border-2 border-black'>
+                            ⚠ Break-glass
+                        </span>
+                        <code className='text-xs'>{row.original.action}</code>
+                    </span>
+                ) : (
+                    <code className='text-xs'>{row.original.action}</code>
+                ),
         },
         {
             id: 'resource',
@@ -410,6 +425,21 @@ const AuditLogPage = () => {
                                 ×
                             </button>
                         </div>
+                        {isBreakGlass(selectedRow.action) && (
+                            <div className='border-2 border-black bg-[#fd3777] text-white p-3 text-sm'>
+                                <p className='font-black'>⚠ Emergency (break-glass) access</p>
+                                <p className='mt-1'>
+                                    An administrator accessed another user's note outside normal
+                                    author scoping. This is a controlled, logged emergency action.
+                                </p>
+                                {typeof selectedRow.extra?.justification === 'string' && (
+                                    <p className='mt-2'>
+                                        <span className='font-bold'>Justification:</span>{' '}
+                                        {selectedRow.extra.justification as string}
+                                    </p>
+                                )}
+                            </div>
+                        )}
                         <dl className='grid grid-cols-[120px_1fr] gap-y-1 text-sm'>
                             <dt className='font-semibold'>When</dt>
                             <dd>{formatDateTime(selectedRow.createdAt)}</dd>
