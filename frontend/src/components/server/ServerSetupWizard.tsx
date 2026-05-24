@@ -75,28 +75,32 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                 How will this install be used?
               </p>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <button
-                type="button"
-                onClick={onStandalone}
-                className="w-full border-2 border-black p-4 text-left transition-colors hover:border-[#fd3777] hover:bg-[#fd3777]/5"
-              >
-                <p className="font-black">Use this Mac</p>
-                <p className="text-sm text-muted-foreground">
+            <CardContent className="space-y-5">
+              <div>
+                <NeoButton
+                  label="Use this Mac"
+                  backgroundColor="#fd3777"
+                  textColor="#ffffff"
+                  className="w-full"
+                  onClick={onStandalone}
+                />
+                <p className="text-sm text-muted-foreground mt-2">
                   Everything runs locally on this device. Best for a single user.
                 </p>
-              </button>
-              <button
-                type="button"
-                onClick={() => setStep("configure")}
-                className="w-full border-2 border-black p-4 text-left transition-colors hover:border-[#fd3777] hover:bg-[#fd3777]/5"
-              >
-                <p className="font-black">Set up a server</p>
-                <p className="text-sm text-muted-foreground">
+              </div>
+              <div>
+                <NeoButton
+                  label="Set up a server"
+                  backgroundColor="#fd3777"
+                  textColor="#ffffff"
+                  className="w-full"
+                  onClick={() => setStep("configure")}
+                />
+                <p className="text-sm text-muted-foreground mt-2">
                   This Mac hosts PrivateScribe for your team; staff connect from
                   their own devices over your network.
                 </p>
-              </button>
+              </div>
             </CardContent>
           </>
         )}
