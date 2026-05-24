@@ -9,13 +9,50 @@ from app.models.user import User
 from app.security import sessions
 
 
+# Privilege tiers stored in User.role. Distinct from the Role model, which
+# holds custom org roles for template sharing — these are auth privilege
+# levels (Phase 8 item 3):
+#   user        — regular user
+#   admin       — org-admin: admin rights within their own organization
+#   super_admin — central IT: spans all orgs, manages the server
+# A super_admin is a strict superset of admin, so require_admin accepts both;
+# the org-vs-all-orgs distinction is applied in the query layer (items 4-5).
+ROLE_USER = 'user'
+ROLE_ADMIN = 'admin'
+ROLE_SUPER_ADMIN = 'super_admin'
+_ADMIN_ROLES = frozenset({ROLE_ADMIN, ROLE_SUPER_ADMIN})
+
+
+def is_admin(user) -> bool:
+    """True for an org-admin or a super-admin (any admin-tier privilege)."""
+    return user is not None and user.role in _ADMIN_ROLES
+
+
+def is_super_admin(user) -> bool:
+    """True only for a super-admin (central IT, spans organizations)."""
+    return user is not None and user.role == ROLE_SUPER_ADMIN
+
+
 def require_admin(fn):
     @wraps(fn)
     @jwt_required()
     def wrapper(*args, **kwargs):
         user = User.query.get(get_jwt_identity())
-        if not user or user.role != 'admin':
+        if not is_admin(user):
             return jsonify({"error": "Admin privileges required"}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def require_super_admin(fn):
+    """Guard for server-wide operations only central IT may perform (creating
+    organizations, cross-org actions). Org-admins are rejected."""
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        user = User.query.get(get_jwt_identity())
+        if not is_super_admin(user):
+            return jsonify({"error": "Super-admin privileges required"}), 403
         return fn(*args, **kwargs)
     return wrapper
 

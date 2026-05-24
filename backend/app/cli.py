@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 from app.extensions import db
 from app.models import Note, Template, User
 from app.security import account_lockout, password_policy
+from app.security.auth import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.services import settings as settings_service
 from app.services.audit import log_action
 
@@ -19,9 +20,15 @@ from app.services.audit import log_action
 @click.option("--email", prompt=True, help="Admin email")
 @click.option("--first-name", prompt=True, help="First name")
 @click.option("--last-name", prompt=True, help="Last name")
+@click.option(
+    "--super-admin",
+    "super_admin",
+    is_flag=True,
+    help="Create a super-admin (central IT, spans all organizations) instead of an org-admin.",
+)
 @with_appcontext
-def create_admin(email, first_name, last_name):
-    """Create an admin user."""
+def create_admin(email, first_name, last_name, super_admin):
+    """Create an admin user (org-admin by default, or --super-admin)."""
     if User.query.filter_by(email=email).first():
         click.echo(f"User with email {email} already exists.")
         return
@@ -39,18 +46,19 @@ def create_admin(email, first_name, last_name):
         click.echo(pw_err)
         return
 
+    role = ROLE_SUPER_ADMIN if super_admin else ROLE_ADMIN
     admin_user = User(
         email=email,
         first_name=first_name,
         last_name=last_name,
-        role='admin',
+        role=role,
         password=generate_password_hash(password, method='pbkdf2:sha256'),
         last_login=None,
     )
 
     db.session.add(admin_user)
     db.session.commit()
-    click.echo(f"Admin user created with ID: {admin_user.id}")
+    click.echo(f"{'Super-admin' if super_admin else 'Admin'} user created with ID: {admin_user.id}")
 
 
 @click.command("reset-password")

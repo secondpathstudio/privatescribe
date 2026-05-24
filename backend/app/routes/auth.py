@@ -8,6 +8,7 @@ from werkzeug.security import check_password_hash
 from app.extensions import db, limiter
 from app.models import User
 from app.security import account_lockout, login_challenge, sessions
+from app.security.auth import is_admin
 from app.security.secrets import is_backup_key_acknowledged
 from app.services import settings as settings_service
 from app.services import two_factor
@@ -18,9 +19,9 @@ bp = Blueprint("auth", __name__)
 
 def _pending_backup_key_ack(user) -> bool:
     """True when this user needs to nudge through the backup-key flow.
-    Currently any admin who hasn't acknowledged the key (or hasn't since the
-    last rotation) — non-admins never see the banner."""
-    return user.role == 'admin' and not is_backup_key_acknowledged()
+    Any admin tier (org-admin or super-admin) who hasn't acknowledged the key
+    (or hasn't since the last rotation) — non-admins never see the banner."""
+    return is_admin(user) and not is_backup_key_acknowledged()
 
 
 def _user_payload(user) -> dict:

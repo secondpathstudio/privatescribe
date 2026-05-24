@@ -12,14 +12,19 @@ from werkzeug.security import generate_password_hash
 from app.extensions import db, limiter
 from app.models import User, Organization
 from app.security import password_policy
+from app.security.auth import _ADMIN_ROLES
 from app.services.audit import log_action
 
 bp = Blueprint("setup", __name__)
 
 
 def _needs_setup() -> bool:
-    """True when no admin user exists yet — the app is fresh."""
-    return User.query.filter_by(role='admin').first() is None
+    """True when no admin-tier user exists yet — the app is fresh.
+
+    Counts org-admins and super-admins alike, so a server bootstrapped with a
+    super-admin (central IT) is correctly seen as already set up.
+    """
+    return User.query.filter(User.role.in_(_ADMIN_ROLES)).first() is None
 
 
 @bp.route('/api/setup/status', methods=['GET'])
