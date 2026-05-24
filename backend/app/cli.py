@@ -384,8 +384,15 @@ def purge_audit_log(dry_run, force):
     help="Archive path (.tar.gz), or a directory to write a timestamped archive into.",
 )
 @click.option("--no-audio", is_flag=True, help="Back up the database only, skipping audio recordings.")
+@click.option(
+    "--keep-days",
+    type=int,
+    default=None,
+    help="Prune older archives in the target directory past this many days "
+    "(overrides the backup_retention_days setting; 0 = keep all).",
+)
 @with_appcontext
-def backup(out, no_audio):
+def backup(out, no_audio, keep_days):
     """Create an encrypted backup archive (database + audio).
 
     Snapshots the SQLCipher DB with VACUUM INTO (consistent, same-key-encrypted,
@@ -393,16 +400,21 @@ def backup(out, no_audio):
     gzip tar plus a checksum manifest. Both are already ciphertext — the archive
     holds no plaintext PHI.
 
+    When --out is a directory, the archive is named with a UTC timestamp and old
+    archives there are pruned per the retention window (the backup_retention_days
+    setting, or --keep-days). Intended to run on a schedule (cron / systemd
+    timer) alongside the purge jobs.
+
     The SQLCIPHER_KEY (.env) is NOT in the archive and must be backed up
-    separately; without it the archive cannot be decrypted. Intended to run on
-    a schedule (cron / systemd timer) alongside the purge jobs.
+    separately; without it the archive cannot be decrypted.
     """
     from app.services import backup as backup_service
 
     out_path = Path(out)
+    prune_dir = None
     if out_path.is_dir():
-        ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        out_path = out_path / f"privatescribe-backup-{ts}.tar.gz"
+        prune_dir = out_path
+        out_path = out_path / backup_service.timestamped_name()
 
     summary = backup_service.create_backup(out_path, include_audio=not no_audio)
 
@@ -427,6 +439,19 @@ def backup(out, no_audio):
     else:
         click.echo("  audio recordings:  skipped (--no-audio)")
     click.echo(f"  sha256: {summary['archive_sha256']}")
+
+    # Prune older archives only when writing into a directory (the scheduled
+    # use). --keep-days overrides the admin-configured retention setting.
+    if prune_dir is not None:
+        retention = keep_days if keep_days is not None else settings_service.get_backup_retention_days()
+        pruned = backup_service.prune_backups(
+            prune_dir, retention, keep_current=out_path
+        )
+        if retention > 0:
+            click.echo(
+                f"  pruned {len(pruned)} archive(s) older than {retention} day(s)."
+            )
+
     click.echo(click.style(
         "Reminder: this archive is encrypted with SQLCIPHER_KEY. Back up the "
         "key (.env) separately — without it the backup is unrecoverable.",

@@ -32,6 +32,7 @@ LLM_MODEL = "llm_model"
 PASSWORD_POLICY = "password_policy"
 AUDIT_RETENTION_DAYS = "audit_retention_days"
 AUDIT_AUTO_PURGE = "audit_auto_purge"
+BACKUP_RETENTION_DAYS = "backup_retention_days"
 AUDIT_ARCHIVE_WATERMARK = "audit_archive_watermark"
 ACCOUNT_LOCKOUT_THRESHOLD = "account_lockout_threshold"
 ACCOUNT_LOCKOUT_MINUTES = "account_lockout_minutes"
@@ -155,6 +156,18 @@ MAX_AUDIT_RETENTION_DAYS = 3650
 # with --force — so the audit trail is never trimmed without an explicit
 # opt-in, mirroring trash_auto_purge.
 DEFAULT_AUDIT_AUTO_PURGE = False
+
+
+# Backup retention. `flask backup` writing into a directory prunes its own
+# timestamped archives (privatescribe-backup-*.tar.gz) older than this many
+# days, so a scheduled job doesn't fill the disk. Measured from each archive's
+# modification time. 0 (default) keeps every backup forever — pruning only
+# happens once an operator deliberately sets a window. The ~10-year ceiling
+# matches the other retention caps. Only the app's own archives are ever
+# touched; unrelated files in the directory are left alone.
+DEFAULT_BACKUP_RETENTION_DAYS = 0
+MIN_BACKUP_RETENTION_DAYS = 0
+MAX_BACKUP_RETENTION_DAYS = 3650
 
 
 # Account lockout (GAP-03 brute-force backstop). After this many consecutive
@@ -316,6 +329,14 @@ def get_audit_retention_days() -> int:
 
 def get_audit_auto_purge() -> bool:
     return get_bool(AUDIT_AUTO_PURGE, DEFAULT_AUDIT_AUTO_PURGE)
+
+
+def get_backup_retention_days() -> int:
+    """Days of backup archives to keep when `flask backup` prunes a directory.
+    0 = keep forever (no pruning)."""
+    value = get_int(BACKUP_RETENTION_DAYS, DEFAULT_BACKUP_RETENTION_DAYS)
+    # Clamp defensively — a bad row shouldn't make the window negative or absurd.
+    return max(MIN_BACKUP_RETENTION_DAYS, min(MAX_BACKUP_RETENTION_DAYS, value))
 
 
 def get_account_lockout_threshold() -> int:

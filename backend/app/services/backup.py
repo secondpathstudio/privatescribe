@@ -29,7 +29,48 @@ from app.security import sqlcipher
 FORMAT_VERSION = 1
 DB_NAME = "privatescribe.db"
 MANIFEST_NAME = "manifest.json"
+# Naming for archives `flask backup` writes into a directory. Pruning only ever
+# matches this glob, so unrelated files in the directory are never touched.
+ARCHIVE_PREFIX = "privatescribe-backup-"
+ARCHIVE_GLOB = f"{ARCHIVE_PREFIX}*.tar.gz"
 _CHUNK = 1024 * 1024
+
+
+def timestamped_name() -> str:
+    """Archive filename for a scheduled backup into a directory."""
+    return f"{ARCHIVE_PREFIX}{datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')}.tar.gz"
+
+
+def prune_backups(
+    directory: Path,
+    retention_days: int,
+    *,
+    keep_current: Path | None = None,
+    dry_run: bool = False,
+) -> list[Path]:
+    """Delete this app's archives in ``directory`` older than ``retention_days``.
+
+    Matches only ``ARCHIVE_GLOB`` (never unrelated files), uses each archive's
+    modification time, and never deletes ``keep_current`` (the archive just
+    written). ``retention_days <= 0`` keeps everything. Returns the archives
+    deleted (or that would be, under ``dry_run``).
+    """
+    if retention_days <= 0:
+        return []
+    cutoff = datetime.utcnow().timestamp() - retention_days * 86400
+    keep_resolved = keep_current.resolve() if keep_current else None
+    pruned: list[Path] = []
+    for f in sorted(Path(directory).glob(ARCHIVE_GLOB)):
+        if not f.is_file() or f.resolve() == keep_resolved:
+            continue
+        if f.stat().st_mtime < cutoff:
+            if not dry_run:
+                try:
+                    f.unlink()
+                except OSError:
+                    continue
+            pruned.append(f)
+    return pruned
 
 
 def _sha256(path: Path) -> tuple[str, int]:
