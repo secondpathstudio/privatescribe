@@ -141,6 +141,11 @@ def create_app() -> Flask:
     # note_search, it must load before any flush so every insert is stamped.
     from .services import org_stamp  # noqa: F401
 
+    # Importing org_guard registers the do_orm_execute hook that injects the
+    # organization_id outer wall onto PHI reads (Phase 8 defense in depth).
+    # A no-op outside server mode / authenticated non-super-admin requests.
+    from .services import org_guard  # noqa: F401
+
     register_blueprints(app)
     register_error_handlers(app)
     register_cli(app)
