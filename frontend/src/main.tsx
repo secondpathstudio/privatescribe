@@ -32,6 +32,7 @@ import OrganizationSection from './pages/Admin/sections/Organization.tsx'
 import EncryptionSection from './pages/Admin/sections/Encryption.tsx'
 import TemplatesSection from './pages/Admin/sections/Templates.tsx'
 import ModelsSection from './pages/Admin/sections/Models.tsx'
+import ServerDashboardSection from './pages/Admin/sections/ServerDashboard.tsx'
 import UploadLimitSection from './pages/Admin/sections/UploadLimit.tsx'
 import DiarizationSection from './pages/Admin/sections/Diarization.tsx'
 import TrashRetentionSection from './pages/Admin/sections/TrashRetention.tsx'
@@ -89,6 +90,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="audit-log" element={<AuditLogPage />} />
             <Route path="encryption" element={<EncryptionSection />} />
             <Route path="templates" element={<TemplatesSection />} />
+            <Route path="server" element={<ServerDashboardSection />} />
             <Route path="models" element={<ModelsSection />} />
             <Route path="upload-limit" element={<UploadLimitSection />} />
             <Route path="diarization" element={<DiarizationSection />} />

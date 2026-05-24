@@ -33,6 +33,7 @@ PASSWORD_POLICY = "password_policy"
 AUDIT_RETENTION_DAYS = "audit_retention_days"
 AUDIT_AUTO_PURGE = "audit_auto_purge"
 BACKUP_RETENTION_DAYS = "backup_retention_days"
+LAST_BACKUP_AT = "last_backup_at"
 AUDIT_ARCHIVE_WATERMARK = "audit_archive_watermark"
 ACCOUNT_LOCKOUT_THRESHOLD = "account_lockout_threshold"
 ACCOUNT_LOCKOUT_MINUTES = "account_lockout_minutes"
@@ -337,6 +338,12 @@ def get_backup_retention_days() -> int:
     value = get_int(BACKUP_RETENTION_DAYS, DEFAULT_BACKUP_RETENTION_DAYS)
     # Clamp defensively — a bad row shouldn't make the window negative or absurd.
     return max(MIN_BACKUP_RETENTION_DAYS, min(MAX_BACKUP_RETENTION_DAYS, value))
+
+
+def get_last_backup_at() -> Optional[str]:
+    """ISO timestamp of the last successful `flask backup`, or None if never.
+    Surfaced in the server dashboard so an operator can see backup freshness."""
+    return get_str(LAST_BACKUP_AT, "") or None
 
 
 def get_account_lockout_threshold() -> int:

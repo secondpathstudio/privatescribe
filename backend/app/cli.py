@@ -426,6 +426,9 @@ def backup(out, no_audio, keep_days):
 
     summary = backup_service.create_backup(out_path, include_audio=not no_audio)
 
+    # Record backup freshness so the server dashboard can surface it.
+    settings_service.set_value("last_backup_at", datetime.utcnow().isoformat() + "Z")
+
     log_action(
         "admin.backup_create",
         resource_type="backup",

@@ -33,6 +33,7 @@ const NAV: NavGroup[] = [
   {
     heading: "System",
     items: [
+      { to: "/admin/server", label: "Server" },
       { to: "/admin/models", label: "Models" },
       { to: "/admin/upload-limit", label: "Upload Limit" },
       { to: "/admin/diarization", label: "Diarization" },
