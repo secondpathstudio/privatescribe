@@ -8,9 +8,11 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from sqlalchemy import desc
 
+from flask_jwt_extended import get_jwt_identity
+
 from app.extensions import db
-from app.models import AuditLog
-from app.security.auth import require_admin
+from app.models import AuditLog, User
+from app.security.auth import is_super_admin, require_admin
 from app.services.audit import log_action
 
 bp = Blueprint("admin_audit", __name__, url_prefix="/api/admin/audit-log")
@@ -42,13 +44,27 @@ def _parse_iso(value: str | None) -> datetime | None:
         return None
 
 
-def _filtered_query(args):
-    """Build the AuditLog query from request filters (no ordering/paging).
+def _org_scoped(q, actor):
+    """Confine an AuditLog query to what `actor` may see: every row for a
+    super-admin, else only rows belonging to the actor's own organization.
+
+    Org-less rows (system actions, failed logins for unknown accounts, and
+    legacy pre-backfill rows) carry a NULL organization_id and so are visible
+    only to super-admins — they aren't attributable to any one org.
+    """
+    if is_super_admin(actor):
+        return q
+    return q.filter(AuditLog.organization_id == actor.organization_id)
+
+
+def _filtered_query(args, actor):
+    """Build the AuditLog query from request filters (no ordering/paging),
+    confined to the acting admin's organization.
 
     Shared by the paginated viewer and the export endpoint so both honor the
-    exact same filter set.
+    exact same filter set *and* the same tenant scope.
     """
-    q = AuditLog.query
+    q = _org_scoped(AuditLog.query, actor)
 
     user_id = args.get('user_id')
     if user_id:
@@ -123,7 +139,8 @@ def list_audit_log():
       since, until (ISO8601)
       limit (default 100, max 500), offset (default 0)
     """
-    q = _filtered_query(request.args)
+    actor = User.query.get(get_jwt_identity())
+    q = _filtered_query(request.args, actor)
 
     try:
         limit = int(request.args.get('limit', PAGE_SIZE_DEFAULT))
@@ -255,7 +272,8 @@ def export_audit_log():
     if fmt not in ('csv', 'json'):
         return jsonify({"error": "format must be 'csv' or 'json'"}), 400
 
-    query = _filtered_query(request.args)
+    actor = User.query.get(get_jwt_identity())
+    query = _filtered_query(request.args, actor)
     total = query.count()
 
     # Record the export before the stream opens — it's an auditable disclosure
@@ -301,8 +319,10 @@ def list_distinct_actions():
     Used by the admin UI to populate the action filter dropdown without
     hard-coding the (still-growing) list of action names.
     """
+    actor = User.query.get(get_jwt_identity())
     rows = (
-        AuditLog.query.with_entities(AuditLog.action)
+        _org_scoped(AuditLog.query, actor)
+        .with_entities(AuditLog.action)
         .distinct()
         .order_by(AuditLog.action)
         .all()
