@@ -6,6 +6,7 @@ user/org totals, and backup freshness. Service-level health of the Caddy /
 Ollama / backend *daemons* is observed launchd-side by the Electron control
 panel; this endpoint covers what the app itself knows.
 """
+import socket
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify
@@ -17,6 +18,33 @@ from app.services import settings as settings_service
 from app.services import whisper
 
 bp = Blueprint("admin_server", __name__, url_prefix="/api/admin/server")
+
+
+def _lan_ip() -> str | None:
+    """Best-effort LAN IPv4 of this server, for building the client pairing URL.
+
+    Primary: the address of the default-route interface (a UDP ``connect`` picks
+    it without sending any packets — works on a routed LAN with no internet).
+    Falls back to hostname resolution. Returns None if only loopback is found.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        ip = s.getsockname()[0]
+        if ip and not ip.startswith("127."):
+            return ip
+    except OSError:
+        pass
+    finally:
+        s.close()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if ip and not ip.startswith("127."):
+                return ip
+    except OSError:
+        pass
+    return None
 
 
 def _active_session_count() -> int:
@@ -43,4 +71,7 @@ def server_status():
         "users": User.query.count(),
         "organizations": Organization.query.count(),
         "lastBackupAt": settings_service.get_last_backup_at(),
+        # LAN IP for the client pairing URL/QR (the dashboard pairs it with the
+        # port it was served on). None if only loopback is available.
+        "lanIp": _lan_ip(),
     })

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import QRCode from "react-qr-code";
 import SectionHeader from "./SectionHeader";
 import { API_BASE } from "@/lib/api";
 import { useAuth } from "@/context/auth-context";
@@ -22,6 +23,7 @@ type Status = {
   users: number;
   organizations: number;
   lastBackupAt: string | null;
+  lanIp: string | null;
 };
 
 function Stat({ label, value }: { label: string; value: string | number }) {
@@ -37,10 +39,6 @@ export default function ServerDashboard() {
   const auth = useAuth();
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pairingUrl, setPairingUrl] = useState<string | null>(null);
-
-  const isController = !!window.electron?.server;
-
   useEffect(() => {
     let cancelled = false;
     fetch(`${API_BASE}/api/admin/server/status`, {
@@ -52,11 +50,17 @@ export default function ServerDashboard() {
       })
       .then((d) => { if (!cancelled) setStatus(d); })
       .catch((e) => { if (!cancelled) setError(e.message); });
-    if (isController) {
-      window.electron!.server!.info().then((i) => { if (!cancelled && i) setPairingUrl(i.pairingUrl); });
-    }
     return () => { cancelled = true; };
-  }, [auth.token, isController]);
+  }, [auth.token]);
+
+  const isController = !!window.electron?.server;
+
+  // The scannable pairing URL: the server's LAN IP (from the backend, since the
+  // admin usually views this via localhost) + the port the dashboard was served
+  // on (Caddy's LAN port). Null until we know the LAN IP.
+  const pairingUrl = status?.lanIp
+    ? `${window.location.protocol}//${status.lanIp}${window.location.port ? `:${window.location.port}` : ""}`
+    : null;
 
   if (!isSuperAdmin(auth.user?.role)) {
     return (
@@ -101,12 +105,23 @@ export default function ServerDashboard() {
 
       {pairingUrl && (
         <div className="border-2 border-black p-4 mb-4">
-          <div className="font-black mb-1">Client pairing address</div>
-          <div className="font-mono text-sm break-all">{pairingUrl}</div>
-          <p className="text-sm text-muted-foreground mt-2">
-            Staff connect their PrivateScribe app here. On first connection each
-            client confirms this server's security fingerprint.
-          </p>
+          <div className="font-black mb-1">Pair a device</div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="bg-white border-2 border-black p-2 shrink-0">
+              <QRCode value={pairingUrl} size={148} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm text-muted-foreground">
+                Scan this with a device on the same network to open the
+                PrivateScribe login page, or enter the address manually:
+              </p>
+              <div className="font-mono text-sm break-all mt-2">{pairingUrl}</div>
+              <p className="text-xs text-muted-foreground mt-2">
+                It's a self-signed certificate on your private network, so the
+                device shows a one-time security warning to accept on first connect.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
