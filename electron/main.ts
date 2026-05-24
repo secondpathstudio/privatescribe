@@ -6,6 +6,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  safeStorage,
   shell,
   Tray,
 } from 'electron';
@@ -147,6 +148,69 @@ function registerOllamaIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('ollama:get-mode', () => getOllamaMode());
+}
+
+// --- Secure token storage (safeStorage, Phase 10 GAP-16) -----------------
+// The desktop client keeps auth tokens encrypted at rest via the OS keychain
+// (Electron safeStorage) instead of plaintext localStorage. Stored as one
+// encrypted blob (a small key→value JSON map) under userData. The renderer
+// reads a synchronous snapshot at boot (so auth restore stays sync) and writes
+// asynchronously. Browser/PWA clients have no preload and fall back to
+// localStorage on their side — untouched by this.
+function secureStorePath(): string {
+  return path.join(app.getPath('userData'), 'secure-store.bin');
+}
+
+function readSecureMap(): Record<string, string> {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return {};
+    const buf = fs.readFileSync(secureStorePath());
+    const obj = JSON.parse(safeStorage.decryptString(buf));
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch {
+    // No file yet, key unavailable, or corrupt — start empty (forces a login).
+    return {};
+  }
+}
+
+function writeSecureMap(map: Record<string, string>): void {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) {
+      console.warn('[secure-store] OS encryption unavailable — not persisting tokens.');
+      return;
+    }
+    fs.writeFileSync(secureStorePath(), safeStorage.encryptString(JSON.stringify(map)), {
+      mode: 0o600,
+    });
+  } catch (err) {
+    console.error('[secure-store] write failed:', err);
+  }
+}
+
+function registerSecureStoreIpc(): void {
+  // Synchronous decrypted snapshot — preload reads this once before the SPA
+  // loads so the renderer can restore the session without an async gap.
+  ipcMain.on('secure:get-all', (event) => {
+    event.returnValue = readSecureMap();
+  });
+  // Merge a patch of keys into the stored map (e.g. {access_token, user}).
+  ipcMain.handle('secure:set', (_event, patch: Record<string, string>) => {
+    if (patch && typeof patch === 'object') {
+      const map = readSecureMap();
+      Object.assign(map, patch);
+      writeSecureMap(map);
+    }
+    return { ok: true };
+  });
+  // Forget everything (logout / ephemeral close).
+  ipcMain.handle('secure:clear', () => {
+    try {
+      fs.rmSync(secureStorePath(), { force: true });
+    } catch {
+      /* already gone */
+    }
+    return { ok: true };
+  });
 }
 
 /**
@@ -689,6 +753,7 @@ app.whenReady().then(async () => {
   registerOllamaIpc();
   registerServerIpc();
   registerClientIpc();
+  registerSecureStoreIpc();
   // If this Mac is a server and the app was just updated, restart the daemons
   // so they run the new binaries. No-op for standalone/dev.
   await maybeRestartServerAfterUpdate();

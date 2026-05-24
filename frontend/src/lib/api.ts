@@ -34,6 +34,17 @@ export type ElectronClient = {
   connect: (url: string) => Promise<void>;
 };
 
+/** Encrypted-at-rest token storage (OS keychain via Electron safeStorage),
+ *  used by the desktop client instead of plaintext localStorage. */
+export type ElectronSecureStore = {
+  /** Decrypted key→value map captured at app launch (synchronous boot read). */
+  snapshot: Record<string, string>;
+  /** Merge a patch of keys and persist (encrypted). */
+  set: (patch: Record<string, string>) => Promise<{ ok: boolean }>;
+  /** Forget all stored tokens. */
+  clear: () => Promise<{ ok: boolean }>;
+};
+
 declare global {
   interface Window {
     electron?: {
@@ -43,6 +54,7 @@ declare global {
       ollama?: ElectronOllama;
       server?: ElectronServer;
       client?: ElectronClient;
+      secure?: ElectronSecureStore;
     };
   }
 }

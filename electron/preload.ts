@@ -70,4 +70,17 @@ contextBridge.exposeInMainWorld('electron', {
      *  resolve — the app exits and reopens pointing at the server. */
     connect: (url: string): Promise<void> => ipcRenderer.invoke('client:connect', url),
   },
+  // Encrypted-at-rest token storage (OS keychain via safeStorage). The desktop
+  // client uses this instead of plaintext localStorage. `snapshot` is read
+  // synchronously here at preload time so the renderer can restore the session
+  // without an async gap; writes go through set/clear.
+  secure: {
+    /** Decrypted key→value map as of app launch (e.g. access_token, user). */
+    snapshot: ipcRenderer.sendSync('secure:get-all') as Record<string, string>,
+    /** Merge a patch of keys and persist (encrypted). */
+    set: (patch: Record<string, string>): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke('secure:set', patch),
+    /** Forget all stored tokens. */
+    clear: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('secure:clear'),
+  },
 });
