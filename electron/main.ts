@@ -340,10 +340,13 @@ async function createWindow(apiBase: string): Promise<void> {
     // is also how a client renders a remote server's UI (Phase 10).
     await win.loadURL(`${apiBase}/#/login`);
   } else {
-    // Standalone: HashRouter handles `#/login` cleanly from file:// URLs where
-    // BrowserRouter can't reason about the pathname.
+    // Standalone: load the built SPA from Resources/frontend (the extraResources
+    // copy, shared with Caddy in server mode). It used to live in the asar, but
+    // moving the SPA to extraResources for Caddy removed it from the asar — so
+    // load it from process.resourcesPath, not the old asar-relative path.
+    // HashRouter handles `#/login` cleanly from file:// URLs.
     await win.loadFile(
-      path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html'),
+      path.join(process.resourcesPath, 'frontend', 'index.html'),
       { hash: '/login' },
     );
   }

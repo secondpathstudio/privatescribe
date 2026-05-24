@@ -28,7 +28,9 @@ publish:
 files:
   - electron/dist/**/*
   - electron/assets/**/*
-  - frontend/dist/**/*
+  # frontend/dist is NOT in the asar — it ships via extraResources at
+  # Resources/frontend (so the external Caddy process can file-serve it in
+  # server mode, and standalone loads it from there too). See main.ts.
   - package.json
   - "!**/*.map"
   - "!**/node_modules/*/{CHANGELOG.md,README.md,readme.md,*.markdown}"
