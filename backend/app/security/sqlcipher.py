@@ -41,4 +41,15 @@ def open_keyed_connection():
     # as dropped audit writes). 5s lets a writer wait for the lock instead of
     # failing immediately — the standard fix for multi-threaded SQLite.
     conn.execute("PRAGMA busy_timeout = 5000")
+    # WAL mode lets readers run concurrently with the single writer; the
+    # default rollback journal blocks readers and the writer against each
+    # other. That concurrency is the win for several LAN clients reading
+    # notes while one writes. journal_mode is a persistent DB-level setting,
+    # so this is a cheap no-op after the first connection establishes it.
+    # SQLCipher encrypts the -wal/-shm sidecar files too, so no PHI lands in
+    # cleartext — but backup/restore must checkpoint or capture them (handled
+    # in the backup work). synchronous is intentionally left at the default
+    # (FULL): a committed note must survive power loss, which NORMAL+WAL
+    # cannot guarantee for the most recent transaction.
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
