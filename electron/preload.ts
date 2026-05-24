@@ -56,6 +56,10 @@ contextBridge.exposeInMainWorld('electron', {
   // probe() validates a candidate server is reachable and is a PrivateScribe
   // backend; connect() persists client mode and relaunches into it.
   client: {
+    /** Browse the LAN (mDNS) for PrivateScribe servers. Returns those found
+     *  within a short window; empty if discovery is blocked. */
+    discover: (): Promise<{ name: string; origin: string; host: string }[]> =>
+      ipcRenderer.invoke('client:discover'),
     /** Check a candidate server URL. Returns the normalized origin + cert
      *  fingerprint on success, or a user-facing error. Does not change mode. */
     probe: (

@@ -199,4 +199,20 @@ def create_app() -> Flask:
                 logger.warning(f"Diarization pre-warm failed (will retry on first request): {type(e).__name__}: {e}")
         threading.Thread(target=_prewarm, daemon=True, name="diarization-prewarm").start()
 
+    # Advertise this server over mDNS so desktop clients can auto-discover it
+    # (Phase 10). Server mode only — standalone has nothing to advertise. The
+    # LAN port is Caddy's HTTPS port (what clients connect to), passed in via
+    # the daemon's env; default to the standard 8443 if unset. Best-effort and
+    # swallowed inside the service, so it can never block boot.
+    if app.config["DEPLOYMENT_MODE"] == "server":
+        import os
+        from app.services import discovery
+        lan_port = int(os.environ.get("PRIVATESCRIBE_LAN_PORT", "8443"))
+        threading.Thread(
+            target=discovery.start_advertising,
+            args=(lan_port,),
+            daemon=True,
+            name="mdns-advertise",
+        ).start()
+
     return app

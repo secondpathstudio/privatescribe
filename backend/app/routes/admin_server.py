@@ -6,7 +6,6 @@ user/org totals, and backup freshness. Service-level health of the Caddy /
 Ollama / backend *daemons* is observed launchd-side by the Electron control
 panel; this endpoint covers what the app itself knows.
 """
-import socket
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify
@@ -16,35 +15,9 @@ from app.models import Organization, Session, User
 from app.security.auth import require_super_admin
 from app.services import settings as settings_service
 from app.services import whisper
+from app.services.net import lan_ip as _lan_ip
 
 bp = Blueprint("admin_server", __name__, url_prefix="/api/admin/server")
-
-
-def _lan_ip() -> str | None:
-    """Best-effort LAN IPv4 of this server, for building the client pairing URL.
-
-    Primary: the address of the default-route interface (a UDP ``connect`` picks
-    it without sending any packets — works on a routed LAN with no internet).
-    Falls back to hostname resolution. Returns None if only loopback is found.
-    """
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("10.255.255.255", 1))
-        ip = s.getsockname()[0]
-        if ip and not ip.startswith("127."):
-            return ip
-    except OSError:
-        pass
-    finally:
-        s.close()
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            ip = info[4][0]
-            if ip and not ip.startswith("127."):
-                return ip
-    except OSError:
-        pass
-    return None
 
 
 def _active_session_count() -> int:

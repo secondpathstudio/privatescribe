@@ -47,6 +47,11 @@ hidden_imports += collect_submodules('huggingface_hub')
 # package entirely. Walk it explicitly.
 hidden_imports += collect_submodules('speechbrain')
 
+# zeroconf (mDNS server advertising, Phase 10) is built from Cython extensions
+# and lazy-imports its event-engine submodules + the pure-Python `ifaddr`, none
+# of which PyInstaller's static analysis catches. Walk the package explicitly.
+hidden_imports += collect_submodules('zeroconf')
+
 # Misc explicit imports that aren't picked up
 hidden_imports += [
     'waitress',
@@ -57,6 +62,7 @@ hidden_imports += [
     'pydub',
     'imageio_ffmpeg',
     'httpx',
+    'ifaddr',
 ]
 
 
@@ -69,6 +75,8 @@ binaries += collect_dynamic_libs('onnxruntime')
 binaries += collect_dynamic_libs('av')
 binaries += collect_dynamic_libs('torch')
 binaries += collect_dynamic_libs('torchaudio')
+# zeroconf ships Cython-compiled .so extensions (its hot-path event handlers).
+binaries += collect_dynamic_libs('zeroconf')
 
 
 # ---------- bundled data files ----------

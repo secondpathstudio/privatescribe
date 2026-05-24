@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,18 +43,39 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
   const [serverUrl, setServerUrl] = useState("");
   const [probing, setProbing] = useState(false);
   const [probed, setProbed] = useState<{ origin: string; fingerprint?: string } | null>(null);
+  const [discovered, setDiscovered] = useState<{ name: string; origin: string; host: string }[]>([]);
+  const [discovering, setDiscovering] = useState(false);
 
   const server = window.electron?.server;
   const client = window.electron?.client;
 
-  const probe = async () => {
+  // Browse the LAN for servers when the connect step opens, so the common case
+  // is "click the server you see" rather than typing an address.
+  useEffect(() => {
+    if (step !== "connect" || !client) return;
+    let cancelled = false;
+    setDiscovering(true);
+    setDiscovered([]);
+    client
+      .discover()
+      .then((list) => { if (!cancelled) setDiscovered(list); })
+      .catch(() => { /* discovery is best-effort; manual entry remains */ })
+      .finally(() => { if (!cancelled) setDiscovering(false); });
+    return () => { cancelled = true; };
+  }, [step, client]);
+
+  // Validate a server (an explicit URL from a discovered entry, or the typed
+  // one) and, on success, surface the confirm panel before committing.
+  const probe = async (url?: string) => {
     if (!client) return;
+    const target = url ?? serverUrl;
     setError(null);
     setProbed(null);
     setProbing(true);
     try {
-      const res = await client.probe(serverUrl);
+      const res = await client.probe(target);
       if (res.ok && res.origin) {
+        setServerUrl(res.origin);
         setProbed({ origin: res.origin, fingerprint: res.fingerprint });
       } else {
         setError(res.error || "Couldn't connect to that server.");
@@ -236,6 +257,32 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
               </p>
             </CardHeader>
             <CardContent className="space-y-3">
+              {/* Auto-discovered servers — the one-click path. */}
+              {(discovering || discovered.length > 0) && !probed && (
+                <div>
+                  <Label className="font-black">
+                    {discovering ? "SEARCHING YOUR NETWORK…" : "SERVERS ON YOUR NETWORK"}
+                  </Label>
+                  <div className="space-y-2 mt-1">
+                    {discovered.map((s) => (
+                      <button
+                        key={s.origin}
+                        disabled={probing}
+                        onClick={() => probe(s.origin)}
+                        className="w-full border-2 border-black bg-white p-3 text-left hover:bg-yellow-100 disabled:opacity-50"
+                      >
+                        <div className="font-black">{s.name}</div>
+                        <div className="font-mono text-xs text-muted-foreground break-all">{s.origin}</div>
+                      </button>
+                    ))}
+                    {discovering && discovered.length === 0 && (
+                      <p className="text-sm text-muted-foreground">Looking for PrivateScribe servers…</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">Or enter the address manually:</p>
+                </div>
+              )}
+
               <div>
                 <Label htmlFor="serverUrl" className="font-black">SERVER ADDRESS</Label>
                 <Input

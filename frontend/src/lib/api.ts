@@ -23,6 +23,8 @@ export type ElectronServer = {
 /** Client-pairing controls exposed by the Electron preload (desktop app only),
  *  used by the "Connect to a server" wizard. */
 export type ElectronClient = {
+  /** Browse the LAN (mDNS) for PrivateScribe servers. */
+  discover: () => Promise<{ name: string; origin: string; host: string }[]>;
   /** Validate a candidate server URL (reachable + is a PrivateScribe backend).
    *  Returns the normalized origin and cert fingerprint, or a user-facing error. */
   probe: (

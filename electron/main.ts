@@ -28,6 +28,17 @@ import { initAutoUpdater } from './updater';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as https from 'https';
+import { Bonjour } from 'bonjour-service';
+
+/** The subset of a discovered mDNS service we read (avoids depending on the
+ *  library's exported type, which is a value, not a type). */
+type MdnsService = {
+  port?: number;
+  name?: string;
+  host?: string;
+  addresses?: string[];
+  txt?: Record<string, string>;
+};
 import { defaultServerConfig } from './server/service-config';
 import {
   installServer,
@@ -238,6 +249,48 @@ function normalizeServerUrl(input: string): string {
  * relaunches; the existing serverOrigin/certificate-error path then takes over.
  */
 function registerClientIpc(): void {
+  // Browse the LAN for PrivateScribe servers advertising over mDNS (the backend
+  // daemon publishes _privatescribe._tcp). Collects for a short window and
+  // returns the distinct servers found, newest-name-wins. Best-effort: a
+  // multicast-blocked network just yields an empty list and the UI falls back
+  // to manual entry.
+  ipcMain.handle('client:discover', async () => {
+    return await new Promise<{ name: string; origin: string; host: string }[]>((resolve) => {
+      let bonjour: InstanceType<typeof Bonjour> | null = null;
+      const found = new Map<string, { name: string; origin: string; host: string }>();
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        try {
+          bonjour?.destroy();
+        } catch {
+          /* ignore teardown errors */
+        }
+        resolve([...found.values()]);
+      };
+      try {
+        bonjour = new Bonjour();
+        const browser = bonjour.find({ type: 'privatescribe', protocol: 'tcp' });
+        browser.on('up', (svc: MdnsService) => {
+          const port = svc.port;
+          // Prefer an IPv4 address (Caddy + the cert are reached by IP); fall
+          // back to the advertised .local hostname when only IPv6 is present.
+          const ipv4 = (svc.addresses ?? []).find((a: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(a));
+          const host = ipv4 || (svc.host ? svc.host.replace(/\.$/, '') : '');
+          if (!host || !port) return;
+          const origin = `https://${host}:${port}`;
+          const txt = (svc.txt ?? {}) as Record<string, string>;
+          found.set(origin, { name: txt.name || svc.name || host, origin, host });
+        });
+      } catch {
+        finish();
+        return;
+      }
+      setTimeout(finish, 2500);
+    });
+  });
+
   ipcMain.handle('client:probe', async (_event, rawUrl: unknown) => {
     let origin: string;
     try {

@@ -155,6 +155,9 @@ export function backendPlist(cfg: ServerConfig): string {
       // server mode's default 0.0.0.0 bind (see backend deployment.bind_host).
       PRIVATESCRIBE_HOST: '127.0.0.1',
       PRIVATESCRIBE_PORT: String(cfg.backendPort),
+      // Caddy's LAN HTTPS port — what clients actually connect to. The backend
+      // advertises this (not its own loopback port) over mDNS for discovery.
+      PRIVATESCRIBE_LAN_PORT: String(cfg.lanPort),
       OLLAMA_HOST: `127.0.0.1:${cfg.ollamaPort}`,
       PYANNOTE_MODELS_DIR: p.pyannote,
     },
