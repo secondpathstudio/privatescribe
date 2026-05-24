@@ -45,6 +45,12 @@ worthless without the separately-stored key.
 It does **not** contain: `.env`, `SQLCIPHER_KEY`, `JWT_SECRET_KEY`, or
 `AUDIT_HMAC_KEY`. Back those up yourself (see *Key custody* below).
 
+**Scope — whole server.** On a multi-tenant server (one covered entity's
+several departments/orgs), a backup is the *entire* database and audio store,
+spanning every organization — there is no per-department backup. Likewise the
+`purge-*` retention jobs run operator-wide across all orgs. Both are
+central-IT actions, by design.
+
 ---
 
 ## Taking backups

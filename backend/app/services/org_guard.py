@@ -13,6 +13,14 @@ behavior identical:
   - super-admins (span orgs) and CLI/system/no-request contexts (purge jobs,
     backup, prewarm) are exempt
 
+Maintenance-job footgun: because the guard keys on the request context, the
+``purge-*`` and ``backup``/``restore`` CLI jobs run operator-wide across every
+org (correct — they're a central-IT action). The flip side: any cross-org
+maintenance must run as a CLI/system action. If you ever expose such a sweep
+through a *request-scoped* admin endpoint, this guard will silently confine it
+to the caller's org — route it through a CLI/system path (or a super-admin
+context) instead.
+
 Implementation note: the per-request org is memoized on ``g`` and the slot is
 seeded to ``None`` *before* the ``User`` load below, so the re-entrant
 ``do_orm_execute`` for that load short-circuits instead of recursing. ``User``
