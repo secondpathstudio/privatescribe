@@ -23,6 +23,12 @@ import {
   stopOllama,
 } from './ollama-process';
 import { initAutoUpdater } from './updater';
+import { defaultServerConfig } from './server/service-config';
+import {
+  installServer,
+  isServerInstalled,
+  uninstallServer,
+} from './server/service-control';
 
 // Set early so app.getName() and macOS menus pick this up instead of "Electron".
 // In a packaged build this comes from CFBundleName in Info.plist (driven by
@@ -73,6 +79,41 @@ function registerOllamaIpc(): void {
     return { ok: true };
   });
   ipcMain.handle('ollama:get-mode', () => getOllamaMode());
+}
+
+/**
+ * Wire up the renderer-facing server-mode IPC for the "Become a server" wizard
+ * (Phase 9). install/uninstall shell out to launchctl behind a single admin
+ * prompt (electron/server/service-control.ts); errors are returned to the
+ * renderer rather than thrown so the wizard can show them.
+ */
+function registerServerIpc(): void {
+  ipcMain.handle('server:is-installed', () => isServerInstalled());
+
+  ipcMain.handle('server:install', async (_event, opts: { lanPort?: number }) => {
+    try {
+      const cfg = defaultServerConfig(process.resourcesPath);
+      if (opts && typeof opts.lanPort === 'number') cfg.lanPort = opts.lanPort;
+      await installServer(cfg);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('server:uninstall', async () => {
+    try {
+      await uninstallServer();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('server:info', () => {
+    const cfg = defaultServerConfig(process.resourcesPath);
+    return { lanPort: cfg.lanPort, pairingUrl: `https://<this-mac-ip>:${cfg.lanPort}` };
+  });
 }
 
 // Single-instance lock: a second PrivateScribe would spawn a second backend
@@ -357,6 +398,7 @@ app.whenReady().then(async () => {
 
   buildMenu();
   registerOllamaIpc();
+  registerServerIpc();
 
   let apiBase: string;
   let splash: BrowserWindow | null = null;

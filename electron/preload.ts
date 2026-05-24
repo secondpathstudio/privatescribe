@@ -20,4 +20,21 @@ contextBridge.exposeInMainWorld('electron', {
     getMode: (): Promise<'bundled' | 'system' | null> =>
       ipcRenderer.invoke('ollama:get-mode'),
   },
+  // Server-mode controls used by the "Become a server" wizard (Phase 9). These
+  // drive the launchd service install/lifecycle (electron/server/*). Present
+  // in every build; only invoked from the server-setup flow.
+  server: {
+    /** Whether the server daemons are already installed. */
+    isInstalled: (): Promise<boolean> => ipcRenderer.invoke('server:is-installed'),
+    /** Install + start the server daemons (prompts for admin). `lanPort` is
+     *  the HTTPS port clients connect to. Resolves once launchctl has loaded. */
+    install: (opts: { lanPort?: number }): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('server:install', opts),
+    /** Stop + remove the server daemons (prompts for admin). */
+    uninstall: (): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('server:uninstall'),
+    /** The pairing info clients need: the LAN URL + port. */
+    info: (): Promise<{ lanPort: number; pairingUrl: string } | null> =>
+      ipcRenderer.invoke('server:info'),
+  },
 });

@@ -5,14 +5,15 @@ app has any admin, /api/setup/create-admin returns 409 and is effectively
 inert. Lets a packaged build bootstrap itself without shipping the Flask
 CLI to end users.
 """
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_cors import cross_origin
 from werkzeug.security import generate_password_hash
 
+from app.deployment import SERVER
 from app.extensions import db, limiter
 from app.models import User, Organization
 from app.security import password_policy
-from app.security.auth import _ADMIN_ROLES
+from app.security.auth import _ADMIN_ROLES, ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.services.audit import log_action
 
 bp = Blueprint("setup", __name__)
@@ -55,27 +56,33 @@ def setup_create_admin():
         return jsonify({"error": pw_err}), 400
     if not first_name or not last_name:
         return jsonify({"error": "First and last name required"}), 400
-    if not organization:
+
+    # In server mode the first-run admin is the super-admin (central IT): they
+    # span organizations and create departments afterward, so they are org-less
+    # and an org name is optional. Standalone keeps the single-org model where
+    # the admin and the install's one organization are created together.
+    is_server = current_app.config.get("DEPLOYMENT_MODE") == SERVER
+    if not is_server and not organization:
         return jsonify({"error": "Organization name required"}), 400
 
     # Re-check after validation in case two setup requests raced.
     if not _needs_setup():
         return jsonify({"error": "Setup already complete"}), 409
 
-    # The first-run admin and the install's organization are created
-    # together — every user, starting with this admin, inherits the org.
-    org = Organization(name=organization)
-    db.session.add(org)
-    db.session.flush()  # populates org.id
+    org = None
+    if organization:
+        org = Organization(name=organization)
+        db.session.add(org)
+        db.session.flush()  # populates org.id
 
     admin = User(
         email=email,
         first_name=first_name,
         last_name=last_name,
-        role='admin',
+        role=ROLE_SUPER_ADMIN if is_server else ROLE_ADMIN,
         password=generate_password_hash(password, method='pbkdf2:sha256'),
         last_login=None,
-        organization_id=org.id,
+        organization_id=org.id if org else None,
     )
     db.session.add(admin)
     db.session.flush()  # populates admin.id
@@ -89,5 +96,6 @@ def setup_create_admin():
     return jsonify({
         "id": admin.id,
         "email": admin.email,
-        "organization": {"id": org.id, "name": org.name},
+        "role": admin.role,
+        "organization": {"id": org.id, "name": org.name} if org else None,
     }), 201

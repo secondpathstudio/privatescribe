@@ -8,9 +8,18 @@ export type ElectronOllama = {
   getMode: () => Promise<"bundled" | "system" | null>;
 };
 
+/** Server-mode controls exposed by the Electron preload (desktop app only),
+ *  used by the "Become a server" wizard. */
+export type ElectronServer = {
+  isInstalled: () => Promise<boolean>;
+  install: (opts: { lanPort?: number }) => Promise<{ ok: boolean; error?: string }>;
+  uninstall: () => Promise<{ ok: boolean; error?: string }>;
+  info: () => Promise<{ lanPort: number; pairingUrl: string } | null>;
+};
+
 declare global {
   interface Window {
-    electron?: { apiBase: string; ollama?: ElectronOllama };
+    electron?: { apiBase: string; ollama?: ElectronOllama; server?: ElectronServer };
   }
 }
 
