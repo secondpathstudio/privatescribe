@@ -1,8 +1,12 @@
 import { Link, useLocation } from "react-router";
 import { useAuth } from "@/context/auth-context";
-import { isAdmin } from "@/lib/roles";
+import { isAdmin, isSuperAdmin } from "@/lib/roles";
 import NeoButton from "./neo/neo-button";
 import { NeoDropdown, NeoDropdownItem }  from "./neo/neo-dropdown";
+
+// Central IT (super-admin) accent — the purple already used on the logout item,
+// reused to mark the elevated, cross-organization role across the app.
+const SUPER_ADMIN_PURPLE = "#5d1d91";
 
 export default function AuthButtons() {
     const auth = useAuth();
@@ -25,9 +29,18 @@ export default function AuthButtons() {
             </Link>
     )}
 
+    const superAdmin = isSuperAdmin(auth.user.role);
+
     return (
         <NeoDropdown
             username={auth.user.firstName}
+            backgroundColor={superAdmin ? SUPER_ADMIN_PURPLE : undefined}
+            textColor={superAdmin ? "#ffffff" : undefined}
+            badge={superAdmin ? (
+                <span className="rounded-sm bg-white px-1.5 py-0.5 text-[10px] font-black tracking-wider text-[#5d1d91]">
+                    Super Admin
+                </span>
+            ) : undefined}
         >
             <NeoDropdownItem id="menu-account" route='/account'>
                 Account

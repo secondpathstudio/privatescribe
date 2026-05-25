@@ -62,6 +62,9 @@ interface NeoDropdownProps {
   backgroundColor?: string;
   textColor?: string;
   username: string;
+  /** Optional chip rendered before the username in the trigger (e.g. a
+   *  role badge). */
+  badge?: ReactNode;
   onChange?: (id: string) => void;
 }
 
@@ -163,7 +166,10 @@ const NeoDropdown: React.FC<NeoDropdownProps> = (props) => {
         }}
         onClick={toggleDropdown}
       >
-        <span className="flex-1 text-left">{getButtonContent()}</span>
+        <span className="flex-1 text-left flex items-center gap-2">
+          {props.badge}
+          <span>{getButtonContent()}</span>
+        </span>
         <span className="ml-2">▼</span>
       </button>
 
