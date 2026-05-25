@@ -22,7 +22,7 @@ type Tpl = { id: string; name: string; templateType: string };
 // A file staged for upload — not sent until the user starts the batch. Each
 // carries its own set of templates; the transcript is produced once and
 // formatted through each (one draft note per template).
-type Staged = { uid: string; file: File; templateIds: string[] };
+type Staged = { uid: string; file: File; templateIds: string[]; diarize: boolean };
 
 const ACTIVE = new Set(["queued", "running"]);
 
@@ -100,6 +100,7 @@ export default function UploadQueue() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [templates, setTemplates] = useState<Tpl[]>([]);
   const [defaultTemplateIds, setDefaultTemplateIds] = useState<string[]>([]);
+  const [defaultDiarize, setDefaultDiarize] = useState(false);
   const [staged, setStaged] = useState<Staged[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -150,20 +151,26 @@ export default function UploadQueue() {
     if (!audio.length) return;
     setStaged((prev) => [
       ...prev,
-      ...audio.map((file) => ({ uid: `s${_uid++}`, file, templateIds: [...defaultTemplateIds] })),
+      ...audio.map((file) => ({ uid: `s${_uid++}`, file, templateIds: [...defaultTemplateIds], diarize: defaultDiarize })),
     ]);
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  // Changing the default re-applies it to every staged row (the common batch
-  // case is one set of templates for all); per-row tweaks come after.
+  // Changing a default re-applies it to every staged row (the common batch
+  // case is one setting for all); per-row tweaks come after.
   const applyDefault = (ids: string[]) => {
     setDefaultTemplateIds(ids);
     setStaged((prev) => prev.map((s) => ({ ...s, templateIds: [...ids] })));
   };
+  const applyDefaultDiarize = (v: boolean) => {
+    setDefaultDiarize(v);
+    setStaged((prev) => prev.map((s) => ({ ...s, diarize: v })));
+  };
 
   const setRowTemplates = (uid: string, ids: string[]) =>
     setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, templateIds: ids } : s)));
+  const setRowDiarize = (uid: string, v: boolean) =>
+    setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, diarize: v } : s)));
 
   const removeRow = (uid: string) => setStaged((prev) => prev.filter((s) => s.uid !== uid));
 
@@ -175,6 +182,7 @@ export default function UploadQueue() {
       const fd = new FormData();
       fd.append("audio", row.file);
       for (const id of row.templateIds) fd.append("templateIds", id);
+      if (row.diarize) fd.append("diarize", "true");
       try {
         const r = await fetch(`${API_BASE}/api/jobs/transcribe`, { method: "POST", headers: authHeader, body: fd });
         if (r.ok) {
@@ -243,14 +251,25 @@ export default function UploadQueue() {
       {staged.length > 0 && (
         <div className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-black uppercase tracking-wider">Default templates:</span>
-              <TemplatePicker
-                templates={templates}
-                selected={defaultTemplateIds}
-                onChange={applyDefault}
-                disabled={uploading}
-              />
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black uppercase tracking-wider">Default templates:</span>
+                <TemplatePicker
+                  templates={templates}
+                  selected={defaultTemplateIds}
+                  onChange={applyDefault}
+                  disabled={uploading}
+                />
+              </div>
+              <label className="flex items-center gap-1.5 text-xs font-bold" title="Label who's speaking — use for multi-person recordings like patient encounters.">
+                <input
+                  type="checkbox"
+                  checked={defaultDiarize}
+                  onChange={(e) => applyDefaultDiarize(e.target.checked)}
+                  disabled={uploading}
+                />
+                Label speakers
+              </label>
             </div>
             <div className="flex gap-2">
               <NeoButton onClick={() => setStaged([])} disabled={uploading}>Clear</NeoButton>
@@ -275,6 +294,15 @@ export default function UploadQueue() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1 text-[11px] font-bold" title="Label who's speaking">
+                    <input
+                      type="checkbox"
+                      checked={s.diarize}
+                      onChange={(e) => setRowDiarize(s.uid, e.target.checked)}
+                      disabled={uploading}
+                    />
+                    Speakers
+                  </label>
                   <TemplatePicker
                     templates={templates}
                     selected={s.templateIds}

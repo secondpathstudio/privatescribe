@@ -28,6 +28,7 @@ def upgrade():
         sa.Column('type', sa.String(length=32), nullable=False),
         sa.Column('status', sa.String(length=16), nullable=False),
         sa.Column('audio_file_id', sa.String(length=36), nullable=True),
+        sa.Column('diarize', sa.Boolean(), nullable=False, server_default=sa.false()),
         # JSON lists — a recording fans out into one note per template.
         sa.Column('template_ids', sa.JSON(), nullable=True),
         sa.Column('note_ids', sa.JSON(), nullable=True),

@@ -41,6 +41,9 @@ class Job(db.Model):
     # => one note with the raw transcript). FK can't be expressed on a JSON
     # list, so the route validates the ids on enqueue.
     audio_file_id = db.Column(db.String(36), db.ForeignKey('audio_file.id'), nullable=True, index=True)
+    # Label speakers (pyannote) before formatting — run once, shared by every
+    # fanned-out note. No-op when diarization isn't configured on this server.
+    diarize = db.Column(db.Boolean, nullable=False, default=False)
     template_ids = db.Column(db.JSON, nullable=True)
     # The draft note(s) produced — a JSON list, one per template (or one for the
     # raw transcript). All share the audio's transcript_group_id (siblings).

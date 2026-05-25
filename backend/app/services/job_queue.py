@@ -26,12 +26,13 @@ _start_lock = threading.Lock()
 _wake = threading.Event()
 
 
-def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, label=None):
+def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, diarize=False, label=None):
     """Create a queued transcription job and wake the worker. Returns the Job.
 
     `template_ids` is the (possibly empty) list of simple templates to format
     the single transcript through — one draft note per template, or one raw
-    note when empty. Caller commits (so AudioFile + Job land together).
+    note when empty. `diarize` labels speakers once before formatting. Caller
+    commits (so AudioFile + Job land together).
     """
     from app.extensions import db
     from app.models import Job
@@ -41,6 +42,7 @@ def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, label=
         type="transcription",
         status=Job.STATUS_QUEUED,
         audio_file_id=audio_file_id,
+        diarize=bool(diarize),
         template_ids=list(template_ids) if template_ids else None,
         label=(label or None),
         progress=0,
@@ -131,7 +133,7 @@ def _process_transcription(app, job_id):
 
     from app.extensions import db
     from app.models import AudioFile, Job, Note, Template, User
-    from app.services import audio_storage, dictation_markers, ollama_client
+    from app.services import audio_storage, diarization, dictation_markers, ollama_client
     from app.services import settings as settings_service
     from app.services import vocabulary, whisper
 
@@ -166,7 +168,7 @@ def _process_transcription(app, job_id):
             # 2. Transcribe ONCE (batched, with progress). Transcription is the
             #    expensive shared step; formatting then fans out per template.
             effective_vocab = vocabulary.get_effective_vocabulary(author_id)
-            raw_text, words = "", []
+            raw_text, words, whisper_segments = "", [], []
             last_pct = 0
             job.stage = "transcribing"
             db.session.commit()
@@ -176,13 +178,13 @@ def _process_transcription(app, job_id):
                 batched=True,
             ):
                 if kind == "progress":
-                    pct = int(float(payload) * 70)  # reserve 70-100 for format/save
+                    pct = int(float(payload) * 65)  # reserve 65-100 for diarize/format/save
                     if pct >= last_pct + 10:
                         last_pct = pct
                         job.progress = pct
                         db.session.commit()
                 elif kind == "result":
-                    raw_text, _segments, words = payload
+                    raw_text, whisper_segments, words = payload
 
             # 3. Dictation markers + abbreviations, mirroring /api/transcribe.
             if settings_service.get_dictation_markers_enabled():
@@ -190,6 +192,24 @@ def _process_transcription(app, job_id):
             raw_text = vocabulary.apply_abbreviations(
                 raw_text, vocabulary.get_effective_abbreviations(author_id)
             )
+
+            # 3b. Diarize ONCE if requested + available, then share the labeled
+            #     transcript across every fanned-out note. Needs the WAV, so it
+            #     runs before the temp files are cleaned up. Best-effort: on any
+            #     failure we keep the non-diarized transcript.
+            segments = None
+            if job.diarize and diarization.is_available():
+                job.stage = "labeling speakers"
+                job.progress = 70
+                db.session.commit()
+                try:
+                    turns = diarization.diarize_path(audio_path)
+                    merged = diarization.merge_segments(whisper_segments, turns)
+                    if merged:
+                        segments = merged
+                        raw_text = diarization.segments_to_text(merged)
+                except Exception as e:
+                    logger.warning("Job %s diarization failed, keeping flat transcript: %s", job_id, e)
         finally:
             for p in (src_path, audio_path):
                 try:
@@ -234,7 +254,7 @@ def _process_transcription(app, job_id):
             note = Note(
                 note_content_raw=raw_text,
                 note_content_markdown=markdown,
-                note_content_segments=None,
+                note_content_segments=segments,
                 note_content_words=words or None,
                 note_type="text",
                 note_date=audio_created or datetime.utcnow(),

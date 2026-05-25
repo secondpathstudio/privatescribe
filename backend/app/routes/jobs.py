@@ -29,6 +29,7 @@ def _serialize(job: Job) -> dict:
         "stage": job.stage,
         "label": job.label,
         "audioFileId": job.audio_file_id,
+        "diarize": job.diarize,
         "templateIds": job.template_ids or [],
         "noteIds": job.note_ids or [],
         "error": job.error_text,
@@ -74,6 +75,8 @@ def upload_and_enqueue():
             return jsonify({"error": "Only simple templates can format a queued transcription."}), 400
         template_ids.append(tid)
 
+    diarize = (request.form.get('diarize') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
     file.seek(0)
     stored_filename, size_bytes = audio_storage.save_encrypted(file.stream)
     audio = AudioFile(
@@ -87,7 +90,7 @@ def upload_and_enqueue():
     db.session.flush()
 
     job = job_queue.enqueue_transcription(
-        current_user, audio.id, template_ids=template_ids, label=file.filename
+        current_user, audio.id, template_ids=template_ids, diarize=diarize, label=file.filename
     )
     db.session.flush()
     log_action(
@@ -95,7 +98,7 @@ def upload_and_enqueue():
         user_id=current_user,
         resource_type='job',
         resource_id=job.id,
-        extra={'audio_file_id': audio.id, 'template_ids': template_ids},
+        extra={'audio_file_id': audio.id, 'template_ids': template_ids, 'diarize': diarize},
     )
     db.session.commit()
     return jsonify(_serialize(job)), 201
