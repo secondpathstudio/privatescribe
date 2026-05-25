@@ -3,11 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ArrowUpDown } from "lucide-react";
 import { useAuth } from "@/context/auth-context";
+import { isSuperAdmin } from "@/lib/roles";
 import ResetPasswordModal from "@/components/admin/ResetPasswordModal";
 import Reset2FAModal from "@/components/admin/Reset2FAModal";
 import DeactivateUserModal from "@/components/admin/DeactivateUserModal";
 import ManageRolesModal from "@/components/admin/ManageRolesModal";
 import UnlockAccountModal from "@/components/admin/UnlockAccountModal";
+import ChangeOrgModal from "@/components/admin/ChangeOrgModal";
 
 interface User {
   id: string;
@@ -41,6 +43,9 @@ export default function UsersTable({ users }: { users: User[] }) {
   >(null);
   const [rolesTarget, setRolesTarget] = useState<User | null>(null);
   const [unlockTarget, setUnlockTarget] = useState<User | null>(null);
+  const [orgTarget, setOrgTarget] = useState<User | null>(null);
+  // Only a super-admin can move users between organizations.
+  const superAdmin = isSuperAdmin(auth.user?.role);
 
   const handleSort = (key: keyof User) => {
     let direction: "asc" | "desc" = "asc";
@@ -173,7 +178,19 @@ export default function UsersTable({ users }: { users: User[] }) {
                   </button>
                 </TableCell>
                 <TableCell>
-                  {user.organization?.name ? (
+                  {superAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => setOrgTarget(user)}
+                      className="text-left hover:opacity-70"
+                    >
+                      {user.organization?.name ? (
+                        <span className="text-sm underline">{user.organization.name}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground underline">Assign organization</span>
+                      )}
+                    </button>
+                  ) : user.organization?.name ? (
                     <span className="text-sm">{user.organization.name}</span>
                   ) : (
                     <span className="text-xs text-muted-foreground">—</span>
@@ -286,6 +303,19 @@ export default function UsersTable({ users }: { users: User[] }) {
           onSaved={(roles) =>
             setData((prev) =>
               prev.map((u) => (u.id === rolesTarget.id ? { ...u, roles } : u)),
+            )
+          }
+        />
+      )}
+      {orgTarget && (
+        <ChangeOrgModal
+          userId={orgTarget.id}
+          userEmail={orgTarget.email}
+          currentOrgId={orgTarget.organization?.id ?? null}
+          onClose={() => setOrgTarget(null)}
+          onSaved={(org) =>
+            setData((prev) =>
+              prev.map((u) => (u.id === orgTarget.id ? { ...u, organization: org } : u)),
             )
           }
         />

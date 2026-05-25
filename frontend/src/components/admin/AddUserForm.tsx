@@ -2,12 +2,13 @@ import { API_BASE } from "@/lib/api";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
 import { useAuth } from "@/context/auth-context";
+import { isSuperAdmin } from "@/lib/roles";
 
 const schema = z
   .object({
@@ -20,6 +21,9 @@ const schema = z
     password: z.string().min(8, "Password must be at least 8 characters"),
     confirmPassword: z.string(),
     role: z.enum(["user", "admin"]),
+    // Super-admin only: which organization to place the user in. Org-admins
+    // omit it and the backend uses their own org.
+    organizationId: z.string().optional(),
   })
   .refine((d) => d.password === d.confirmPassword, {
     message: "Passwords do not match",
@@ -35,6 +39,19 @@ export default function AddUserForm({ onSuccess, onCancel }: Props) {
   const auth = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  const superAdmin = isSuperAdmin(auth.user?.role);
+  const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
+
+  // Super-admins choose which department a new user joins; load the list.
+  useEffect(() => {
+    if (!superAdmin) return;
+    fetch(`${API_BASE}/api/admin/organization/list`, {
+      headers: { Authorization: `Bearer ${auth.token}` },
+    })
+      .then((r) => (r.ok ? r.json() : { organizations: [] }))
+      .then((d) => setOrgs(d.organizations ?? []))
+      .catch(() => setOrgs([]));
+  }, [superAdmin, auth.token]);
 
   const {
     register,
@@ -62,6 +79,8 @@ export default function AddUserForm({ onSuccess, onCancel }: Props) {
           email: formData.email,
           password: formData.password,
           role: formData.role,
+          // Only meaningful for a super-admin; backend ignores it otherwise.
+          ...(formData.organizationId ? { organizationId: formData.organizationId } : {}),
         }),
       });
       const data = await response.json();
@@ -119,6 +138,22 @@ export default function AddUserForm({ onSuccess, onCancel }: Props) {
           <option value="admin">Admin</option>
         </select>
       </div>
+      {superAdmin && (
+        <div>
+          <Label htmlFor="organizationId">Organization</Label>
+          <select
+            id="organizationId"
+            className="block w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            defaultValue=""
+            {...register("organizationId")}
+          >
+            <option value="">— None (central) —</option>
+            {orgs.map((o) => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
       {serverError && <p className="text-red-500 text-sm">{serverError}</p>}
       <div className="flex gap-4 pt-2">
         <NeoButton

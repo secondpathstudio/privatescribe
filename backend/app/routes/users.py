@@ -4,10 +4,11 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db, limiter
-from app.models import Organization, Role, User
+from app.models import (AudioFile, Note, NoteAddendum, Organization,
+                        Participant, Role, Template, User)
 from app.security import account_lockout, password_policy, sessions
 from app.security.auth import (ROLE_ADMIN, ROLE_SUPER_ADMIN, is_super_admin,
-                               require_admin)
+                               require_admin, require_super_admin)
 from app.services import two_factor
 from app.services.audit import log_action
 
@@ -518,4 +519,64 @@ def admin_set_user_roles(user_id):
     return jsonify({
         "userId": target.id,
         "roles": [{"id": r.id, "name": r.name} for r in target.roles],
+    }), 200
+
+
+# PHI models owned by a user (via author_id) whose organization_id must move
+# with the user on reassignment, or the org-guard would hide the user's own
+# history (it filters reads by the user's *current* org). Mirrors the
+# author-owned set in services/org_stamp.py (AuditLog is intentionally excluded
+# — audit rows record the org an action happened in and must not be rewritten).
+_USER_PHI_MODELS = (Note, Template, Participant, AudioFile, NoteAddendum)
+
+
+@bp.route('/api/admin/users/<string:user_id>/organization', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_super_admin
+def admin_set_user_organization(user_id):
+    """Move a user to a different organization (department). Super-admin only —
+    this is a cross-org action. Re-stamps the user's owned PHI (notes,
+    templates, participants, audio, addenda) to the new org so their history
+    follows them and stays visible under the org-guard. Audit rows are left as
+    they were (they record where each action originally happened)."""
+    data = request.get_json(silent=True) or {}
+    org_id = data.get('organizationId')
+    if not org_id:
+        return jsonify({"error": "organizationId is required"}), 400
+
+    target = User.query.get(user_id)
+    if not target:
+        return jsonify({"error": "User not found"}), 404
+    # A super-admin is org-less central IT by design; don't pin them to an org.
+    if is_super_admin(target):
+        return jsonify({"error": "Super-admin accounts are not part of an organization"}), 400
+
+    new_org = Organization.query.get(org_id)
+    if not new_org:
+        return jsonify({"error": "organizationId does not exist"}), 400
+
+    if target.organization_id == new_org.id:
+        return jsonify({"error": "User is already in that organization"}), 400
+
+    target.organization_id = new_org.id
+    # Move the user's owned PHI to the new org in the same transaction.
+    restamped = 0
+    for model in _USER_PHI_MODELS:
+        restamped += model.query.filter(model.author_id == user_id).update(
+            {model.organization_id: new_org.id}, synchronize_session=False
+        )
+
+    log_action(
+        'admin.user_org_set',
+        user_id=get_jwt_identity(),
+        resource_type='user',
+        resource_id=target.id,
+        extra={'target_email': target.email, 'organization_id': new_org.id,
+               'organization_name': new_org.name, 'phi_rows_restamped': restamped},
+    )
+    db.session.commit()
+    return jsonify({
+        "userId": target.id,
+        "organization": {"id": new_org.id, "name": new_org.name},
+        "phiRowsRestamped": restamped,
     }), 200
