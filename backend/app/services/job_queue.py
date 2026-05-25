@@ -149,13 +149,18 @@ def _process_transcription(app, job_id):
         audio_created = audio.created_at
         existing_group = audio.transcript_group_id
 
-        # 1. Decrypt the stored audio to a temp WAV for the model.
-        fd, audio_path = tempfile.mkstemp(suffix=".wav")
-        os.close(fd)
+        # 1. Decrypt the stored audio, then transcode to 16 kHz mono WAV (the
+        #    upload may be mp3/m4a/webm) — exactly what /api/transcribe does via
+        #    prepare_wav, so the model gets the format it expects.
+        src_fd, src_path = tempfile.mkstemp(suffix=".upload")
+        os.close(src_fd)
+        wav_fd, audio_path = tempfile.mkstemp(suffix=".wav")
+        os.close(wav_fd)
         try:
-            with open(audio_path, "wb") as f:
+            with open(src_path, "wb") as f:
                 for chunk in audio_storage.open_decrypted_stream(stored_filename):
                     f.write(chunk)
+            whisper._transcode_to_wav(src_path, audio_path)
 
             # 2. Transcribe (batched, with progress), updating the job as it goes.
             effective_vocab = vocabulary.get_effective_vocabulary(author_id)
@@ -241,7 +246,8 @@ def _process_transcription(app, job_id):
             db.session.commit()
             logger.info("Job %s done -> note %s", job_id, note.id)
         finally:
-            try:
-                os.unlink(audio_path)
-            except OSError:
-                pass
+            for p in (src_path, audio_path):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass

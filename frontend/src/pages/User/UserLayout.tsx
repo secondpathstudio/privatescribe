@@ -9,6 +9,7 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/notes", label: "Notes" },
       { to: "/templates", label: "Templates" },
+      { to: "/queue", label: "Upload Queue" },
     ],
   },
   {

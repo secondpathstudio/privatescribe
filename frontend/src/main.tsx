@@ -24,6 +24,7 @@ import SingleTemplate from './pages/Templates/id/SingleTemplate.tsx'
 import Roadmap from './pages/Roadmap/Roadmap.tsx'
 import Account from './pages/Account/Account.tsx'
 import UserLayout from './pages/User/UserLayout.tsx'
+import UploadQueue from './pages/User/UploadQueue.tsx'
 import AdminLayout from './pages/Admin/AdminLayout.tsx'
 import OverviewSection from './pages/Admin/sections/Overview.tsx'
 import UsersSection from './pages/Admin/sections/Users.tsx'
@@ -82,6 +83,8 @@ createRoot(document.getElementById('root')!).render(
               <Route path="new" element={<NewTemplate />} />
               <Route path=":id" element={<SingleTemplate />} />
             </Route>
+
+            <Route path="queue" element={<UploadQueue />} />
 
             <Route path="account" element={<Account />} />
           </Route>
