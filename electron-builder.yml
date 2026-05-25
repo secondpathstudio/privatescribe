@@ -89,6 +89,14 @@ mac:
   # extendInfo merges these keys into the generated Info.plist.
   extendInfo:
     NSMicrophoneUsageDescription: "PrivateScribe uses the microphone to record audio for transcription. All audio is processed locally on your device and never uploaded."
+    # macOS Local Network Privacy: without these, a sandboxed/hardened app's
+    # Bonjour browse silently returns nothing (the OS gates multicast + local
+    # connections per app, and only allowlisted service types are returned).
+    # NSBonjourServices must list every type the client browses; the client
+    # auto-discovery (electron/main.ts client:discover) browses _privatescribe._tcp.
+    NSLocalNetworkUsageDescription: "PrivateScribe looks for PrivateScribe servers on your local network so you can connect to one. Nothing leaves your network."
+    NSBonjourServices:
+      - _privatescribe._tcp
   icon: electron/assets/icon.icns
   identity: "Grant Nelson (C3G762929W)"
   hardenedRuntime: true
