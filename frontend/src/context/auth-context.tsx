@@ -1,6 +1,7 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { API_BASE } from "@/lib/api";
-import { clearAuth, getStoredToken, getStoredUser, saveAuth, saveUser } from "@/lib/token-store";
+import { clearAuth, getStoredToken, getStoredUser, saveAuth, saveUser, subscribeToken } from "@/lib/token-store";
 
 interface AuthContextType {
   token: string | null;
@@ -61,6 +62,23 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(getStoredToken());
   const [user, setUser] = useState<User | null>(getStoredUser<User>());
+
+  useEffect(() => {
+    // The fetch interceptor (lib/auth-fetch) refreshes or clears the token
+    // outside React; mirror those changes into state so components re-render
+    // with the fresh token (or get bounced to login when the session ends).
+    const unsub = subscribeToken((t) => setToken(t));
+    const onExpired = () => {
+      setToken(null);
+      setUser(null);
+      toast.error("Your session ended. Please sign in again.");
+    };
+    window.addEventListener("privatescribe:auth-expired", onExpired);
+    return () => {
+      unsub();
+      window.removeEventListener("privatescribe:auth-expired", onExpired);
+    };
+  }, []);
 
   const login = (newToken: string, refreshToken: string, user: User) => {
     setToken(newToken);

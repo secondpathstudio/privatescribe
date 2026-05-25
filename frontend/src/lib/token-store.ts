@@ -64,14 +64,17 @@ export function getStoredUser<T = unknown>(): T | null {
 
 /** Persist the full token set + user (on login). `userJson` is pre-serialized. */
 export function saveAuth(accessToken: string, refreshToken: string, userJson: string): void {
+  currentAccess = accessToken;
+  currentRefresh = refreshToken;
   const s = secure();
   if (s) {
     void s.set({ [ACCESS]: accessToken, [REFRESH]: refreshToken, [USER]: userJson });
-    return;
+  } else {
+    localStorage.setItem(ACCESS, accessToken);
+    localStorage.setItem(REFRESH, refreshToken);
+    localStorage.setItem(USER, userJson);
   }
-  localStorage.setItem(ACCESS, accessToken);
-  localStorage.setItem(REFRESH, refreshToken);
-  localStorage.setItem(USER, userJson);
+  notifyToken(accessToken);
 }
 
 /** Persist just the user object (on profile/settings updates). */
@@ -86,12 +89,64 @@ export function saveUser(userJson: string): void {
 
 /** Forget everything (logout, ephemeral close, corrupt state). */
 export function clearAuth(): void {
+  currentAccess = null;
+  currentRefresh = null;
   const s = secure();
   if (s) {
     void s.clear();
-    return;
+  } else {
+    localStorage.removeItem(ACCESS);
+    localStorage.removeItem(REFRESH);
+    localStorage.removeItem(USER);
   }
-  localStorage.removeItem(ACCESS);
-  localStorage.removeItem(REFRESH);
-  localStorage.removeItem(USER);
+  notifyToken(null);
+}
+
+// --- In-memory token layer (live source of truth during a session) ----------
+// The encrypted snapshot is only the launch-time value; after a refresh writes
+// a new access token, reads must come from memory, not the stale snapshot. The
+// auth-fetch interceptor and the auth context both read/write through here.
+
+function getStoredRefresh(): string | null {
+  if (shouldDropEphemeral()) return null;
+  const s = secure();
+  if (s) return s.snapshot?.[REFRESH] ?? null;
+  return localStorage.getItem(REFRESH);
+}
+
+let currentAccess: string | null = getStoredToken();
+let currentRefresh: string | null = getStoredRefresh();
+
+type TokenSub = (token: string | null) => void;
+const tokenSubs = new Set<TokenSub>();
+
+function notifyToken(token: string | null): void {
+  tokenSubs.forEach((cb) => { try { cb(token); } catch { /* a bad subscriber can't break others */ } });
+}
+
+/** Subscribe to access-token changes (login, silent refresh, logout). Returns
+ *  an unsubscribe fn. Used by the auth context to keep its React state in sync
+ *  when the fetch interceptor refreshes the token outside React. */
+export function subscribeToken(cb: TokenSub): () => void {
+  tokenSubs.add(cb);
+  return () => { tokenSubs.delete(cb); };
+}
+
+/** The live access token (post-refresh-aware), for the fetch interceptor. */
+export function getAccessToken(): string | null {
+  return currentAccess;
+}
+
+/** The refresh token, for the fetch interceptor's /refresh call. */
+export function getRefreshToken(): string | null {
+  return currentRefresh;
+}
+
+/** Replace just the access token after a silent refresh; notifies subscribers. */
+export function setAccessToken(token: string): void {
+  currentAccess = token;
+  const s = secure();
+  if (s) void s.set({ [ACCESS]: token });
+  else localStorage.setItem(ACCESS, token);
+  notifyToken(token);
 }

@@ -49,6 +49,10 @@ import OnboardingWizard from './pages/Onboarding/OnboardingWizard.tsx'
 import UserOnboarding from './pages/Onboarding/UserOnboarding.tsx'
 import OllamaGate from './components/OllamaGate.tsx'
 import { Toaster } from './components/ui/sonner.tsx'
+import { installAuthFetch } from './lib/auth-fetch.ts'
+
+// Patch fetch for silent token refresh on 401 before any request fires.
+installAuthFetch()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
