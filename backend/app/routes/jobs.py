@@ -30,6 +30,7 @@ def _serialize(job: Job) -> dict:
         "label": job.label,
         "audioFileId": job.audio_file_id,
         "diarize": job.diarize,
+        "reviewBeforeFormat": job.review_before_format,
         "templateIds": job.template_ids or [],
         "noteIds": job.note_ids or [],
         "error": job.error_text,
@@ -37,6 +38,14 @@ def _serialize(job: Job) -> dict:
         "startedAt": job.started_at,
         "finishedAt": job.finished_at,
     }
+
+
+def _serialize_detail(job: Job) -> dict:
+    """List fields plus the held transcript — for the review screen."""
+    d = _serialize(job)
+    d["transcript"] = job.transcript
+    d["transcriptSegments"] = job.transcript_segments
+    return d
 
 
 @bp.route('/transcribe', methods=['POST'])
@@ -75,7 +84,9 @@ def upload_and_enqueue():
             return jsonify({"error": "Only simple templates can format a queued transcription."}), 400
         template_ids.append(tid)
 
-    diarize = (request.form.get('diarize') or '').strip().lower() in ('1', 'true', 'yes', 'on')
+    truthy = ('1', 'true', 'yes', 'on')
+    diarize = (request.form.get('diarize') or '').strip().lower() in truthy
+    review = (request.form.get('reviewBeforeFormat') or '').strip().lower() in truthy
 
     file.seek(0)
     stored_filename, size_bytes = audio_storage.save_encrypted(file.stream)
@@ -90,7 +101,8 @@ def upload_and_enqueue():
     db.session.flush()
 
     job = job_queue.enqueue_transcription(
-        current_user, audio.id, template_ids=template_ids, diarize=diarize, label=file.filename
+        current_user, audio.id, template_ids=template_ids, diarize=diarize,
+        review_before_format=review, label=file.filename,
     )
     db.session.flush()
     log_action(
@@ -98,7 +110,8 @@ def upload_and_enqueue():
         user_id=current_user,
         resource_type='job',
         resource_id=job.id,
-        extra={'audio_file_id': audio.id, 'template_ids': template_ids, 'diarize': diarize},
+        extra={'audio_file_id': audio.id, 'template_ids': template_ids,
+               'diarize': diarize, 'review_before_format': review},
     )
     db.session.commit()
     return jsonify(_serialize(job)), 201
@@ -126,6 +139,43 @@ def get_job(job_id):
     job = Job.query.filter_by(id=job_id, author_id=current_user).first()
     if not job:
         return jsonify({"error": "Job not found"}), 404
+    return jsonify(_serialize_detail(job))
+
+
+@bp.route('/<string:job_id>/approve', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def approve_job(job_id):
+    """Approve a reviewed transcript and resume formatting. Optional body
+    `transcript` replaces the held text (the user's corrections); then the job
+    re-queues and the worker fans it out to the chosen templates."""
+    current_user = get_jwt_identity()
+    job = Job.query.filter_by(id=job_id, author_id=current_user).first()
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if job.status != Job.STATUS_AWAITING_REVIEW:
+        return jsonify({"error": f"Job is {job.status}, not awaiting review."}), 409
+
+    data = request.get_json(silent=True) or {}
+    corrected = data.get('transcript')
+    if isinstance(corrected, str) and corrected.strip() and corrected != job.transcript:
+        # The user edited the text; the old diarized segments may no longer line
+        # up, so drop them — the edited transcript is the source of truth.
+        job.transcript = corrected
+        job.transcript_segments = None
+    # Re-queue for the formatting phase (transcript is present, so the worker
+    # skips transcription and goes straight to fan-out).
+    job.status = Job.STATUS_QUEUED
+    job.stage = "queued for formatting"
+    job.error_text = None
+    db.session.commit()
+    job_queue.wake()
+    log_action(
+        'job.approve',
+        user_id=current_user,
+        resource_type='job',
+        resource_id=job.id,
+    )
     return jsonify(_serialize(job))
 
 
@@ -139,7 +189,7 @@ def cancel_job(job_id):
     job = Job.query.filter_by(id=job_id, author_id=current_user).first()
     if not job:
         return jsonify({"error": "Job not found"}), 404
-    if job.status != Job.STATUS_QUEUED:
+    if job.status not in (Job.STATUS_QUEUED, Job.STATUS_AWAITING_REVIEW):
         return jsonify({"error": f"Can't cancel a job that is {job.status}."}), 409
     job.status = Job.STATUS_CANCELED
     job.finished_at = datetime.utcnow()

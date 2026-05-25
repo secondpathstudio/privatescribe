@@ -18,8 +18,11 @@ class Job(db.Model):
     org-guard doesn't filter it (it processes every org's queue).
     """
     # queued -> running -> (done | failed | canceled)
+    # When review_before_format is set, a job instead parks at awaiting_review
+    # after transcription/diarization; approving it re-queues for formatting.
     STATUS_QUEUED = "queued"
     STATUS_RUNNING = "running"
+    STATUS_AWAITING_REVIEW = "awaiting_review"
     STATUS_DONE = "done"
     STATUS_FAILED = "failed"
     STATUS_CANCELED = "canceled"
@@ -44,6 +47,13 @@ class Job(db.Model):
     # Label speakers (pyannote) before formatting — run once, shared by every
     # fanned-out note. No-op when diarization isn't configured on this server.
     diarize = db.Column(db.Boolean, nullable=False, default=False)
+    # Hold at `awaiting_review` after transcription/diarization so the user can
+    # fix the transcript ONCE before any LLM formatting fans out (avoids N bad
+    # notes off a poorly-diarized transcript). The held transcript lives below.
+    review_before_format = db.Column(db.Boolean, nullable=False, default=False)
+    transcript = db.Column(db.Text, nullable=True)
+    transcript_segments = db.Column(db.JSON, nullable=True)
+    transcript_words = db.Column(db.JSON, nullable=True)
     template_ids = db.Column(db.JSON, nullable=True)
     # The draft note(s) produced — a JSON list, one per template (or one for the
     # raw transcript). All share the audio's transcript_group_id (siblings).

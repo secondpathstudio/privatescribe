@@ -21,14 +21,16 @@ type Tpl = { id: string; name: string; templateType: string };
 
 // A file staged for upload — not sent until the user starts the batch. Each
 // carries its own set of templates; the transcript is produced once and
-// formatted through each (one draft note per template).
-type Staged = { uid: string; file: File; templateIds: string[]; diarize: boolean };
+// formatted through each (one draft note per template). `review` holds the job
+// after transcription so the transcript can be fixed before formatting.
+type Staged = { uid: string; file: File; templateIds: string[]; diarize: boolean; review: boolean };
 
-const ACTIVE = new Set(["queued", "running"]);
+const ACTIVE = new Set(["queued", "running", "awaiting_review"]);
 
 const STATUS_STYLE: Record<string, string> = {
   queued: "bg-white",
   running: "bg-[#ffff00]",
+  awaiting_review: "bg-orange-200 text-orange-900",
   done: "bg-[#c6f6d5] text-green-900",
   failed: "bg-red-200 text-red-900",
   canceled: "bg-gray-200 text-gray-700",
@@ -101,10 +103,15 @@ export default function UploadQueue() {
   const [templates, setTemplates] = useState<Tpl[]>([]);
   const [defaultTemplateIds, setDefaultTemplateIds] = useState<string[]>([]);
   const [defaultDiarize, setDefaultDiarize] = useState(false);
+  const [defaultReview, setDefaultReview] = useState(false);
   const [staged, setStaged] = useState<Staged[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // The awaiting-review job open in the review panel + its (editable) transcript.
+  const [reviewing, setReviewing] = useState<Job | null>(null);
+  const [reviewText, setReviewText] = useState("");
+  const [approving, setApproving] = useState(false);
 
   const authHeader = { Authorization: `Bearer ${auth.token}` };
 
@@ -151,7 +158,10 @@ export default function UploadQueue() {
     if (!audio.length) return;
     setStaged((prev) => [
       ...prev,
-      ...audio.map((file) => ({ uid: `s${_uid++}`, file, templateIds: [...defaultTemplateIds], diarize: defaultDiarize })),
+      ...audio.map((file) => ({
+        uid: `s${_uid++}`, file, templateIds: [...defaultTemplateIds],
+        diarize: defaultDiarize, review: defaultReview,
+      })),
     ]);
     if (inputRef.current) inputRef.current.value = "";
   };
@@ -164,13 +174,22 @@ export default function UploadQueue() {
   };
   const applyDefaultDiarize = (v: boolean) => {
     setDefaultDiarize(v);
-    setStaged((prev) => prev.map((s) => ({ ...s, diarize: v })));
+    // Reviewing a transcript pays off most when speakers were labeled, so turn
+    // review on alongside diarization (still independently toggleable).
+    setDefaultReview((r) => (v ? true : r));
+    setStaged((prev) => prev.map((s) => ({ ...s, diarize: v, review: v ? true : s.review })));
+  };
+  const applyDefaultReview = (v: boolean) => {
+    setDefaultReview(v);
+    setStaged((prev) => prev.map((s) => ({ ...s, review: v })));
   };
 
   const setRowTemplates = (uid: string, ids: string[]) =>
     setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, templateIds: ids } : s)));
   const setRowDiarize = (uid: string, v: boolean) =>
     setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, diarize: v } : s)));
+  const setRowReview = (uid: string, v: boolean) =>
+    setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, review: v } : s)));
 
   const removeRow = (uid: string) => setStaged((prev) => prev.filter((s) => s.uid !== uid));
 
@@ -183,6 +202,7 @@ export default function UploadQueue() {
       fd.append("audio", row.file);
       for (const id of row.templateIds) fd.append("templateIds", id);
       if (row.diarize) fd.append("diarize", "true");
+      if (row.review) fd.append("reviewBeforeFormat", "true");
       try {
         const r = await fetch(`${API_BASE}/api/jobs/transcribe`, { method: "POST", headers: authHeader, body: fd });
         if (r.ok) {
@@ -199,6 +219,42 @@ export default function UploadQueue() {
     setUploading(false);
     if (ok) toast.success(`Queued ${ok} recording${ok === 1 ? "" : "s"} for transcription.`);
     refresh();
+  };
+
+  const openReview = async (id: string) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/jobs/${id}`, { headers: authHeader });
+      if (!r.ok) { toast.error("Couldn't load the transcript."); return; }
+      const job = await r.json();
+      setReviewing(job);
+      setReviewText(job.transcript ?? "");
+    } catch {
+      toast.error("Couldn't reach the server.");
+    }
+  };
+
+  const approve = async () => {
+    if (!reviewing) return;
+    setApproving(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/jobs/${reviewing.id}/approve`, {
+        method: "POST",
+        headers: { ...authHeader, "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript: reviewText }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast.error(d.error || "Couldn't approve.");
+        return;
+      }
+      toast.success("Approved — formatting now.");
+      setReviewing(null);
+      refresh();
+    } catch {
+      toast.error("Couldn't reach the server.");
+    } finally {
+      setApproving(false);
+    }
   };
 
   const cancel = async (id: string) => {
@@ -270,6 +326,15 @@ export default function UploadQueue() {
                 />
                 Label speakers
               </label>
+              <label className="flex items-center gap-1.5 text-xs font-bold" title="Pause after transcription so you can fix the transcript before it's formatted into notes.">
+                <input
+                  type="checkbox"
+                  checked={defaultReview}
+                  onChange={(e) => applyDefaultReview(e.target.checked)}
+                  disabled={uploading}
+                />
+                Review before formatting
+              </label>
             </div>
             <div className="flex gap-2">
               <NeoButton onClick={() => setStaged([])} disabled={uploading}>Clear</NeoButton>
@@ -302,6 +367,15 @@ export default function UploadQueue() {
                       disabled={uploading}
                     />
                     Speakers
+                  </label>
+                  <label className="flex items-center gap-1 text-[11px] font-bold" title="Review the transcript before formatting">
+                    <input
+                      type="checkbox"
+                      checked={s.review}
+                      onChange={(e) => setRowReview(s.uid, e.target.checked)}
+                      disabled={uploading}
+                    />
+                    Review
                   </label>
                   <TemplatePicker
                     templates={templates}
@@ -362,7 +436,12 @@ export default function UploadQueue() {
                         Draft {i + 1}
                       </Link>
                     ))}
-                    {j.status === "queued" && (
+                    {j.status === "awaiting_review" && (
+                      <button onClick={() => openReview(j.id)} className="border-2 border-black bg-orange-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider hover:bg-orange-400">
+                        Review
+                      </button>
+                    )}
+                    {(j.status === "queued" || j.status === "awaiting_review") && (
                       <button onClick={() => cancel(j.id)} className="text-xs font-bold underline hover:text-red-600">
                         Cancel
                       </button>
@@ -379,6 +458,30 @@ export default function UploadQueue() {
           </div>
         )}
       </div>
+
+      {reviewing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col border-4 border-black bg-white p-6 shadow-[8px_8px_0px_0px_#000000]">
+            <h2 className="text-2xl font-black uppercase">Review transcript</h2>
+            <p className="mt-1 break-all text-sm text-muted-foreground">{reviewing.label || "Recording"}</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Fix any transcription or speaker-labeling errors below, then approve — it'll be
+              formatted into {reviewing.templateIds.length > 1 ? `${reviewing.templateIds.length} notes` : "a note"} from this corrected text.
+            </p>
+            <textarea
+              value={reviewText}
+              onChange={(e) => setReviewText(e.target.value)}
+              className="mt-3 min-h-[18rem] flex-1 resize-none border-2 border-black p-3 font-mono text-sm focus:outline-none"
+            />
+            <div className="mt-4 flex items-center justify-end gap-3">
+              <NeoButton onClick={() => setReviewing(null)} disabled={approving}>Cancel</NeoButton>
+              <NeoButton onClick={approve} disabled={approving || !reviewText.trim()} backgroundColor="#fd3777" textColor="#ffffff">
+                {approving ? "Approving…" : "Approve & format"}
+              </NeoButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

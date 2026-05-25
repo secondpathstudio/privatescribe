@@ -26,7 +26,13 @@ _start_lock = threading.Lock()
 _wake = threading.Event()
 
 
-def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, diarize=False, label=None):
+def wake():
+    """Nudge the worker to look for work now (e.g. after an approval)."""
+    _wake.set()
+
+
+def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, diarize=False,
+                          review_before_format=False, label=None):
     """Create a queued transcription job and wake the worker. Returns the Job.
 
     `template_ids` is the (possibly empty) list of simple templates to format
@@ -43,6 +49,7 @@ def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, diariz
         status=Job.STATUS_QUEUED,
         audio_file_id=audio_file_id,
         diarize=bool(diarize),
+        review_before_format=bool(review_before_format),
         template_ids=list(template_ids) if template_ids else None,
         label=(label or None),
         progress=0,
@@ -152,70 +159,91 @@ def _process_transcription(app, job_id):
         audio_created = audio.created_at
         existing_group = audio.transcript_group_id
 
-        # 1. Decrypt the stored audio, then transcode to 16 kHz mono WAV (the
-        #    upload may be mp3/m4a/webm) — exactly what /api/transcribe does via
-        #    prepare_wav, so the model gets the format it expects.
-        src_fd, src_path = tempfile.mkstemp(suffix=".upload")
-        os.close(src_fd)
-        wav_fd, audio_path = tempfile.mkstemp(suffix=".wav")
-        os.close(wav_fd)
-        try:
-            with open(src_path, "wb") as f:
-                for chunk in audio_storage.open_decrypted_stream(stored_filename):
-                    f.write(chunk)
-            whisper._transcode_to_wav(src_path, audio_path)
+        # If the transcript is already held, the job was reviewed + approved —
+        # skip straight to formatting. Otherwise transcribe (+ diarize) now.
+        if job.transcript is not None:
+            raw_text = job.transcript
+            segments = job.transcript_segments
+            words = job.transcript_words or []
+        else:
+            # 1. Decrypt the stored audio, then transcode to 16 kHz mono WAV (the
+            #    upload may be mp3/m4a/webm) — exactly what /api/transcribe does
+            #    via prepare_wav, so the model gets the format it expects.
+            src_fd, src_path = tempfile.mkstemp(suffix=".upload")
+            os.close(src_fd)
+            wav_fd, audio_path = tempfile.mkstemp(suffix=".wav")
+            os.close(wav_fd)
+            try:
+                with open(src_path, "wb") as f:
+                    for chunk in audio_storage.open_decrypted_stream(stored_filename):
+                        f.write(chunk)
+                whisper._transcode_to_wav(src_path, audio_path)
 
-            # 2. Transcribe ONCE (batched, with progress). Transcription is the
-            #    expensive shared step; formatting then fans out per template.
-            effective_vocab = vocabulary.get_effective_vocabulary(author_id)
-            raw_text, words, whisper_segments = "", [], []
-            last_pct = 0
-            job.stage = "transcribing"
-            db.session.commit()
-            for kind, payload in whisper.transcribe_path_streaming(
-                audio_path,
-                initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
-                batched=True,
-            ):
-                if kind == "progress":
-                    pct = int(float(payload) * 65)  # reserve 65-100 for diarize/format/save
-                    if pct >= last_pct + 10:
-                        last_pct = pct
-                        job.progress = pct
-                        db.session.commit()
-                elif kind == "result":
-                    raw_text, whisper_segments, words = payload
-
-            # 3. Dictation markers + abbreviations, mirroring /api/transcribe.
-            if settings_service.get_dictation_markers_enabled():
-                raw_text = dictation_markers.apply_markers(raw_text)
-            raw_text = vocabulary.apply_abbreviations(
-                raw_text, vocabulary.get_effective_abbreviations(author_id)
-            )
-
-            # 3b. Diarize ONCE if requested + available, then share the labeled
-            #     transcript across every fanned-out note. Needs the WAV, so it
-            #     runs before the temp files are cleaned up. Best-effort: on any
-            #     failure we keep the non-diarized transcript.
-            segments = None
-            if job.diarize and diarization.is_available():
-                job.stage = "labeling speakers"
-                job.progress = 70
+                # 2. Transcribe ONCE (batched, with progress). Transcription is
+                #    the expensive shared step; formatting fans out per template.
+                effective_vocab = vocabulary.get_effective_vocabulary(author_id)
+                raw_text, words, whisper_segments = "", [], []
+                last_pct = 0
+                job.stage = "transcribing"
                 db.session.commit()
-                try:
-                    turns = diarization.diarize_path(audio_path)
-                    merged = diarization.merge_segments(whisper_segments, turns)
-                    if merged:
-                        segments = merged
-                        raw_text = diarization.segments_to_text(merged)
-                except Exception as e:
-                    logger.warning("Job %s diarization failed, keeping flat transcript: %s", job_id, e)
-        finally:
-            for p in (src_path, audio_path):
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
+                for kind, payload in whisper.transcribe_path_streaming(
+                    audio_path,
+                    initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
+                    batched=True,
+                ):
+                    if kind == "progress":
+                        pct = int(float(payload) * 60)  # reserve 60-100 for diarize/format/save
+                        if pct >= last_pct + 10:
+                            last_pct = pct
+                            job.progress = pct
+                            db.session.commit()
+                    elif kind == "result":
+                        raw_text, whisper_segments, words = payload
+
+                # 3. Dictation markers + abbreviations, mirroring /api/transcribe.
+                if settings_service.get_dictation_markers_enabled():
+                    raw_text = dictation_markers.apply_markers(raw_text)
+                raw_text = vocabulary.apply_abbreviations(
+                    raw_text, vocabulary.get_effective_abbreviations(author_id)
+                )
+
+                # 3b. Diarize ONCE if requested + available, then share the
+                #     labeled transcript across every fanned-out note. Needs the
+                #     WAV, so it runs before the temp files are cleaned up.
+                #     Best-effort: on failure we keep the non-diarized transcript.
+                segments = None
+                if job.diarize and diarization.is_available():
+                    job.stage = "labeling speakers"
+                    job.progress = 62
+                    db.session.commit()
+                    try:
+                        turns = diarization.diarize_path(audio_path)
+                        merged = diarization.merge_segments(whisper_segments, turns)
+                        if merged:
+                            segments = merged
+                            raw_text = diarization.segments_to_text(merged)
+                    except Exception as e:
+                        logger.warning("Job %s diarization failed, keeping flat transcript: %s", job_id, e)
+            finally:
+                for p in (src_path, audio_path):
+                    try:
+                        os.unlink(p)
+                    except OSError:
+                        pass
+
+            # 3c. Hold for review before any formatting, if asked. The user
+            #     fixes the transcript once; approving re-queues the job (now
+            #     with a held transcript), which resumes at the fan-out below.
+            if job.review_before_format:
+                job.transcript = raw_text
+                job.transcript_segments = segments
+                job.transcript_words = words or None
+                job.status = Job.STATUS_AWAITING_REVIEW
+                job.stage = "awaiting review"
+                job.progress = 65
+                db.session.commit()
+                logger.info("Job %s held for review", job_id)
+                return
 
         # 4. Fan out: one draft note per chosen template (or one raw note when
         #    none chosen). All notes share the audio's transcript_group_id, so
