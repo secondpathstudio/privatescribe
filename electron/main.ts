@@ -411,6 +411,17 @@ function registerClientIpc(): void {
     app.relaunch();
     app.exit(0);
   });
+
+  // Re-attempt loading the server-hosted SPA (from the connection-loss retry
+  // page). No-op outside server/client mode.
+  ipcMain.handle('client:retry-connection', () => {
+    const origin = serverOrigin(readAppMode());
+    if (origin && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(`${origin}/#/login`).catch(() => {
+        /* did-fail-load re-shows the retry page */
+      });
+    }
+  });
 }
 
 // --- Post-update service restart (Phase 9 item 7) -------------------------
@@ -556,6 +567,62 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/**
+ * A fully local "can't reach the server" page (a data: URL — no network, so it
+ * works precisely when the server is down). Shown in server/client mode when
+ * loading the SPA from the server fails, instead of Chromium's dead error page.
+ * Offers a manual retry and auto-reconnects: it polls the server and reloads
+ * the SPA the moment it's reachable again. `apiBase` is the server origin.
+ */
+function connectionErrorPage(apiBase: string, detail: string): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+    html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+    body{display:flex;flex-direction:column;align-items:center;justify-content:center;
+      background:#fff;color:#000;text-align:center;padding:24px;box-sizing:border-box;}
+    h1{font-size:24px;font-weight:900;margin:0 0 8px;letter-spacing:-0.5px;}
+    p{margin:0 0 6px;font-size:14px;color:#444;max-width:440px;line-height:1.4;}
+    .detail{font-size:12px;color:#aaa;margin-top:10px;}
+    button{margin-top:22px;font-weight:800;text-transform:uppercase;letter-spacing:1px;
+      background:#fd3777;color:#fff;border:3px solid #000;box-shadow:5px 5px 0 #000;
+      padding:12px 22px;cursor:pointer;font-size:14px;}
+    button:active{transform:translate(2px,2px);box-shadow:3px 3px 0 #000;}
+    .status{margin-top:16px;font-size:12px;color:#888;}
+  </style></head><body>
+    <h1>Can't reach the server</h1>
+    <p>PrivateScribe can't connect to your server right now. It may be turned
+       off or restarting, or this device may be on a different network.</p>
+    <p class="detail">${esc(detail)}</p>
+    <button onclick="retry()">Try again</button>
+    <div class="status">Checking automatically…</div>
+    <script>
+      var ORIGIN = ${JSON.stringify(apiBase)};
+      function retry(){ if (window.electron && window.electron.client) window.electron.client.retry(); }
+      // Poll for reachability (no-cors: resolves iff the server answered) and
+      // reload the SPA automatically when it comes back.
+      setInterval(function(){
+        fetch(ORIGIN + '/api/setup/status', { mode:'no-cors', cache:'no-store' })
+          .then(function(){ retry(); }).catch(function(){});
+      }, 4000);
+    </script>
+  </body></html>`;
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+}
+
+/**
+ * In server/client mode, catch a failed load of the server-hosted SPA and show
+ * the local retry page instead of a stuck Chromium error. Wired before the
+ * first load so even the initial connect is covered.
+ */
+function attachConnectionLossHandler(win: BrowserWindow, apiBase: string): void {
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDesc, _url, isMainFrame) => {
+    // Only the top-level document failing strands the user; ignore subresources
+    // and ABORTED (-3), which fires for superseded navigations (incl. our retry).
+    if (!isMainFrame || errorCode === -3) return;
+    win.loadURL(connectionErrorPage(apiBase, errorDesc || `Error ${errorCode}`)).catch(() => {});
+  });
+}
+
 async function createWindow(apiBase: string): Promise<void> {
   const deploymentMode = readAppMode().mode;
   const win = new BrowserWindow({
@@ -604,8 +671,12 @@ async function createWindow(apiBase: string): Promise<void> {
   } else if (deploymentMode === 'server' || deploymentMode === 'client') {
     // Load the SPA *from the server* (Caddy) so the page and /api are
     // same-origin — no CORS, and the cert-error handler trusts the load. This
-    // is also how a client renders a remote server's UI (Phase 10).
-    await win.loadURL(`${apiBase}/#/login`);
+    // is also how a client renders a remote server's UI (Phase 10). If the
+    // server is unreachable, did-fail-load swaps in the local retry page.
+    attachConnectionLossHandler(win, apiBase);
+    await win.loadURL(`${apiBase}/#/login`).catch(() => {
+      /* did-fail-load shows the retry screen */
+    });
   } else {
     // Standalone: load the built SPA from Resources/frontend (the extraResources
     // copy, shared with Caddy in server mode). It used to live in the asar, but

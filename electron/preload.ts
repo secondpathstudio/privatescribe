@@ -69,6 +69,9 @@ contextBridge.exposeInMainWorld('electron', {
     /** Switch this app into client mode for `url` and relaunch. Does not
      *  resolve — the app exits and reopens pointing at the server. */
     connect: (url: string): Promise<void> => ipcRenderer.invoke('client:connect', url),
+    /** Re-attempt loading the server-hosted SPA (from the connection-loss
+     *  retry page). */
+    retry: (): Promise<void> => ipcRenderer.invoke('client:retry-connection'),
   },
   // Encrypted-at-rest token storage (OS keychain via safeStorage). The desktop
   // client uses this instead of plaintext localStorage. `snapshot` is read

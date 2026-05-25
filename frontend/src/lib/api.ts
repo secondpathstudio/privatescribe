@@ -32,6 +32,8 @@ export type ElectronClient = {
   ) => Promise<{ ok: boolean; origin?: string; fingerprint?: string; error?: string }>;
   /** Switch into client mode for `url` and relaunch (does not resolve). */
   connect: (url: string) => Promise<void>;
+  /** Re-attempt loading the server-hosted SPA (connection-loss retry page). */
+  retry: () => Promise<void>;
 };
 
 /** Encrypted-at-rest token storage (OS keychain via Electron safeStorage),
