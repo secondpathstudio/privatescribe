@@ -28,8 +28,9 @@ def upgrade():
         sa.Column('type', sa.String(length=32), nullable=False),
         sa.Column('status', sa.String(length=16), nullable=False),
         sa.Column('audio_file_id', sa.String(length=36), nullable=True),
-        sa.Column('template_id', sa.String(length=36), nullable=True),
-        sa.Column('note_id', sa.String(length=36), nullable=True),
+        # JSON lists — a recording fans out into one note per template.
+        sa.Column('template_ids', sa.JSON(), nullable=True),
+        sa.Column('note_ids', sa.JSON(), nullable=True),
         sa.Column('progress', sa.Integer(), nullable=False),
         sa.Column('stage', sa.String(length=64), nullable=True),
         sa.Column('error_text', sa.Text(), nullable=True),
@@ -41,8 +42,6 @@ def upgrade():
         sa.ForeignKeyConstraint(['author_id'], ['user.id']),
         sa.ForeignKeyConstraint(['organization_id'], ['organization.id']),
         sa.ForeignKeyConstraint(['audio_file_id'], ['audio_file.id']),
-        sa.ForeignKeyConstraint(['template_id'], ['template.id']),
-        sa.ForeignKeyConstraint(['note_id'], ['note.id']),
         sa.PrimaryKeyConstraint('id'),
     )
     with op.batch_alter_table('job', schema=None) as batch_op:

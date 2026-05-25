@@ -11,7 +11,8 @@ type Job = {
   progress: number;
   stage: string | null;
   label: string | null;
-  noteId: string | null;
+  noteIds: string[];
+  templateIds: string[];
   error: string | null;
   createdAt: string;
 };
@@ -19,8 +20,9 @@ type Job = {
 type Tpl = { id: string; name: string; templateType: string };
 
 // A file staged for upload — not sent until the user starts the batch. Each
-// carries its own template choice so a mixed batch can be formatted per-file.
-type Staged = { uid: string; file: File; templateId: string };
+// carries its own set of templates; the transcript is produced once and
+// formatted through each (one draft note per template).
+type Staged = { uid: string; file: File; templateIds: string[] };
 
 const ACTIVE = new Set(["queued", "running"]);
 
@@ -42,11 +44,62 @@ function fmtSize(n: number): string {
 
 let _uid = 0;
 
+/** A checkbox dropdown for picking zero or more templates. Empty = raw transcript. */
+function TemplatePicker({
+  templates, selected, onChange, disabled,
+}: {
+  templates: Tpl[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const toggle = (id: string) =>
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
+  const summary =
+    selected.length === 0 ? "Raw transcript"
+    : selected.length === 1 ? (templates.find((t) => t.id === selected[0])?.name ?? "1 template")
+    : `${selected.length} templates`;
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 border-2 border-black bg-white px-2 py-1.5 text-xs font-bold disabled:opacity-50"
+      >
+        <span className="truncate max-w-[11rem]">{summary}</span>
+        <span>▾</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 max-h-64 w-60 overflow-auto border-2 border-black bg-white shadow-[4px_4px_0px_0px_#000000]">
+          {templates.length === 0 ? (
+            <div className="p-2 text-xs text-muted-foreground">No simple templates — raw transcript only.</div>
+          ) : (
+            templates.map((t) => (
+              <label key={t.id} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-yellow-100">
+                <input type="checkbox" checked={selected.includes(t.id)} onChange={() => toggle(t.id)} />
+                <span className="truncate">{t.name}</span>
+              </label>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function UploadQueue() {
   const auth = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [templates, setTemplates] = useState<Tpl[]>([]);
-  const [defaultTemplateId, setDefaultTemplateId] = useState("");
+  const [defaultTemplateIds, setDefaultTemplateIds] = useState<string[]>([]);
   const [staged, setStaged] = useState<Staged[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -54,7 +107,6 @@ export default function UploadQueue() {
 
   const authHeader = { Authorization: `Bearer ${auth.token}` };
 
-  // Simple templates the user owns, for the dropdowns.
   useEffect(() => {
     if (!auth.user?.id) return;
     fetch(`${API_BASE}/api/templates/user/${auth.user.id}`, { headers: authHeader })
@@ -64,7 +116,6 @@ export default function UploadQueue() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.user?.id]);
 
-  // Poll the server-side queue. Faster while anything is active.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -94,28 +145,25 @@ export default function UploadQueue() {
     } catch { /* the poll will catch up */ }
   };
 
-  const templateName = (id: string) => templates.find((t) => t.id === id)?.name ?? "Raw transcript";
-
-  // Add picked/dropped files as staged rows, each seeded with the default.
   const addFiles = (files: File[]) => {
     const audio = files.filter((f) => f.type.startsWith("audio") || AUDIO_RE.test(f.name));
     if (!audio.length) return;
     setStaged((prev) => [
       ...prev,
-      ...audio.map((file) => ({ uid: `s${_uid++}`, file, templateId: defaultTemplateId })),
+      ...audio.map((file) => ({ uid: `s${_uid++}`, file, templateIds: [...defaultTemplateIds] })),
     ]);
     if (inputRef.current) inputRef.current.value = "";
   };
 
-  // Changing the default re-applies it to every staged row, so the common case
-  // (one template for the whole batch) is one click; per-row tweaks come after.
-  const applyDefault = (id: string) => {
-    setDefaultTemplateId(id);
-    setStaged((prev) => prev.map((s) => ({ ...s, templateId: id })));
+  // Changing the default re-applies it to every staged row (the common batch
+  // case is one set of templates for all); per-row tweaks come after.
+  const applyDefault = (ids: string[]) => {
+    setDefaultTemplateIds(ids);
+    setStaged((prev) => prev.map((s) => ({ ...s, templateIds: [...ids] })));
   };
 
-  const setRowTemplate = (uid: string, id: string) =>
-    setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, templateId: id } : s)));
+  const setRowTemplates = (uid: string, ids: string[]) =>
+    setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, templateIds: ids } : s)));
 
   const removeRow = (uid: string) => setStaged((prev) => prev.filter((s) => s.uid !== uid));
 
@@ -123,16 +171,15 @@ export default function UploadQueue() {
     if (!staged.length) return;
     setUploading(true);
     let ok = 0;
-    const rows = [...staged];
-    for (const row of rows) {
+    for (const row of [...staged]) {
       const fd = new FormData();
       fd.append("audio", row.file);
-      if (row.templateId) fd.append("templateId", row.templateId);
+      for (const id of row.templateIds) fd.append("templateIds", id);
       try {
         const r = await fetch(`${API_BASE}/api/jobs/transcribe`, { method: "POST", headers: authHeader, body: fd });
         if (r.ok) {
           ok++;
-          setStaged((prev) => prev.filter((s) => s.uid !== row.uid)); // drop as it goes
+          setStaged((prev) => prev.filter((s) => s.uid !== row.uid));
         } else {
           const d = await r.json().catch(() => ({}));
           toast.error(`${row.file.name}: ${d.error || `upload failed (${r.status})`}`);
@@ -156,25 +203,17 @@ export default function UploadQueue() {
   };
 
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length;
-  const tplOptions = (
-    <>
-      <option value="">No formatting — raw transcript</option>
-      {templates.map((t) => (
-        <option key={t.id} value={t.id}>{t.name}</option>
-      ))}
-    </>
-  );
 
   return (
     <div className="max-w-3xl px-6 py-8">
       <h1 className="text-3xl font-black">Upload Queue</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Add recordings (e.g. off a portable recorder), pick a template per file
-        if you like, then start — PrivateScribe transcribes them into draft notes
-        in the background. You can leave this page; they keep processing.
+        Add recordings, choose one or more templates per file (the transcript is
+        produced once and run through each — e.g. an encounter note plus an
+        ICD-10 extract), then start. They transcribe into draft notes in the
+        background; you can leave this page.
       </p>
 
-      {/* Drop zone / add */}
       <div
         onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
@@ -201,23 +240,17 @@ export default function UploadQueue() {
         />
       </div>
 
-      {/* Staging table */}
       {staged.length > 0 && (
         <div className="mt-6">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <label htmlFor="defaultTpl" className="text-xs font-black uppercase tracking-wider">
-                Default template (applies to all)
-              </label>
-              <select
-                id="defaultTpl"
-                value={defaultTemplateId}
-                onChange={(e) => applyDefault(e.target.value)}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase tracking-wider">Default templates:</span>
+              <TemplatePicker
+                templates={templates}
+                selected={defaultTemplateIds}
+                onChange={applyDefault}
                 disabled={uploading}
-                className="mt-1 block w-72 border-2 border-black bg-white p-2 text-sm font-bold focus:outline-none"
-              >
-                {tplOptions}
-              </select>
+              />
             </div>
             <div className="flex gap-2">
               <NeoButton onClick={() => setStaged([])} disabled={uploading}>Clear</NeoButton>
@@ -230,24 +263,24 @@ export default function UploadQueue() {
           <div className="mt-3 border-4 border-black">
             <div className="grid grid-cols-[1fr_auto] gap-2 border-b-2 border-black bg-black px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white">
               <span>File</span>
-              <span>Template</span>
+              <span>Templates</span>
             </div>
             {staged.map((s) => (
               <div key={s.uid} className="grid grid-cols-[1fr_auto] items-center gap-2 border-b-2 border-black px-3 py-2 last:border-b-0">
                 <div className="min-w-0">
                   <div className="truncate font-bold">{s.file.name}</div>
-                  <div className="text-xs text-muted-foreground">{fmtSize(s.file.size)}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {fmtSize(s.file.size)}
+                    {s.templateIds.length > 1 && ` · ${s.templateIds.length} notes`}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <select
-                    value={s.templateId}
-                    onChange={(e) => setRowTemplate(s.uid, e.target.value)}
+                  <TemplatePicker
+                    templates={templates}
+                    selected={s.templateIds}
+                    onChange={(ids) => setRowTemplates(s.uid, ids)}
                     disabled={uploading}
-                    className="border-2 border-black bg-white p-1.5 text-xs font-bold focus:outline-none max-w-[12rem]"
-                    title={templateName(s.templateId)}
-                  >
-                    {tplOptions}
-                  </select>
+                  />
                   <button
                     onClick={() => removeRow(s.uid)}
                     disabled={uploading}
@@ -262,7 +295,6 @@ export default function UploadQueue() {
         </div>
       )}
 
-      {/* Server-side queue */}
       <div className="mt-8">
         <div className="flex items-baseline justify-between">
           <h2 className="text-lg font-black uppercase tracking-wider">Queue</h2>
@@ -292,11 +324,16 @@ export default function UploadQueue() {
                     ].join(" ")}>
                       {j.status}
                     </span>
-                    {j.status === "done" && j.noteId && (
-                      <Link to={`/notes/${j.noteId}`} className="text-xs font-bold underline hover:text-[#fd3777]">
+                    {j.status === "done" && j.noteIds.length === 1 && (
+                      <Link to={`/notes/${j.noteIds[0]}`} className="text-xs font-bold underline hover:text-[#fd3777]">
                         Open draft
                       </Link>
                     )}
+                    {j.status === "done" && j.noteIds.length > 1 && j.noteIds.map((nid, i) => (
+                      <Link key={nid} to={`/notes/${nid}`} className="text-xs font-bold underline hover:text-[#fd3777]">
+                        Draft {i + 1}
+                      </Link>
+                    ))}
                     {j.status === "queued" && (
                       <button onClick={() => cancel(j.id)} className="text-xs font-bold underline hover:text-red-600">
                         Cancel

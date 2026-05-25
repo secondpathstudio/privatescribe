@@ -29,8 +29,8 @@ def _serialize(job: Job) -> dict:
         "stage": job.stage,
         "label": job.label,
         "audioFileId": job.audio_file_id,
-        "templateId": job.template_id,
-        "noteId": job.note_id,
+        "templateIds": job.template_ids or [],
+        "noteIds": job.note_ids or [],
         "error": job.error_text,
         "createdAt": job.created_at,
         "startedAt": job.started_at,
@@ -44,9 +44,11 @@ def _serialize(job: Job) -> dict:
 def upload_and_enqueue():
     """Store an uploaded audio file and queue it for transcription.
 
-    Multipart: `audio` (the file) + optional `templateId` (a simple template,
-    owned by the caller, to format the draft with). One file per request — the
-    batch-upload UI calls this once per file. Returns the created Job.
+    Multipart: `audio` (the file) + zero or more `templateIds` (simple
+    templates, owned by the caller). The transcript is produced once and then
+    formatted through each template — one draft note per template (or one raw
+    note when none are given). One file per request — the batch-upload UI calls
+    this once per file. Returns the created Job.
     """
     current_user = get_jwt_identity()
 
@@ -58,15 +60,19 @@ def upload_and_enqueue():
     if not file or not file.filename:
         return jsonify({"error": "No audio file provided"}), 400
 
-    template_id = (request.form.get('templateId') or '').strip() or None
-    if template_id:
-        # Only the caller's own simple templates can format a queued job (for
-        # now — structured templates aren't run in the worker yet).
-        tpl = Template.query.filter_by(id=template_id, author_id=current_user, is_deleted=False).first()
+    # Dedupe while preserving order; validate each is the caller's own simple
+    # template (structured templates aren't run in the worker yet).
+    template_ids = []
+    for tid in request.form.getlist('templateIds'):
+        tid = (tid or '').strip()
+        if not tid or tid in template_ids:
+            continue
+        tpl = Template.query.filter_by(id=tid, author_id=current_user, is_deleted=False).first()
         if not tpl:
-            return jsonify({"error": "templateId not found"}), 400
+            return jsonify({"error": f"template {tid} not found"}), 400
         if tpl.template_type != 'simple':
             return jsonify({"error": "Only simple templates can format a queued transcription."}), 400
+        template_ids.append(tid)
 
     file.seek(0)
     stored_filename, size_bytes = audio_storage.save_encrypted(file.stream)
@@ -81,7 +87,7 @@ def upload_and_enqueue():
     db.session.flush()
 
     job = job_queue.enqueue_transcription(
-        current_user, audio.id, template_id=template_id, label=file.filename
+        current_user, audio.id, template_ids=template_ids, label=file.filename
     )
     db.session.flush()
     log_action(
@@ -89,7 +95,7 @@ def upload_and_enqueue():
         user_id=current_user,
         resource_type='job',
         resource_id=job.id,
-        extra={'audio_file_id': audio.id, 'template_id': template_id},
+        extra={'audio_file_id': audio.id, 'template_ids': template_ids},
     )
     db.session.commit()
     return jsonify(_serialize(job)), 201

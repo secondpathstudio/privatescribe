@@ -26,11 +26,12 @@ _start_lock = threading.Lock()
 _wake = threading.Event()
 
 
-def enqueue_transcription(author_id, audio_file_id, *, template_id=None, label=None):
+def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, label=None):
     """Create a queued transcription job and wake the worker. Returns the Job.
 
-    Caller is responsible for committing (so the AudioFile + Job land in one
-    transaction with the upload). organization_id is stamped on insert.
+    `template_ids` is the (possibly empty) list of simple templates to format
+    the single transcript through — one draft note per template, or one raw
+    note when empty. Caller commits (so AudioFile + Job land together).
     """
     from app.extensions import db
     from app.models import Job
@@ -40,7 +41,7 @@ def enqueue_transcription(author_id, audio_file_id, *, template_id=None, label=N
         type="transcription",
         status=Job.STATUS_QUEUED,
         audio_file_id=audio_file_id,
-        template_id=template_id,
+        template_ids=list(template_ids) if template_ids else None,
         label=(label or None),
         progress=0,
     )
@@ -143,7 +144,7 @@ def _process_transcription(app, job_id):
         if audio is None:
             raise ValueError("audio file for job not found")
         user = db.session.get(User, author_id)
-        template = db.session.get(Template, job.template_id) if job.template_id else None
+        template_ids = list(job.template_ids or [])
         stored_filename = audio.stored_filename
         original_name = audio.original_filename
         audio_created = audio.created_at
@@ -162,7 +163,8 @@ def _process_transcription(app, job_id):
                     f.write(chunk)
             whisper._transcode_to_wav(src_path, audio_path)
 
-            # 2. Transcribe (batched, with progress), updating the job as it goes.
+            # 2. Transcribe ONCE (batched, with progress). Transcription is the
+            #    expensive shared step; formatting then fans out per template.
             effective_vocab = vocabulary.get_effective_vocabulary(author_id)
             raw_text, words = "", []
             last_pct = 0
@@ -174,7 +176,7 @@ def _process_transcription(app, job_id):
                 batched=True,
             ):
                 if kind == "progress":
-                    pct = int(float(payload) * 80)  # reserve 80-100 for format/save
+                    pct = int(float(payload) * 70)  # reserve 70-100 for format/save
                     if pct >= last_pct + 10:
                         last_pct = pct
                         job.progress = pct
@@ -188,31 +190,47 @@ def _process_transcription(app, job_id):
             raw_text = vocabulary.apply_abbreviations(
                 raw_text, vocabulary.get_effective_abbreviations(author_id)
             )
+        finally:
+            for p in (src_path, audio_path):
+                try:
+                    os.unlink(p)
+                except OSError:
+                    pass
 
-            # 4. Optional LLM formatting when a (simple) template was chosen;
-            #    otherwise the markdown is the raw transcript so the draft is
-            #    never empty. (Structured templates: a later enhancement.)
+        # 4. Fan out: one draft note per chosen template (or one raw note when
+        #    none chosen). All notes share the audio's transcript_group_id, so
+        #    they're siblings of the same recording. Audio decode is already
+        #    done, so this loop is just (optional) LLM formatting + save.
+        group_id = existing_group or str(uuid.uuid4())
+        author_name = f"{user.first_name} {user.last_name}".strip() if user else "Unknown"
+        # Resolve the chosen templates (skip any that vanished / aren't simple).
+        templates = []
+        for tid in template_ids:
+            tpl = db.session.get(Template, tid)
+            if tpl is not None and not tpl.is_deleted and tpl.template_type == "simple":
+                templates.append(tpl)
+        targets = templates if templates else [None]  # None => raw-transcript note
+        note_ids: list[str] = []
+        for i, tpl in enumerate(targets):
+            job.stage = f"formatting ({i + 1}/{len(targets)})" if tpl else "saving"
+            job.progress = 70 + int((i / len(targets)) * 25)
+            db.session.commit()
+
             markdown = raw_text
-            if template is not None and template.template_type == "simple":
-                job.stage = "formatting"
-                job.progress = 85
-                db.session.commit()
-                model_name = template.llm_model or settings_service.get_llm_model()
+            if tpl is not None:
+                model_name = tpl.llm_model or settings_service.get_llm_model()
                 details = {"note_date": (audio_created or datetime.utcnow()).isoformat(), "participants": []}
                 try:
-                    markdown = ollama_client.generate_markdown(template, raw_text, details, model_name)
+                    markdown = ollama_client.generate_markdown(tpl, raw_text, details, model_name)
                 except Exception as e:
                     # Don't lose the transcript over a formatting failure — keep
-                    # the raw text as the draft body and note it.
-                    logger.warning("Job %s formatting failed, keeping raw text: %s", job_id, e)
+                    # the raw text as this draft's body.
+                    logger.warning("Job %s template %s formatting failed, keeping raw text: %s", job_id, tpl.id, e)
                     markdown = raw_text
 
-            # 5. Persist a draft note.
-            job.stage = "saving"
-            job.progress = 95
-            db.session.commit()
-            group_id = existing_group or str(uuid.uuid4())
-            author_name = f"{user.first_name} {user.last_name}".strip() if user else "Unknown"
+            base = job.label or original_name or "Recording"
+            # Distinguish siblings by the template that produced each.
+            name = f"{base} — {tpl.name}" if tpl is not None and len(targets) > 1 else base
             note = Note(
                 note_content_raw=raw_text,
                 note_content_markdown=markdown,
@@ -220,11 +238,11 @@ def _process_transcription(app, job_id):
                 note_content_words=words or None,
                 note_type="text",
                 note_date=audio_created or datetime.utcnow(),
-                name=(job.label or original_name or None),
+                name=name,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
                 author_name=author_name,
-                template_id=job.template_id,
+                template_id=(tpl.id if tpl is not None else None),
                 is_deleted=False,
                 transcript_group_id=group_id,
                 author_id=author_id,
@@ -232,22 +250,17 @@ def _process_transcription(app, job_id):
             )
             db.session.add(note)
             db.session.flush()
+            note_ids.append(note.id)
 
-            # Link the audio to this transcript group if it wasn't already.
-            if audio.transcript_group_id is None:
-                audio.transcript_group_id = group_id
-                audio.finalized_at = datetime.utcnow()
+        # Link the audio to this transcript group if it wasn't already.
+        if audio.transcript_group_id is None:
+            audio.transcript_group_id = group_id
+            audio.finalized_at = datetime.utcnow()
 
-            job.note_id = note.id
-            job.status = Job.STATUS_DONE
-            job.stage = "done"
-            job.progress = 100
-            job.finished_at = datetime.utcnow()
-            db.session.commit()
-            logger.info("Job %s done -> note %s", job_id, note.id)
-        finally:
-            for p in (src_path, audio_path):
-                try:
-                    os.unlink(p)
-                except OSError:
-                    pass
+        job.note_ids = note_ids
+        job.status = Job.STATUS_DONE
+        job.stage = "done"
+        job.progress = 100
+        job.finished_at = datetime.utcnow()
+        db.session.commit()
+        logger.info("Job %s done -> %d note(s)", job_id, len(note_ids))

@@ -34,11 +34,17 @@ class Job(db.Model):
     type = db.Column(db.String(32), nullable=False, default='transcription')
     status = db.Column(db.String(16), nullable=False, default=STATUS_QUEUED, index=True)
 
-    # What to process and (optionally) how to format it.
+    # What to process and how to format it. The transcript is produced ONCE;
+    # the LLM-format step then runs per template, so a single recording can
+    # fan out into several notes (e.g. encounter note + ICD-10 extract +
+    # interaction feedback). Stored as a JSON list of template ids (empty/None
+    # => one note with the raw transcript). FK can't be expressed on a JSON
+    # list, so the route validates the ids on enqueue.
     audio_file_id = db.Column(db.String(36), db.ForeignKey('audio_file.id'), nullable=True, index=True)
-    template_id = db.Column(db.String(36), db.ForeignKey('template.id'), nullable=True)
-    # The draft note produced — set when the job completes.
-    note_id = db.Column(db.String(36), db.ForeignKey('note.id'), nullable=True)
+    template_ids = db.Column(db.JSON, nullable=True)
+    # The draft note(s) produced — a JSON list, one per template (or one for the
+    # raw transcript). All share the audio's transcript_group_id (siblings).
+    note_ids = db.Column(db.JSON, nullable=True)
 
     # Coarse 0-100 progress plus a human-readable stage for the queue UI.
     progress = db.Column(db.Integer, nullable=False, default=0)
