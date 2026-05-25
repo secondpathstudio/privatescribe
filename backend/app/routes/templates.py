@@ -6,8 +6,8 @@ from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
-from app.models import Role, Template
-from app.security.auth import require_admin
+from app.models import Organization, Role, Template, User
+from app.security.auth import require_admin, require_super_admin
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
 from app.services.template_access import shared_template_ids_for_user, template_shared_with_user
@@ -223,6 +223,49 @@ def get_templates_for_user(user_id):
     )
 
     return jsonify([_serialize_template(t) for t in own + shared])
+
+
+@bp.route('/all', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_super_admin
+def list_all_templates():
+    """Every template across all organizations (super-admin / central IT).
+
+    A cross-org inventory: name, type, owner, organization, and shared roles.
+    Super-admins are exempt from the org-guard, so a plain query sees all orgs.
+    Excludes trashed templates unless include_deleted=true.
+    """
+    include_deleted = request.args.get('include_deleted', 'false').lower() == 'true'
+    q = Template.query
+    if not include_deleted:
+        q = q.filter_by(is_deleted=False)
+    templates = q.order_by(Template.name).all()
+
+    # Resolve owner + org names in two batched lookups (avoid N+1).
+    author_ids = {t.author_id for t in templates if t.author_id}
+    org_ids = {t.organization_id for t in templates if t.organization_id}
+    authors = {u.id: u for u in User.query.filter(User.id.in_(author_ids)).all()} if author_ids else {}
+    orgs = {o.id: o for o in Organization.query.filter(Organization.id.in_(org_ids)).all()} if org_ids else {}
+
+    def _row(t):
+        a = authors.get(t.author_id)
+        o = orgs.get(t.organization_id)
+        return {
+            "id": t.id,
+            "name": t.name,
+            "templateType": t.template_type,
+            "version": t.version,
+            "isDeleted": t.is_deleted,
+            "updatedAt": t.updated_at,
+            "author": (
+                {"id": a.id, "name": f"{a.first_name} {a.last_name}".strip(), "email": a.email}
+                if a else None
+            ),
+            "organization": ({"id": o.id, "name": o.name} if o else None),
+            "sharedRoles": [{"id": r.id, "name": r.name} for r in t.shared_roles],
+        }
+
+    return jsonify([_row(t) for t in templates])
 
 
 @bp.route('/<string:id>', methods=['GET'])
