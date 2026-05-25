@@ -19,6 +19,7 @@ from sqlalchemy import event, select
 from app.models import (
     AudioFile,
     AuditLog,
+    Job,
     Note,
     NoteAddendum,
     Participant,
@@ -35,6 +36,7 @@ _STAMP_TARGETS = [
     (Participant, "author_id"),
     (AudioFile, "author_id"),
     (NoteAddendum, "author_id"),
+    (Job, "author_id"),
     (AuditLog, "user_id"),
 ]
 

@@ -33,13 +33,15 @@ from sqlalchemy.orm import Session, with_loader_criteria
 
 from app.deployment import SERVER
 from app.extensions import db
-from app.models import AudioFile, Note, NoteAddendum, Participant, Template, User
+from app.models import AudioFile, Job, Note, NoteAddendum, Participant, Template, User
 from app.security.auth import is_super_admin
 
 # Author-owned PHI entities that get the outer org wall. User and AuditLog are
 # intentionally excluded: their cross-user access is handled explicitly and
-# org-scoped in items 4-5, and filtering User here would recurse.
-_GUARDED = (Note, Template, Participant, AudioFile, NoteAddendum)
+# org-scoped in items 4-5, and filtering User here would recurse. Job rides the
+# wall too — but only request-context reads are filtered; the worker thread runs
+# without a request, so it processes every org's queue (like the CLI jobs).
+_GUARDED = (Note, Template, Participant, AudioFile, NoteAddendum, Job)
 
 
 def _request_org_filter():

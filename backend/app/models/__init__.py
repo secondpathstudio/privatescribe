@@ -15,6 +15,7 @@ from app.models.key_export import KeyExportLog, KeyExportDismissal
 from app.models.system_setting import SystemSetting
 from app.models.audit_log import AuditLog
 from app.models.session import Session
+from app.models.job import Job
 
 __all__ = [
     "User",
@@ -34,4 +35,5 @@ __all__ = [
     "SystemSetting",
     "AuditLog",
     "Session",
+    "Job",
 ]
