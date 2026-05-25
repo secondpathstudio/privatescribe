@@ -18,6 +18,10 @@ type Job = {
 
 type Tpl = { id: string; name: string; templateType: string };
 
+// A file staged for upload — not sent until the user starts the batch. Each
+// carries its own template choice so a mixed batch can be formatted per-file.
+type Staged = { uid: string; file: File; templateId: string };
+
 const ACTIVE = new Set(["queued", "running"]);
 
 const STATUS_STYLE: Record<string, string> = {
@@ -28,18 +32,29 @@ const STATUS_STYLE: Record<string, string> = {
   canceled: "bg-gray-200 text-gray-700",
 };
 
+const AUDIO_RE = /\.(wav|mp3|m4a|webm|ogg|flac|aac)$/i;
+
+function fmtSize(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+let _uid = 0;
+
 export default function UploadQueue() {
   const auth = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [templates, setTemplates] = useState<Tpl[]>([]);
-  const [templateId, setTemplateId] = useState("");
+  const [defaultTemplateId, setDefaultTemplateId] = useState("");
+  const [staged, setStaged] = useState<Staged[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const authHeader = { Authorization: `Bearer ${auth.token}` };
 
-  // Simple templates the user owns, to optionally format each draft.
+  // Simple templates the user owns, for the dropdowns.
   useEffect(() => {
     if (!auth.user?.id) return;
     fetch(`${API_BASE}/api/templates/user/${auth.user.id}`, { headers: authHeader })
@@ -49,7 +64,7 @@ export default function UploadQueue() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.user?.id]);
 
-  // Poll the queue. Faster while anything is active, slower when idle.
+  // Poll the server-side queue. Faster while anything is active.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -59,8 +74,7 @@ export default function UploadQueue() {
         if (r.ok && !cancelled) {
           const data: Job[] = await r.json();
           setJobs(data);
-          const active = data.some((j) => ACTIVE.has(j.status));
-          timer = setTimeout(tick, active ? 2000 : 6000);
+          timer = setTimeout(tick, data.some((j) => ACTIVE.has(j.status)) ? 2000 : 6000);
         } else if (!cancelled) {
           timer = setTimeout(tick, 6000);
         }
@@ -80,38 +94,56 @@ export default function UploadQueue() {
     } catch { /* the poll will catch up */ }
   };
 
-  const uploadFiles = async (files: File[]) => {
-    if (!files.length) return;
+  const templateName = (id: string) => templates.find((t) => t.id === id)?.name ?? "Raw transcript";
+
+  // Add picked/dropped files as staged rows, each seeded with the default.
+  const addFiles = (files: File[]) => {
+    const audio = files.filter((f) => f.type.startsWith("audio") || AUDIO_RE.test(f.name));
+    if (!audio.length) return;
+    setStaged((prev) => [
+      ...prev,
+      ...audio.map((file) => ({ uid: `s${_uid++}`, file, templateId: defaultTemplateId })),
+    ]);
+    if (inputRef.current) inputRef.current.value = "";
+  };
+
+  // Changing the default re-applies it to every staged row, so the common case
+  // (one template for the whole batch) is one click; per-row tweaks come after.
+  const applyDefault = (id: string) => {
+    setDefaultTemplateId(id);
+    setStaged((prev) => prev.map((s) => ({ ...s, templateId: id })));
+  };
+
+  const setRowTemplate = (uid: string, id: string) =>
+    setStaged((prev) => prev.map((s) => (s.uid === uid ? { ...s, templateId: id } : s)));
+
+  const removeRow = (uid: string) => setStaged((prev) => prev.filter((s) => s.uid !== uid));
+
+  const start = async () => {
+    if (!staged.length) return;
     setUploading(true);
     let ok = 0;
-    let failed = 0;
-    for (const file of files) {
+    const rows = [...staged];
+    for (const row of rows) {
       const fd = new FormData();
-      fd.append("audio", file);
-      if (templateId) fd.append("templateId", templateId);
+      fd.append("audio", row.file);
+      if (row.templateId) fd.append("templateId", row.templateId);
       try {
-        const r = await fetch(`${API_BASE}/api/jobs/transcribe`, {
-          method: "POST",
-          headers: authHeader,
-          body: fd,
-        });
+        const r = await fetch(`${API_BASE}/api/jobs/transcribe`, { method: "POST", headers: authHeader, body: fd });
         if (r.ok) {
           ok++;
+          setStaged((prev) => prev.filter((s) => s.uid !== row.uid)); // drop as it goes
         } else {
-          failed++;
           const d = await r.json().catch(() => ({}));
-          toast.error(`${file.name}: ${d.error || `upload failed (${r.status})`}`);
+          toast.error(`${row.file.name}: ${d.error || `upload failed (${r.status})`}`);
         }
       } catch {
-        failed++;
-        toast.error(`${file.name}: couldn't reach the server.`);
+        toast.error(`${row.file.name}: couldn't reach the server.`);
       }
     }
     setUploading(false);
     if (ok) toast.success(`Queued ${ok} recording${ok === 1 ? "" : "s"} for transcription.`);
-    if (inputRef.current) inputRef.current.value = "";
     refresh();
-    void failed;
   };
 
   const cancel = async (id: string) => {
@@ -124,80 +156,117 @@ export default function UploadQueue() {
   };
 
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length;
+  const tplOptions = (
+    <>
+      <option value="">No formatting — raw transcript</option>
+      {templates.map((t) => (
+        <option key={t.id} value={t.id}>{t.name}</option>
+      ))}
+    </>
+  );
 
   return (
     <div className="max-w-3xl px-6 py-8">
       <h1 className="text-3xl font-black">Upload Queue</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        Upload recordings (e.g. off a portable recorder) and PrivateScribe
-        transcribes them into draft notes in the background. You can leave this
-        page — they keep processing on the server.
+        Add recordings (e.g. off a portable recorder), pick a template per file
+        if you like, then start — PrivateScribe transcribes them into draft notes
+        in the background. You can leave this page; they keep processing.
       </p>
 
-      {/* Upload controls */}
-      <div className="mt-6 space-y-3">
-        {templates.length > 0 && (
-          <div>
-            <label htmlFor="tpl" className="text-xs font-black uppercase tracking-wider">
-              Format each draft with (optional)
-            </label>
-            <select
-              id="tpl"
-              value={templateId}
-              onChange={(e) => setTemplateId(e.target.value)}
-              className="mt-1 block w-full border-2 border-black bg-white p-2 text-sm font-bold focus:outline-none"
-            >
-              <option value="">No formatting — raw transcript</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            uploadFiles(Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("audio") || /\.(wav|mp3|m4a|webm|ogg|flac|aac)$/i.test(f.name)));
-          }}
-          className={[
-            "border-4 border-dashed p-8 text-center",
-            dragging ? "border-[#fd3777] bg-pink-50" : "border-black bg-white",
-          ].join(" ")}
-        >
-          <p className="font-bold">Drag audio files here</p>
-          <p className="mt-1 text-sm text-muted-foreground">or</p>
-          <div className="mt-3 flex justify-center">
-            <NeoButton
-              onClick={() => inputRef.current?.click()}
-              disabled={uploading}
-              backgroundColor="#fd3777"
-              textColor="#ffffff"
-            >
-              {uploading ? "Uploading…" : "Choose files"}
-            </NeoButton>
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="audio/*,.wav,.mp3,.m4a,.webm,.ogg,.flac,.aac"
-            multiple
-            className="hidden"
-            onChange={(e) => uploadFiles(Array.from(e.target.files ?? []))}
-          />
+      {/* Drop zone / add */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(Array.from(e.dataTransfer.files)); }}
+        className={[
+          "mt-6 border-4 border-dashed p-6 text-center",
+          dragging ? "border-[#fd3777] bg-pink-50" : "border-black bg-white",
+        ].join(" ")}
+      >
+        <p className="font-bold">Drag audio files here</p>
+        <p className="mt-1 text-sm text-muted-foreground">or</p>
+        <div className="mt-3 flex justify-center">
+          <NeoButton onClick={() => inputRef.current?.click()} backgroundColor="#000000" textColor="#ffffff">
+            Add files
+          </NeoButton>
         </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="audio/*,.wav,.mp3,.m4a,.webm,.ogg,.flac,.aac"
+          multiple
+          className="hidden"
+          onChange={(e) => addFiles(Array.from(e.target.files ?? []))}
+        />
       </div>
 
-      {/* Queue */}
+      {/* Staging table */}
+      {staged.length > 0 && (
+        <div className="mt-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <label htmlFor="defaultTpl" className="text-xs font-black uppercase tracking-wider">
+                Default template (applies to all)
+              </label>
+              <select
+                id="defaultTpl"
+                value={defaultTemplateId}
+                onChange={(e) => applyDefault(e.target.value)}
+                disabled={uploading}
+                className="mt-1 block w-72 border-2 border-black bg-white p-2 text-sm font-bold focus:outline-none"
+              >
+                {tplOptions}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <NeoButton onClick={() => setStaged([])} disabled={uploading}>Clear</NeoButton>
+              <NeoButton onClick={start} disabled={uploading} backgroundColor="#fd3777" textColor="#ffffff">
+                {uploading ? "Starting…" : `Start (${staged.length})`}
+              </NeoButton>
+            </div>
+          </div>
+
+          <div className="mt-3 border-4 border-black">
+            <div className="grid grid-cols-[1fr_auto] gap-2 border-b-2 border-black bg-black px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white">
+              <span>File</span>
+              <span>Template</span>
+            </div>
+            {staged.map((s) => (
+              <div key={s.uid} className="grid grid-cols-[1fr_auto] items-center gap-2 border-b-2 border-black px-3 py-2 last:border-b-0">
+                <div className="min-w-0">
+                  <div className="truncate font-bold">{s.file.name}</div>
+                  <div className="text-xs text-muted-foreground">{fmtSize(s.file.size)}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={s.templateId}
+                    onChange={(e) => setRowTemplate(s.uid, e.target.value)}
+                    disabled={uploading}
+                    className="border-2 border-black bg-white p-1.5 text-xs font-bold focus:outline-none max-w-[12rem]"
+                    title={templateName(s.templateId)}
+                  >
+                    {tplOptions}
+                  </select>
+                  <button
+                    onClick={() => removeRow(s.uid)}
+                    disabled={uploading}
+                    className="text-xs font-bold underline hover:text-red-600 disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Server-side queue */}
       <div className="mt-8">
         <div className="flex items-baseline justify-between">
           <h2 className="text-lg font-black uppercase tracking-wider">Queue</h2>
-          {activeCount > 0 && (
-            <span className="text-xs text-muted-foreground">{activeCount} processing…</span>
-          )}
+          {activeCount > 0 && <span className="text-xs text-muted-foreground">{activeCount} processing…</span>}
         </div>
 
         {jobs.length === 0 ? (
