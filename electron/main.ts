@@ -50,7 +50,6 @@ import {
 import {
   readAppMode,
   serverOrigin,
-  trustServerCert,
   writeAppMode,
 } from './server/app-mode';
 
@@ -836,20 +835,63 @@ app.whenReady().then(async () => {
   }
 });
 
+// In-session memory of the user's decision about a *changed* server cert, keyed
+// by the new fingerprint, so we prompt once (not once per resource load).
+let certChangeDecision: { fingerprint: string; trusted: boolean } | null = null;
+
 // Trust the target server's self-signed certificate (server/client mode).
 // PrivateScribe servers use a self-signed cert (Caddy's internal CA) on a
-// private network, which Electron would otherwise reject. We trust it only for
-// our configured server origin, and only trust-on-first-use: the first cert is
-// pinned and any later mismatch is rejected (see server/app-mode.ts). Every
-// other certificate error falls through to the default (reject).
+// private network, which Electron would otherwise reject. Trust-on-first-use:
+// the first cert is pinned; an exact match is trusted silently. A *mismatch*
+// (the server was reinstalled/rebuilt — or someone is impersonating it) is no
+// longer a silent dead-end: we warn loudly with both fingerprints and let the
+// user re-pin or cancel. Every other certificate error rejects.
 app.on('certificate-error', (event, _webContents, url, _error, certificate, callback) => {
-  const origin = serverOrigin(readAppMode());
-  if (origin && url.startsWith(origin)) {
-    event.preventDefault();
-    callback(trustServerCert(certificate.fingerprint));
+  const config = readAppMode();
+  const origin = serverOrigin(config);
+  if (!origin || !url.startsWith(origin)) {
+    callback(false);
     return;
   }
-  callback(false);
+  event.preventDefault();
+  const fp = certificate.fingerprint;
+
+  if (!config.certFingerprint) {
+    // First connection — pin it (TOFU).
+    writeAppMode({ ...config, certFingerprint: fp });
+    callback(true);
+    return;
+  }
+  if (config.certFingerprint === fp) {
+    callback(true);
+    return;
+  }
+
+  // Mismatch. Reuse this session's decision for the same new fingerprint so we
+  // don't stack dialogs across the many cert checks a single page load makes.
+  if (certChangeDecision?.fingerprint === fp) {
+    callback(certChangeDecision.trusted);
+    return;
+  }
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: 'Server identity changed',
+    message: "This PrivateScribe server's security certificate has changed.",
+    detail:
+      'This is expected if the server was reinstalled or rebuilt. But it can ' +
+      'also mean another device is impersonating the server on your network.\n\n' +
+      `Server: ${origin}\n` +
+      `Previously trusted: ${config.certFingerprint}\n` +
+      `Now presenting:     ${fp}\n\n` +
+      'Only trust the new certificate if you know the server was changed.',
+    buttons: ['Cancel (stay safe)', 'Trust the new certificate'],
+    defaultId: 0,
+    cancelId: 0,
+  });
+  const trusted = choice === 1;
+  certChangeDecision = { fingerprint: fp, trusted };
+  if (trusted) writeAppMode({ ...readAppMode(), certFingerprint: fp });
+  callback(trusted);
 });
 
 app.on('window-all-closed', () => {
