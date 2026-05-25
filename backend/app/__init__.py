@@ -215,4 +215,17 @@ def create_app() -> Flask:
             name="mdns-advertise",
         ).start()
 
+    # Start the background job worker (Phase 13) for both standalone and server
+    # — it drains the transcription queue (batch/portable-recorder uploads).
+    # Skip it for one-off Flask CLI commands (flask db/create-admin/purge-*),
+    # which load the app but must not spin up a worker mid-operation; the
+    # packaged serving binary and `flask run` both serve, so it runs there.
+    import os as _os
+    import sys as _sys
+    _argv0 = _os.path.basename(_sys.argv[0] if _sys.argv else "")
+    _is_oneoff_cli = _argv0 == "flask" and "run" not in _sys.argv
+    if not _is_oneoff_cli:
+        from app.services import job_queue
+        job_queue.start_worker(app)
+
     return app

@@ -41,6 +41,14 @@ _batched_model: BatchedInferencePipeline | None = None
 # cache and 500ing. Double-checked below so the steady-state path stays lock-free.
 _model_lock = threading.Lock()
 
+# Serializes actual *inference* (decode) across all callers — live ticks, file
+# uploads, and the background job worker (Phase 13) — so they never run the
+# single shared model concurrently and thrash a CPU-only box. Distinct from
+# _model_lock (which only guards first-use construction). Held only during the
+# brief per-segment decode, never across a yield to the consumer, so a slow
+# network reader can't hold it and starve the worker.
+inference_lock = threading.Lock()
+
 
 def get_model() -> WhisperModel:
     """Return the cached WhisperModel, loading it on first use.
@@ -206,18 +214,29 @@ def transcribe_path_streaming(
     kwargs: dict = {"language": language, "word_timestamps": True}
     if initial_prompt:
         kwargs["initial_prompt"] = initial_prompt
-    if batched:
-        segments, info = get_batched_model().transcribe(
-            audio_path, batch_size=batch_size, **kwargs
-        )
-    else:
-        segments, info = get_model().transcribe(audio_path, **kwargs)
+    # Setup (audio load / VAD / batching kickoff) under the inference lock.
+    with inference_lock:
+        if batched:
+            segments, info = get_batched_model().transcribe(
+                audio_path, batch_size=batch_size, **kwargs
+            )
+        else:
+            segments, info = get_model().transcribe(audio_path, **kwargs)
     total_duration = float(getattr(info, "duration", 0) or 0)
 
     out_segments: list[dict] = []
     out_words: list[dict] = []
     parts: list[str] = []
-    for s in segments:
+    # faster-whisper decodes lazily on each next(); hold the lock for that
+    # decode step only, then release before yielding so the consumer's pace
+    # (and any network backpressure) never keeps the model locked.
+    seg_iter = iter(segments)
+    while True:
+        with inference_lock:
+            try:
+                s = next(seg_iter)
+            except StopIteration:
+                break
         out_segments.append({"start": float(s.start), "end": float(s.end), "text": s.text})
         parts.append(s.text)
         # `s.words` is a list[Word] with .start/.end/.word/.probability
