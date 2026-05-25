@@ -1,6 +1,8 @@
 import { Link, NavLink, Outlet } from "react-router";
+import { useAuth } from "@/context/auth-context";
+import { isSuperAdmin } from "@/lib/roles";
 
-type NavItem = { to: string; label: string };
+type NavItem = { to: string; label: string; superAdminOnly?: boolean };
 type NavGroup = { heading: string | null; items: NavItem[] };
 
 const NAV: NavGroup[] = [
@@ -24,7 +26,8 @@ const NAV: NavGroup[] = [
     heading: "Data & Security",
     items: [
       { to: "/admin/encryption", label: "Encryption" },
-      // { to: "/admin/templates", label: "Templates" },
+      // Cross-org template inventory — central IT only.
+      { to: "/admin/templates", label: "Templates", superAdminOnly: true },
       { to: "/admin/trash-retention", label: "Trash & Retention" },
       { to: "/admin/audio-storage", label: "Audio Storage" },
       { to: "/admin/exports", label: "Document Exports" },
@@ -44,6 +47,8 @@ const NAV: NavGroup[] = [
 ];
 
 export default function AdminLayout() {
+  const auth = useAuth();
+  const superAdmin = isSuperAdmin(auth.user?.role);
   return (
     <div className="flex min-h-[calc(100vh-4rem)] flex-col md:flex-row">
       <aside className="md:w-60 md:shrink-0 border-b-2 md:border-b-0 md:border-r-2 border-black bg-white">
@@ -65,7 +70,9 @@ export default function AdminLayout() {
                 </div>
               )}
               <ul className="space-y-0.5">
-                {group.items.map((item) => (
+                {group.items
+                  .filter((item) => !item.superAdminOnly || superAdmin)
+                  .map((item) => (
                   <li key={item.to}>
                     <NavLink
                       to={item.to}
