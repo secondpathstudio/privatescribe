@@ -17,6 +17,7 @@ from app.routes.roles import bp as roles_bp
 from app.routes.organization import bp as organization_bp
 from app.routes.break_glass import bp as break_glass_bp
 from app.routes.admin_server import bp as admin_server_bp
+from app.routes.jobs import bp as jobs_bp
 
 
 def register_blueprints(app):
@@ -38,3 +39,4 @@ def register_blueprints(app):
     app.register_blueprint(organization_bp)
     app.register_blueprint(break_glass_bp)
     app.register_blueprint(admin_server_bp)
+    app.register_blueprint(jobs_bp)
