@@ -32,14 +32,19 @@ const NeoHero = (props: Props) => {
               </div>
               <div className="flex flex-wrap gap-4 xl:justify-start justify-center items-center">
                 {(window.electron || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") &&
-                <NeoLinkButton route="/login" label="Try Free" backgroundColor='#fd3777' textColor="#ffffff" />
+                <NeoLinkButton route="/login" label="Login" backgroundColor='#fd3777' textColor="#ffffff" />
                 }
+                <div className="flex flex-col items-start gap-2">
                 <NeoAnchorButton href={DOWNLOAD_URL} backgroundColor='#fd3777' textColor="#ffffff">
                   <span className="flex items-center gap-2"><DownloadIcon /> Free Download</span>
                 </NeoAnchorButton>
+                </div>
                 <NeoAnchorButton href="https://github.com/secondpathstudio/privatescribe" backgroundColor='#ffffff' textColor="#000000">
                   <GithubIcon />
                 </NeoAnchorButton>
+              </div>
+              <div className="text-sm text-white opacity-50 mt-2">
+                  *Download available for M-series MacOS. Windows version coming soon.
               </div>
             </div>
             <div className="relative">
