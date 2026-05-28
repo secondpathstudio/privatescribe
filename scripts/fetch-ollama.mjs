@@ -11,12 +11,18 @@
  * Electron spawns Resources/ollama-runtime/ollama[.exe] when no system Ollama
  * is already running.
  *
- * Per-platform release assets (the binary sits at the archive root on every
- * platform; the runtime is staged verbatim, GPU backends included, so the app
- * runs on CPU and/or GPU):
+ * Per-platform release assets (the runtime is staged verbatim, GPU backends
+ * included, so the app runs on CPU and/or GPU):
  *   - macOS:   ollama-darwin.tgz            (universal)        → tar xzf
  *   - Linux:   ollama-linux-{amd64,arm64}.tar.zst (needs zstd) → tar --zstd -xf
  *   - Windows: ollama-windows-{amd64,arm64}.zip                → tar -xf (bsdtar)
+ *
+ * Archive layouts vary: macOS extracts the binary flat at root, Linux nests it
+ * under bin/ (with libs under lib/ollama/), Windows is its own thing. Rather
+ * than hardcode each layout, this script locates the binary post-extraction
+ * and writes its relative path to a `.ollama-binary` marker; Electron reads
+ * that marker to spawn the runtime. Ollama still finds its libs via its real
+ * on-disk location, so we never relocate the binary.
  *
  * Each archive extracts on its own native runner in the CI matrix, where the
  * matching extraction tool exists (zstd on Linux, bsdtar/tar.exe on Windows).
@@ -40,9 +46,9 @@ import { fileURLToPath } from 'node:url';
 const OLLAMA_VERSION = process.env.OLLAMA_VERSION || '0.24.0';
 
 // Resolve the headless runtime asset (binary + GGML/MLX libraries, not the
-// .app) for the host OS/arch. The binary lands at the archive root on every
-// platform — see install.sh / install.ps1 — so Electron's bundledBinaryPath()
-// always points at ollama-runtime/ollama[.exe].
+// .app) for the host OS/arch. The binary's location WITHIN the archive varies
+// per platform — we discover it post-extraction and tell Electron via the
+// `.ollama-binary` marker rather than hardcoding it here.
 function resolveTarget() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
   switch (process.platform) {
@@ -110,7 +116,15 @@ async function download(url, dest) {
 
 // Extract an archive into outDir using whichever `tar` flavor matches the
 // format. All three run on their native CI runner: GNU tar + zstd on Linux,
-// bsdtar (System32 tar.exe, reads zip) on Windows, bsdtar on macOS.
+// bsdtar (System32 tar.exe) on Windows, bsdtar on macOS.
+//
+// On Windows we MUST call System32's bsdtar explicitly: Git-for-Windows
+// installs MSYS2 GNU tar earlier on PATH, and GNU tar misreads absolute
+// paths like `D:\a\...` as host:path (rsh/rcp legacy) and fails with
+// "Cannot connect to D: resolve failed". bsdtar has no such legacy.
+const TAR =
+  process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar';
+
 function extract(archive, kind, outDir) {
   const args = {
     tgz: ['xzf', archive, '-C', outDir],
@@ -118,7 +132,24 @@ function extract(archive, kind, outDir) {
     zip: ['-xf', archive, '-C', outDir], // bsdtar auto-detects zip
   }[kind];
   if (!args) throw new Error(`unknown archive kind: ${kind}`);
-  execFileSync('tar', args, { stdio: 'inherit' });
+  execFileSync(TAR, args, { stdio: 'inherit' });
+}
+
+// Recursively locate a file by exact name under root. Used to find the
+// ollama binary regardless of the archive's nesting (flat on macOS, bin/ on
+// Linux, whatever Windows ships). Depth cap keeps a pathological archive
+// from melting the script.
+async function findBinary(root, name, depth = 0) {
+  if (depth > 5) return null;
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+    const p = path.join(root, entry.name);
+    if (entry.isFile() && entry.name === name) return p;
+    if (entry.isDirectory()) {
+      const found = await findBinary(p, name, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 // Total size of a directory tree, in bytes. Replaces a `du` shell-out so the
@@ -187,18 +218,28 @@ async function main() {
   log(`extracting runtime (${TARGET.extract})…`);
   extract(ARCHIVE_PATH, TARGET.extract, OUT_DIR);
 
-  // The binary lands at the archive root on every platform (see install.sh /
-  // install.ps1) — Electron's bundledBinaryPath() depends on this. Fail loud
-  // if a future release changes the layout rather than shipping a broken bundle.
-  const binary = path.join(OUT_DIR, TARGET.binary);
-  if (!(await exists(binary))) {
+  // Locate the binary wherever the archive put it and record its relative
+  // path so Electron doesn't have to know per-platform layouts. We never move
+  // it — Ollama resolves its libs (lib/ollama/...) relative to the binary's
+  // real on-disk location.
+  const binary = await findBinary(OUT_DIR, TARGET.binary);
+  if (!binary) {
     const found = (await fs.readdir(OUT_DIR)).join(', ');
     throw new Error(
-      `expected ${TARGET.binary} at the archive root after extraction (${binary}).\n` +
+      `could not find ${TARGET.binary} anywhere under the extracted archive.\n` +
         `Root entries were: ${found}`,
     );
   }
   await fs.chmod(binary, 0o755); // no-op on Windows, harmless
+  const binaryRel = path.relative(OUT_DIR, binary);
+  // Marker is read by electron/ollama-process.ts + server/service-config.ts.
+  // Forward slashes work on all OSes (Node path APIs accept them on Windows),
+  // and keeping it portable means the same staged dir works if cross-copied.
+  await fs.writeFile(
+    path.join(OUT_DIR, '.ollama-binary'),
+    binaryRel.split(path.sep).join('/') + '\n',
+  );
+  log(`binary at ${binaryRel}`);
 
   // Ship Ollama's license (MIT) alongside the runtime. Best-effort: a network
   // blip on this one file should not fail the build, but it must be loud.

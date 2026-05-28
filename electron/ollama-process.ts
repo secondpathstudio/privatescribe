@@ -38,7 +38,7 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { exe } from './platform';
+import { resolveOllamaBinary } from './platform';
 
 /** Which AI engine the user opted into during onboarding. */
 export type OllamaMode = 'bundled' | 'system';
@@ -131,14 +131,18 @@ async function isOllamaUp(): Promise<boolean> {
   }
 }
 
-/** Absolute path to the bundled `ollama` binary, packaged or in a dev tree. */
+/** Absolute path to the bundled `ollama` binary, packaged or in a dev tree.
+ * The binary's location inside the runtime dir varies per platform (flat on
+ * mac, nested on Linux), so resolveOllamaBinary reads the marker that
+ * scripts/fetch-ollama.mjs wrote at stage time. */
 function bundledBinaryPath(): string {
   // Packaged: extraResources puts the runtime under Resources/ollama-runtime/
   // (see electron-builder.yml). Dev: scripts/fetch-ollama.mjs stages it at
   // <repo>/build-resources/ollama/ — __dirname is <repo>/electron/dist.
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'ollama-runtime', exe('ollama'))
-    : path.join(__dirname, '..', '..', 'build-resources', 'ollama', exe('ollama'));
+  const runtimeDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'ollama-runtime')
+    : path.join(__dirname, '..', '..', 'build-resources', 'ollama');
+  return resolveOllamaBinary(runtimeDir);
 }
 
 /**

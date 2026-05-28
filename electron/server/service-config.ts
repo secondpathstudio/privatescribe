@@ -16,7 +16,7 @@
  */
 import * as path from 'path';
 
-import { exe } from '../platform';
+import { exe, resolveOllamaBinary } from '../platform';
 
 // Shared, root-owned locations for a server install (not the per-user
 // app-support dir standalone uses).
@@ -66,7 +66,9 @@ export function defaultServerConfig(resourcesPath: string): ServerConfig {
 export function serverPaths(resourcesPath: string) {
   return {
     backend: path.join(resourcesPath, 'backend', exe('privatescribe-backend')),
-    ollama: path.join(resourcesPath, 'ollama-runtime', exe('ollama')),
+    // Ollama's binary may be nested (Linux ships bin/ollama) — read the marker
+    // scripts/fetch-ollama.mjs wrote at stage time instead of guessing layout.
+    ollama: resolveOllamaBinary(path.join(resourcesPath, 'ollama-runtime')),
     caddy: path.join(resourcesPath, 'caddy-runtime', exe('privatescribe-webserver')),
     caddyfileTemplate: path.join(resourcesPath, 'caddy-runtime', 'Caddyfile.template'),
     // Plain (non-asar) SPA files for Caddy to serve — see extraResources.
