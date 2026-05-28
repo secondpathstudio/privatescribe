@@ -25,6 +25,7 @@
     "dotenv-cli": "^11.0.0",
     "electron": "^33.0.0",
     "electron-builder": "^26.8.1",
+    "electron-builder-squirrel-windows": "^26.8.1",
     "typescript": "^5.5.0",
     "wait-on": "^8.0.0"
   },
