@@ -1,0 +1,58 @@
+# Throwaway de-risk probe #2 for the Windows/Linux desktop build.
+#
+# Builds the REAL backend with the REAL PyInstaller spec
+# (backend/privatescribe-backend.spec) against the REAL backend/requirements.txt
+# on every release-matrix OS, then boots the frozen binary and hits an
+# unauthenticated endpoint. This is the next-biggest unknown after SQLCipher:
+# whether the heavy native stack (torch, ctranslate2, onnxruntime, av, pyannote,
+# faster-whisper, speechbrain) has prebuilt Win/Linux wheels AND freezes cleanly
+# with the spec's hidden-imports / collected data files.
+#
+# Trigger from the Actions tab (workflow_dispatch) or by pushing this file.
+# Delete derisk/ and this workflow once the real matrix build is green.
+name: De-risk backend freeze (Win/Linux/macOS)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/derisk-backend.yml"
+      - "derisk/backend_smoke.py"
+
+jobs:
+  backend:
+    name: backend freeze (${{ matrix.os }})
+    timeout-minutes: 45 # heavy installs + a slow PyInstaller pass
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash # one shell across all three OSes (bash ships on the win runner)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # matches backend/venv (cp311)
+
+      # The desktop app is CPU-only. Pull CPU torch first (the default PyPI
+      # wheel on Linux is the multi-GB CUDA build); requirements.txt then sees
+      # torch/torchaudio already satisfied. macOS uses its normal PyPI wheel.
+      - name: Install CPU torch (Linux/Windows)
+        if: runner.os != 'macOS'
+        run: pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install backend requirements + PyInstaller
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pyinstaller==6.20.0
+
+      - name: Build backend (real spec)
+        working-directory: backend
+        run: pyinstaller --noconfirm --log-level WARN privatescribe-backend.spec
+
+      - name: Boot the frozen backend
+        run: python derisk/backend_smoke.py backend/dist/privatescribe-backend
