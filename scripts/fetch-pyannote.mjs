@@ -50,7 +50,14 @@ const MODELS = [
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_DIR = path.join(REPO_ROOT, 'build-resources', 'pyannote');
-const PYTHON = path.join(REPO_ROOT, 'backend', 'venv', 'bin', 'python');
+// Python interpreter to run huggingface_hub. PRIVATESCRIBE_PYTHON wins (CI sets
+// it to whatever actions/setup-python provisioned); otherwise default to the
+// developer's backend venv at its native per-OS layout.
+const PYTHON =
+  process.env.PRIVATESCRIBE_PYTHON ||
+  (process.platform === 'win32'
+    ? path.join(REPO_ROOT, 'backend', 'venv', 'Scripts', 'python.exe')
+    : path.join(REPO_ROOT, 'backend', 'venv', 'bin', 'python'));
 const ENV_FILE = path.join(REPO_ROOT, 'backend', '.env');
 // Records which revisions are staged so re-runs are a no-op until a pin moves.
 const VERSION_MARKER = path.join(OUT_DIR, '.pyannote-revision');
@@ -127,10 +134,15 @@ async function main() {
     }
   }
 
-  if (!(await exists(PYTHON))) {
+  // Only existence-check if PYTHON looks like a path; a bare name like
+  // "python" (CI) is resolved by execFileSync via PATH and would fail this
+  // local-file check.
+  const isPath = PYTHON !== path.basename(PYTHON);
+  if (isPath && !(await exists(PYTHON))) {
     throw new Error(
-      `backend venv Python not found at ${path.relative(REPO_ROOT, PYTHON)} — ` +
-        'create it first (see backend setup in CLAUDE.md / README).',
+      `Python not found at ${path.relative(REPO_ROOT, PYTHON)} — ` +
+        'create the backend venv (see CLAUDE.md / README) or set PRIVATESCRIBE_PYTHON ' +
+        'to an interpreter that has huggingface_hub installed.',
     );
   }
 
@@ -159,8 +171,20 @@ async function main() {
 
   await fs.writeFile(VERSION_MARKER, stagedSignature());
 
-  const size = execFileSync('du', ['-sh', OUT_DIR]).toString().trim().split('\t')[0];
-  log(`staged pyannote models (${size}) → ${path.relative(REPO_ROOT, OUT_DIR)}/`);
+  const mb = Math.round((await dirSize(OUT_DIR)) / (1024 * 1024));
+  log(`staged pyannote models (${mb} MB) → ${path.relative(REPO_ROOT, OUT_DIR)}/`);
+}
+
+// Total size of a directory tree, in bytes. Replaces a `du` shell-out so the
+// script works on Windows (no du in System32) without a coreutils dependency.
+async function dirSize(dir) {
+  let total = 0;
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += await dirSize(p);
+    else if (entry.isFile()) total += (await fs.stat(p)).size;
+  }
+  return total;
 }
 
 main().catch((err) => {

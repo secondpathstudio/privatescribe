@@ -1,0 +1,116 @@
+# Cross-platform desktop release build (Win/Linux).
+#
+# Manual-trigger CI matrix that builds installable Windows and Linux desktop
+# artifacts and uploads them for inspection. Does NOT publish to GitHub
+# Releases yet — first runs are about confirming the cross-platform pipeline
+# works end-to-end. Once we have a green run we'll switch `--publish never`
+# to `--publish always` and re-enable the tag trigger below.
+#
+# macOS is intentionally NOT in this matrix. Local `npm run release` already
+# produces signed+notarized mac builds against the Developer ID cert installed
+# on the maintainer's machine; moving that to CI needs the cert exported as a
+# CSC_LINK secret and is a separate follow-up.
+#
+# Required secret:
+#   HF_TOKEN — used by scripts/fetch-pyannote.mjs to download the gated
+#              speaker-diarization model weights (set once at GitHub repo
+#              level under Settings → Secrets and variables → Actions).
+name: Release build (Win/Linux desktop)
+
+on:
+  workflow_dispatch:
+  # TODO: re-enable once a manual workflow_dispatch run is green AND
+  # --publish never is switched to --publish always below.
+  # push:
+  #   tags: ['v*']
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    timeout-minutes: 75 # heavy installs + per-OS PyInstaller pass + electron-builder
+    strategy:
+      fail-fast: false # see both OSes' results, not just the first failure
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash # one shell across both OSes (bash ships on the win runner)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11" # matches backend/venv (cp311) and the spec hidden imports
+
+      # The desktop app is CPU-only. Pre-install CPU torch so the default
+      # PyPI wheel on Linux (multi-GB CUDA) never lands; requirements.txt then
+      # sees torch/torchaudio already satisfied at the right version.
+      - name: Install CPU torch
+        run: pip install torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install backend deps + PyInstaller
+        run: |
+          pip install -r backend/requirements.txt
+          pip install pyinstaller==6.20.0
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Build frontend (vite)
+        run: npm run build:frontend
+
+      - name: Build electron main process (tsc)
+        run: npm run build:electron
+
+      # Stage runtime + models. PRIVATESCRIBE_PYTHON tells fetch-pyannote which
+      # interpreter to use instead of the dev-only backend/venv path; HF_TOKEN
+      # unlocks the gated diarization repos.
+      - name: Stage bundled Ollama runtime (per-OS archive)
+        run: npm run build:ollama
+
+      - name: Stage pyannote diarization models
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          PRIVATESCRIBE_PYTHON: python
+        run: npm run build:pyannote
+
+      # Real PyInstaller spec — same one local builds use. The `build:backend`
+      # npm script activates backend/venv which doesn't exist on CI, so invoke
+      # pyinstaller directly against the interpreter setup-python provisioned.
+      - name: Build backend (PyInstaller, real spec)
+        working-directory: backend
+        run: pyinstaller --noconfirm --log-level WARN privatescribe-backend.spec
+
+      # --publish never: produce installers locally on the runner, upload as
+      # artifacts for download + smoke-test. Switch to --publish always once
+      # a manual run is green and we trust the matrix end-to-end.
+      - name: Package desktop installer (Linux)
+        if: runner.os == 'Linux'
+        run: npx electron-builder --linux --publish never
+
+      - name: Package desktop installer (Windows)
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win --publish never
+
+      # The release/ dir is where electron-builder writes its outputs (see
+      # `directories.output: release` in electron-builder.yml). We pull only
+      # the installables + the auto-update channel YAMLs — skipping unpacked
+      # app dirs, blockmaps, and the heavy intermediate "win-unpacked" tree.
+      - name: Upload installer artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: privatescribe-${{ matrix.os }}
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.exe
+            release/latest*.yml
+          if-no-files-found: error
+          retention-days: 14
