@@ -40,6 +40,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The Ubuntu runner ships with only ~14 GB free on /, and our build stacks
+      # CPU torch + heavy backend deps + Ollama runtime (~3 GB extracted) +
+      # pyannote models + PyInstaller intermediate + electron-builder staging.
+      # fpm (the .deb builder) tipped the runner over with ENOSPC last time.
+      # Reclaim the ~30 GB of preinstalled tooling we don't need (Android,
+      # .NET, Haskell, Docker images, swap). tool-cache:false preserves the
+      # /opt/hostedtoolcache slot setup-node/setup-python populate.
+      - name: Free disk space on runner (Linux)
+        if: runner.os == 'Linux'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false # skips slow apt removals; the targeted reclaims are enough
+          swap-storage: true
+          docker-images: true
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
