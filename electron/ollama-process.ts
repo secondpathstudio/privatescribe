@@ -38,6 +38,8 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { exe } from './platform';
+
 /** Which AI engine the user opted into during onboarding. */
 export type OllamaMode = 'bundled' | 'system';
 
@@ -135,8 +137,8 @@ function bundledBinaryPath(): string {
   // (see electron-builder.yml). Dev: scripts/fetch-ollama.mjs stages it at
   // <repo>/build-resources/ollama/ — __dirname is <repo>/electron/dist.
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'ollama-runtime', 'ollama')
-    : path.join(__dirname, '..', '..', 'build-resources', 'ollama', 'ollama');
+    ? path.join(process.resourcesPath, 'ollama-runtime', exe('ollama'))
+    : path.join(__dirname, '..', '..', 'build-resources', 'ollama', exe('ollama'));
 }
 
 /**

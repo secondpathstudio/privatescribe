@@ -16,6 +16,8 @@
  */
 import * as path from 'path';
 
+import { exe } from '../platform';
+
 // Shared, root-owned locations for a server install (not the per-user
 // app-support dir standalone uses).
 export const SERVER_DATA_DIR = '/Library/Application Support/PrivateScribe';
@@ -63,9 +65,9 @@ export function defaultServerConfig(resourcesPath: string): ServerConfig {
 /** Absolute paths to the bundled binaries and assets within the .app. */
 export function serverPaths(resourcesPath: string) {
   return {
-    backend: path.join(resourcesPath, 'backend', 'privatescribe-backend'),
-    ollama: path.join(resourcesPath, 'ollama-runtime', 'ollama'),
-    caddy: path.join(resourcesPath, 'caddy-runtime', 'privatescribe-webserver'),
+    backend: path.join(resourcesPath, 'backend', exe('privatescribe-backend')),
+    ollama: path.join(resourcesPath, 'ollama-runtime', exe('ollama')),
+    caddy: path.join(resourcesPath, 'caddy-runtime', exe('privatescribe-webserver')),
     caddyfileTemplate: path.join(resourcesPath, 'caddy-runtime', 'Caddyfile.template'),
     // Plain (non-asar) SPA files for Caddy to serve — see extraResources.
     frontend: path.join(resourcesPath, 'frontend'),

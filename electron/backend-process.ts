@@ -2,6 +2,8 @@ import { spawn, type ChildProcess } from 'child_process';
 import { app } from 'electron';
 import * as path from 'path';
 
+import { exe } from './platform';
+
 export interface BackendInfo {
   process: ChildProcess;
   port: number;
@@ -21,12 +23,12 @@ let stderrTail = '';
 
 export async function startBackend(ollamaHost: string): Promise<BackendInfo> {
   // In a packaged app the PyInstaller binary lives at
-  // <Resources>/backend/privatescribe-backend. process.resourcesPath is the
-  // .app's Contents/Resources/ on macOS.
+  // <Resources>/backend/privatescribe-backend (privatescribe-backend.exe on
+  // Windows). process.resourcesPath is the .app's Contents/Resources/ on macOS.
   const binaryPath = path.join(
     process.resourcesPath,
     'backend',
-    'privatescribe-backend',
+    exe('privatescribe-backend'),
   );
   const dataDir = app.getPath('userData');
 
