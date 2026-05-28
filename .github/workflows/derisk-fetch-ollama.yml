@@ -48,12 +48,17 @@ jobs:
       - name: Stage the Ollama runtime for this OS
         run: node scripts/fetch-ollama.mjs
 
-      - name: Assert the binary landed at the runtime root
+      - name: Assert the binary landed where the marker says
         run: |
-          bin="build-resources/ollama/ollama"
-          [ "${{ runner.os }}" = "Windows" ] && bin="build-resources/ollama/ollama.exe"
+          dir="build-resources/ollama"
+          marker="$dir/.ollama-binary"
           echo "--- staged root entries ---"
-          ls -la build-resources/ollama/ | head -20
-          test -f "$bin" || { echo "FAIL: $bin not found at root"; exit 1; }
+          ls -la "$dir" | head -20
+          test -f "$marker" || { echo "FAIL: no .ollama-binary marker"; exit 1; }
+          rel=$(cat "$marker")
+          bin="$dir/$rel"
+          test -f "$bin" || { echo "FAIL: marker says '$rel' but $bin not found"; exit 1; }
           echo "OK: staged $bin"
-          cat build-resources/ollama/.ollama-version
+          echo "--- versions / layout ---"
+          cat "$dir/.ollama-version"
+          echo "binary relative path: $rel"
