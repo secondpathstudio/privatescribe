@@ -119,10 +119,9 @@ mac:
 
 win:
   icon: electron/assets/icon.ico
-  # publisherName lands in the NSIS installer's metadata + the Windows
-  # "Apps & features" list. With no Authenticode certificate yet, SmartScreen
-  # warns first-time users; signing is a follow-up (paid cert + sign step).
-  publisherName: Second Path Studio
+  # Code signing (Authenticode) is a follow-up — without a cert, SmartScreen
+  # warns first-time users. When that lands, signtoolOptions.publisherName
+  # is where the signing publisher metadata goes.
   target:
     # nsis: the typical Windows installer with uninstaller + Start Menu entry —
     # and what electron-updater consumes for in-place updates. portable: a
@@ -138,6 +137,10 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  # Publisher string in the NSIS installer's metadata + Windows "Apps & features"
+  # list. In electron-builder 26 this lives under nsis:, not win: (the older
+  # win.publisherName property was removed).
+  publisherName: Second Path Studio
 
 linux:
   # electron-builder accepts a single PNG >=512px and auto-generates the
