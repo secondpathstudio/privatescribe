@@ -60,7 +60,14 @@ jobs:
           pip install -r backend/requirements.txt
           pip install pyinstaller==6.20.0
 
-      - name: Install Node deps
+      - name: Install Node deps (root)
+        run: npm ci
+
+      # The frontend is a separate npm project (frontend/package.json) with its
+      # own lockfile; the root `npm ci` doesn't reach into it. Local dev runs
+      # `cd frontend && npm install` once and then `npm run dev` from the root.
+      - name: Install Node deps (frontend)
+        working-directory: frontend
         run: npm ci
 
       - name: Build frontend (vite)
