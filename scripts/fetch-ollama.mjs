@@ -3,22 +3,26 @@
  * Vendors the Ollama runtime into build-resources/ollama/ for the desktop build.
  *
  * PrivateScribe bundles Ollama so a fresh install needs no separate Ollama
- * setup. This script downloads Ollama's official headless macOS distribution
- * (ollama-darwin.tgz — the CLI/server runtime, with no menu-bar GUI app),
- * verifies it against the SHA256 the release publishes, and extracts it.
- * electron-builder then copies build-resources/ollama/ into the app bundle as
+ * setup. This script downloads Ollama's official headless runtime for the host
+ * OS/arch (the CLI/server runtime, not the menu-bar GUI app), verifies it
+ * against the SHA256 the release publishes, and extracts it. electron-builder
+ * then copies build-resources/ollama/ into the app bundle as
  * Resources/ollama-runtime/ (see extraResources in electron-builder.yml), and
- * Electron spawns Resources/ollama-runtime/ollama when no system Ollama is
- * already running.
+ * Electron spawns Resources/ollama-runtime/ollama[.exe] when no system Ollama
+ * is already running.
  *
- * The runtime is staged verbatim — including the x86_64 slices and the Intel
- * CPU GGML backends — because that is the exact file set Ollama ships and
- * tests. Thinning to arm64-only (the app targets arm64) would save ~80MB but
- * is left as a deliberate follow-up: a broken trim only surfaces in a slow
- * notarized build, so it is not worth coupling to first delivery.
+ * Per-platform release assets (the binary sits at the archive root on every
+ * platform; the runtime is staged verbatim, GPU backends included, so the app
+ * runs on CPU and/or GPU):
+ *   - macOS:   ollama-darwin.tgz            (universal)        → tar xzf
+ *   - Linux:   ollama-linux-{amd64,arm64}.tar.zst (needs zstd) → tar --zstd -xf
+ *   - Windows: ollama-windows-{amd64,arm64}.zip                → tar -xf (bsdtar)
+ *
+ * Each archive extracts on its own native runner in the CI matrix, where the
+ * matching extraction tool exists (zstd on Linux, bsdtar/tar.exe on Windows).
  *
  * Usage:
- *   node scripts/fetch-ollama.mjs           # stage the runtime if not present
+ *   node scripts/fetch-ollama.mjs           # stage the runtime for this OS
  *   node scripts/fetch-ollama.mjs --force   # re-download and re-stage
  *   OLLAMA_VERSION=0.x.y node scripts/fetch-ollama.mjs   # pin another version
  */
@@ -35,17 +39,38 @@ import { fileURLToPath } from 'node:url';
 // packaged build — verify against https://github.com/ollama/ollama/releases.
 const OLLAMA_VERSION = process.env.OLLAMA_VERSION || '0.24.0';
 
-// The headless macOS runtime (binary + GGML/MLX libraries), not the .app.
-const ASSET = 'ollama-darwin.tgz';
+// Resolve the headless runtime asset (binary + GGML/MLX libraries, not the
+// .app) for the host OS/arch. The binary lands at the archive root on every
+// platform — see install.sh / install.ps1 — so Electron's bundledBinaryPath()
+// always points at ollama-runtime/ollama[.exe].
+function resolveTarget() {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+  switch (process.platform) {
+    case 'darwin':
+      // One universal asset, no arch suffix.
+      return { asset: 'ollama-darwin.tgz', extract: 'tgz', binary: 'ollama' };
+    case 'linux':
+      return { asset: `ollama-linux-${arch}.tar.zst`, extract: 'zst', binary: 'ollama' };
+    case 'win32':
+      return { asset: `ollama-windows-${arch}.zip`, extract: 'zip', binary: 'ollama.exe' };
+    default:
+      throw new Error(`unsupported platform for Ollama runtime: ${process.platform}`);
+  }
+}
+
+const TARGET = resolveTarget();
+const ASSET = TARGET.asset;
 const RELEASE_BASE = `https://github.com/ollama/ollama/releases/download/v${OLLAMA_VERSION}`;
 const LICENSE_URL = `https://raw.githubusercontent.com/ollama/ollama/v${OLLAMA_VERSION}/LICENSE`;
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CACHE_DIR = path.join(REPO_ROOT, 'build-resources', '.cache');
-const TGZ_PATH = path.join(CACHE_DIR, ASSET);
+const ARCHIVE_PATH = path.join(CACHE_DIR, ASSET);
 const OUT_DIR = path.join(REPO_ROOT, 'build-resources', 'ollama');
-// Records which version is staged so re-runs are a no-op until the pin moves.
+// Records which version + target is staged so re-runs are a no-op until the pin
+// (or the host platform) changes — re-staging on a different OS must re-extract.
 const VERSION_MARKER = path.join(OUT_DIR, '.ollama-version');
+const STAGED_ID = `${OLLAMA_VERSION} ${process.platform}-${process.arch}`;
 
 const force = process.argv.includes('--force');
 
@@ -83,6 +108,31 @@ async function download(url, dest) {
   await pipeline(Readable.fromWeb(res.body), createWriteStream(dest));
 }
 
+// Extract an archive into outDir using whichever `tar` flavor matches the
+// format. All three run on their native CI runner: GNU tar + zstd on Linux,
+// bsdtar (System32 tar.exe, reads zip) on Windows, bsdtar on macOS.
+function extract(archive, kind, outDir) {
+  const args = {
+    tgz: ['xzf', archive, '-C', outDir],
+    zst: ['--zstd', '-xf', archive, '-C', outDir], // needs the zstd tool on PATH
+    zip: ['-xf', archive, '-C', outDir], // bsdtar auto-detects zip
+  }[kind];
+  if (!args) throw new Error(`unknown archive kind: ${kind}`);
+  execFileSync('tar', args, { stdio: 'inherit' });
+}
+
+// Total size of a directory tree, in bytes. Replaces a `du` shell-out so the
+// script works on Windows (no du in System32) without a coreutils dependency.
+async function dirSize(dir) {
+  let total = 0;
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += await dirSize(p);
+    else if (entry.isFile()) total += (await fs.stat(p)).size;
+  }
+  return total;
+}
+
 // Pull the SHA256 for ASSET out of the release's sha256sum.txt. Lines look
 // like: "<hex>  ./ollama-darwin.tgz".
 async function expectedSha() {
@@ -95,11 +145,11 @@ async function expectedSha() {
 }
 
 async function main() {
-  // Idempotent: skip entirely when the pinned version is already staged.
+  // Idempotent: skip entirely when this version+platform is already staged.
   if (!force && (await exists(VERSION_MARKER))) {
     const staged = (await fs.readFile(VERSION_MARKER, 'utf8')).trim();
-    if (staged === OLLAMA_VERSION) {
-      log(`Ollama ${OLLAMA_VERSION} already staged — use --force to refresh.`);
+    if (staged === STAGED_ID) {
+      log(`Ollama already staged (${STAGED_ID}) — use --force to refresh.`);
       return;
     }
   }
@@ -108,21 +158,21 @@ async function main() {
 
   const wantSha = await expectedSha();
 
-  // Reuse a cached tarball only when its hash matches the pinned release;
+  // Reuse a cached archive only when its hash matches the pinned release;
   // a stale or partial cache fails the check and is re-downloaded.
-  let haveValidTgz = false;
-  if (!force && (await exists(TGZ_PATH))) {
-    if ((await sha256(TGZ_PATH)) === wantSha) {
-      log('using cached tarball (checksum verified)');
-      haveValidTgz = true;
+  let haveValidArchive = false;
+  if (!force && (await exists(ARCHIVE_PATH))) {
+    if ((await sha256(ARCHIVE_PATH)) === wantSha) {
+      log('using cached archive (checksum verified)');
+      haveValidArchive = true;
     } else {
-      log('cached tarball checksum mismatch — re-downloading');
+      log('cached archive checksum mismatch — re-downloading');
     }
   }
 
-  if (!haveValidTgz) {
-    await download(`${RELEASE_BASE}/${ASSET}`, TGZ_PATH);
-    const got = await sha256(TGZ_PATH);
+  if (!haveValidArchive) {
+    await download(`${RELEASE_BASE}/${ASSET}`, ARCHIVE_PATH);
+    const got = await sha256(ARCHIVE_PATH);
     if (got !== wantSha) {
       throw new Error(
         `checksum mismatch for ${ASSET}\n  expected ${wantSha}\n  got      ${got}`,
@@ -134,15 +184,21 @@ async function main() {
   // Clean extraction so a re-stage never leaves stale files behind.
   await fs.rm(OUT_DIR, { recursive: true, force: true });
   await fs.mkdir(OUT_DIR, { recursive: true });
-  log('extracting runtime…');
-  execFileSync('tar', ['xzf', TGZ_PATH, '-C', OUT_DIR], { stdio: 'inherit' });
+  log(`extracting runtime (${TARGET.extract})…`);
+  extract(ARCHIVE_PATH, TARGET.extract, OUT_DIR);
 
-  // The tarball extracts flat — the server binary must land at the root.
-  const binary = path.join(OUT_DIR, 'ollama');
+  // The binary lands at the archive root on every platform (see install.sh /
+  // install.ps1) — Electron's bundledBinaryPath() depends on this. Fail loud
+  // if a future release changes the layout rather than shipping a broken bundle.
+  const binary = path.join(OUT_DIR, TARGET.binary);
   if (!(await exists(binary))) {
-    throw new Error(`expected ollama binary at ${binary} after extraction`);
+    const found = (await fs.readdir(OUT_DIR)).join(', ');
+    throw new Error(
+      `expected ${TARGET.binary} at the archive root after extraction (${binary}).\n` +
+        `Root entries were: ${found}`,
+    );
   }
-  await fs.chmod(binary, 0o755);
+  await fs.chmod(binary, 0o755); // no-op on Windows, harmless
 
   // Ship Ollama's license (MIT) alongside the runtime. Best-effort: a network
   // blip on this one file should not fail the build, but it must be loud.
@@ -152,10 +208,10 @@ async function main() {
     log(`WARNING: could not fetch Ollama LICENSE — ${err.message}`);
   }
 
-  await fs.writeFile(VERSION_MARKER, `${OLLAMA_VERSION}\n`);
+  await fs.writeFile(VERSION_MARKER, `${STAGED_ID}\n`);
 
-  const size = execFileSync('du', ['-sh', OUT_DIR]).toString().trim().split('\t')[0];
-  log(`staged Ollama ${OLLAMA_VERSION} (${size}) → ${path.relative(REPO_ROOT, OUT_DIR)}/`);
+  const mb = Math.round((await dirSize(OUT_DIR)) / (1024 * 1024));
+  log(`staged Ollama ${STAGED_ID} (${mb} MB) → ${path.relative(REPO_ROOT, OUT_DIR)}/`);
 }
 
 main().catch((err) => {
