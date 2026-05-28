@@ -60,20 +60,11 @@ extraResources:
     to: pyannote-models
     filter:
       - "**/*"
-  # The bundled Caddy web server (static macOS arm64 binary, staged by
-  # scripts/fetch-caddy.mjs). Lands at Resources/caddy-runtime/ — in server
-  # mode the service layer launches caddy-runtime/caddy to terminate TLS,
-  # serve the built SPA, and reverse-proxy /api to the loopback backend
-  # (roadmap Phase 9). Signed + notarized by the same mac signing flow as the
-  # other bundled binaries.
-  - from: build-resources/caddy
-    to: caddy-runtime
-    filter:
-      - "**/*"
-  # The Caddyfile template the server's service layer renders at setup time
-  # (electron/server/service-config.ts). Lands next to the Caddy binary.
-  - from: build-resources/Caddyfile.template
-    to: caddy-runtime/Caddyfile.template
+  # NOTE: Caddy (web server for server mode) is staged only on macOS — see
+  # mac.extraResources below. scripts/fetch-caddy.mjs is mac-arm64 today, so
+  # excluding it from Win/Linux builds keeps the desktop-only release green
+  # while the cross-platform Caddy + server-mode service port land later.
+  #
   # A plain (non-asar) copy of the built SPA for Caddy to file-serve in server
   # mode — an external process can't read frontend/dist from inside app.asar.
   # Lands at Resources/frontend/.
@@ -83,6 +74,17 @@ extraResources:
       - "**/*"
 
 mac:
+  # mac-only extras: the Caddy server-mode binary + its rendered Caddyfile
+  # template. Both are staged by scripts/fetch-caddy.mjs, which is currently
+  # mac-arm64 only; move these back to the top-level extraResources once Caddy
+  # is cross-platform (Phase 1 #3 + the server-mode service port).
+  extraResources:
+    - from: build-resources/caddy
+      to: caddy-runtime
+      filter:
+        - "**/*"
+    - from: build-resources/Caddyfile.template
+      to: caddy-runtime/Caddyfile.template
   category: public.app-category.productivity
   # Overrides Electron's generic default microphone-permission text — this is
   # the description macOS shows in the permission prompt on first recording.
@@ -114,6 +116,45 @@ mac:
       arch: arm64
     - target: zip
       arch: arm64
+
+win:
+  icon: electron/assets/icon.ico
+  # publisherName lands in the NSIS installer's metadata + the Windows
+  # "Apps & features" list. With no Authenticode certificate yet, SmartScreen
+  # warns first-time users; signing is a follow-up (paid cert + sign step).
+  publisherName: Second Path Studio
+  target:
+    # nsis: the typical Windows installer with uninstaller + Start Menu entry —
+    # and what electron-updater consumes for in-place updates. portable: a
+    # single .exe with no install for users who don't want to commit.
+    - target: nsis
+      arch: x64
+    - target: portable
+      arch: x64
+
+nsis:
+  oneClick: false # show a real install wizard, not a silent one-click install
+  perMachine: false # per-user install — no UAC prompt during install
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+linux:
+  # electron-builder accepts a single PNG >=512px and auto-generates the
+  # per-size variants AppImage / deb need; our source is 1024x1024.
+  icon: electron/assets/icon.png
+  # freedesktop main category — primary action is recording + transcribing audio.
+  category: AudioVideo
+  # TODO: replace with the real publishing email before the first .deb release —
+  # deb metadata is what apt shows; "Name <email>" is required by the format.
+  maintainer: Second Path Studio <hello@secondpath.dev>
+  target:
+    # AppImage: single executable, runs on any glibc-based distro, the
+    # auto-update channel for Linux. deb: Debian/Ubuntu native package.
+    - target: AppImage
+      arch: x64
+    - target: deb
+      arch: x64
 
 dmg:
   title: PrivateScribe ${version}
