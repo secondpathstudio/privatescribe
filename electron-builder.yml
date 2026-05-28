@@ -137,10 +137,10 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  # Publisher string in the NSIS installer's metadata + Windows "Apps & features"
-  # list. In electron-builder 26 this lives under nsis:, not win: (the older
-  # win.publisherName property was removed).
-  publisherName: Second Path Studio
+  # NOTE: there's no installer-level "publisher" field in electron-builder 26 —
+  # the publisher string is set by signtool at signing time. When we add an
+  # Authenticode cert, the publisher goes under win.signtoolOptions.publisherName.
+  # Until then, Windows will show "Unknown publisher" on first install; expected.
 
 linux:
   # electron-builder accepts a single PNG >=512px and auto-generates the
