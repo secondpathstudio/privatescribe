@@ -7,7 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type InstalledModel = { name: string; parameter_size?: string | null };
+type InstalledModel = {
+    name: string;
+    parameter_size?: string | null;
+    /** Footprint on disk in bytes, from `ollama list`. */
+    size?: number | null;
+    /** Currently held in Ollama's memory, from `ollama ps`. */
+    loaded?: boolean;
+};
 
 type ProgressEvent = {
     status?: string;
@@ -21,7 +28,12 @@ type ProgressEvent = {
 export default function ModelsCard() {
     const auth = useAuth();
     const [models, setModels] = useState<InstalledModel[] | null>(null);
+    const [defaultModel, setDefaultModel] = useState<string | null>(null);
     const [listError, setListError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+    // Name of the model an action (set-active) is in flight for, so its row's
+    // controls disable without freezing the whole list.
+    const [busyModel, setBusyModel] = useState<string | null>(null);
     const [pullName, setPullName] = useState("");
     const [pulling, setPulling] = useState(false);
     const [progress, setProgress] = useState<ProgressEvent | null>(null);
@@ -41,10 +53,43 @@ export default function ModelsCard() {
                 return;
             }
             setModels(data.models || []);
+            setDefaultModel(data.default || null);
             setListError(null);
         } catch (e: any) {
             setListError(e.message || "Could not reach the server");
             setModels([]);
+        }
+    };
+
+    // Ollama treats `name` and `name:latest` as the same model; the list API
+    // returns the tagged form but the stored default may be untagged.
+    const sameModel = (a?: string | null, b?: string | null) => {
+        const tag = (n?: string | null) => (!n || n.includes(":") ? n : `${n}:latest`);
+        return tag(a) === tag(b);
+    };
+
+    const handleSetActive = async (name: string) => {
+        setBusyModel(name);
+        setActionError(null);
+        try {
+            const res = await fetch(`${API_BASE}/api/admin/settings/llm-model`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${auth.token}`,
+                },
+                body: JSON.stringify({ value: name }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                if (res.status === 503) flagOllamaDown();
+                throw new Error(data.error || `Server error: ${res.status}`);
+            }
+            await fetchModels();
+        } catch (e: any) {
+            setActionError(e.message || "Could not set the active model");
+        } finally {
+            setBusyModel(null);
         }
     };
 
@@ -149,23 +194,57 @@ export default function ModelsCard() {
                 <div>
                     <p className="text-sm text-muted-foreground mb-2">
                         Models installed in the local Ollama server. Templates can only use models
-                        listed here. Pulling requires internet access.
+                        listed here. The <strong>active</strong> model formats every template that
+                        doesn't pin its own. Pulling requires internet access.
                     </p>
                     {listError && <p className="text-red-600 text-sm">{listError}</p>}
+                    {actionError && <p className="text-red-600 text-sm">{actionError}</p>}
                     {models === null && <p className="text-sm">Loading...</p>}
                     {models !== null && models.length === 0 && !listError && (
                         <p className="text-sm text-muted-foreground">No models installed yet.</p>
                     )}
                     {models !== null && models.length > 0 && (
                         <ul className="border-2 border-black divide-y-2 divide-black">
-                            {models.map((m) => (
-                                <li key={m.name} className="flex justify-between items-center px-3 py-2 text-sm">
-                                    <span className="font-mono">{m.name}</span>
-                                    {m.parameter_size && (
-                                        <span className="text-xs text-muted-foreground">{m.parameter_size}</span>
-                                    )}
-                                </li>
-                            ))}
+                            {models.map((m) => {
+                                const isActive = sameModel(m.name, defaultModel);
+                                return (
+                                    <li
+                                        key={m.name}
+                                        className="flex flex-wrap justify-between items-center gap-2 px-3 py-2 text-sm"
+                                    >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="font-mono truncate">{m.name}</span>
+                                            {isActive && (
+                                                <span className="text-[10px] font-black uppercase tracking-wider border-2 border-black bg-[#fd3777] text-white px-1.5 py-0.5">
+                                                    Active
+                                                </span>
+                                            )}
+                                            {m.loaded && (
+                                                <span className="text-[10px] font-black uppercase tracking-wider border-2 border-black bg-[#a3e636] px-1.5 py-0.5">
+                                                    In memory
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                                {m.parameter_size}
+                                                {m.parameter_size && m.size ? " · " : ""}
+                                                {m.size ? formatBytes(m.size) : ""}
+                                            </span>
+                                            {!isActive && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSetActive(m.name)}
+                                                    disabled={busyModel !== null}
+                                                    className="text-xs font-bold uppercase tracking-wider border-2 border-black bg-white px-2 py-1 shadow-[2px_2px_0px_0px_#000000] active:translate-x-[2px] active:translate-y-[2px] active:shadow-none disabled:bg-gray-200 disabled:text-gray-500 disabled:shadow-none"
+                                                >
+                                                    {busyModel === m.name ? "Setting..." : "Set active"}
+                                                </button>
+                                            )}
+                                        </div>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     )}
                 </div>
