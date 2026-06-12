@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import NeoButton from "@/components/neo/neo-button";
 
 /**
- * First-run "Use this Mac vs. Set up a server" chooser + the server-install
+ * First-run "Use this computer vs. Set up a server" chooser + the server-install
  * flow (roadmap Phase 9 item 4). Desktop-only — the caller should render this
  * instead of the plain setup form when `window.electron?.server` exists.
  *
@@ -28,7 +28,7 @@ type Step = "choose" | "configure" | "installing" | "paired" | "connect";
 type Props = {
   /** User chose to run everything locally — render the standard setup form. */
   onStandalone: () => void;
-  /** Server installed + running. `pairingUrl` is where clients (and this Mac's
+  /** Server installed + running. `pairingUrl` is where clients (and this computer's
    *  own admin UI) connect. The caller proceeds to super-admin creation. */
   onServerReady: (pairingUrl: string) => void;
 };
@@ -124,7 +124,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
             <CardContent className="space-y-5">
               <div>
                 <NeoButton
-                  label="Use this Mac"
+                  label="Use this computer"
                   backgroundColor="#fd3777"
                   textColor="#ffffff"
                   className="w-full"
@@ -143,7 +143,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                   onClick={() => setStep("configure")}
                 />
                 <p className="text-sm text-muted-foreground mt-2">
-                  This Mac hosts PrivateScribe for your team; staff connect from
+                  This computer hosts PrivateScribe for your team; staff connect from
                   their own devices over your network.
                 </p>
               </div>
@@ -310,7 +310,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                     </p>
                   )}
                   <p className="mt-2">
-                    This Mac will connect to it and won't store any data locally —
+                    This computer will connect to it and won't store any data locally —
                     transcription and notes live on the server.
                   </p>
                 </div>

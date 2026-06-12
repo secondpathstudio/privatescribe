@@ -90,7 +90,7 @@ export default function ServerDashboard() {
 
   return (
     <>
-      <SectionHeader title="Server" description="Status of the PrivateScribe server this Mac is running." />
+      <SectionHeader title="Server" description="Status of the PrivateScribe server this computer is running." />
 
       {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
 
