@@ -7,7 +7,10 @@ charset-normalizer==3.4.1
 click==8.1.8
 coloredlogs==15.0.1
 cryptography>=43.0.0
-ctranslate2==4.5.0
+# 4.5.0 Linux wheels shipped libctranslate2 with the executable-stack ELF flag
+# set, which glibc >= 2.41 refuses to load ("cannot enable executable stack").
+# Fixed upstream; keep >= 4.8.0 so packaged Linux builds start.
+ctranslate2==4.8.0
 faster-whisper==1.1.1
 pyannote.audio==3.3.2
 torch==2.5.1
