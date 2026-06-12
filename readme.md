@@ -227,6 +227,7 @@ PrivateScribe is general enough to handle any domain where structured documentat
 - Windows and Linux desktop installers (`.exe`, `.AppImage`) — a signed macOS build ships today
 - On-prem server mode: one office server hosting the backend, Whisper, and Ollama for desktops, tablets, and phones on a closed LAN, with TLS by default
 - Phone-as-microphone — record on a phone, review and edit on the desktop
+- Storage panel in settings: show how much disk the app is using by category (database, Whisper model cache, downloaded LLMs) with per-category cleanup — plus an uninstall-time "remove my data too?" prompt on Windows
 
 ---
 
