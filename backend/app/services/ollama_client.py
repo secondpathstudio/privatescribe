@@ -118,35 +118,81 @@ def _normalize_progress(chunk) -> dict:
     return out
 
 
-def list_installed_models() -> list[dict]:
-    """Returns [{"name": str, "parameter_size": str | None}, ...].
+def _model_field(m, key: str):
+    """Read `key` from an ollama response entry, object- or dict-shaped."""
+    val = getattr(m, key, None)
+    if val is None and isinstance(m, dict):
+        val = m.get(key)
+    return val
 
-    Raises whatever ollama raises if the daemon is unreachable; the route
-    handler decides how to surface that to the client.
+
+def list_installed_models() -> list[dict]:
+    """Returns [{"name": str, "parameter_size": str | None, "size": int | None}, ...].
+
+    `size` is the model's footprint on disk in bytes, as reported by the
+    Ollama `list` API. Raises whatever ollama raises if the daemon is
+    unreachable; the route handler decides how to surface that to the client.
     """
     response = _get_control_client().list()
     raw_models = response.get('models', []) if isinstance(response, dict) else getattr(response, 'models', [])
     out = []
     for m in raw_models:
         # ollama 0.4.x returns objects with .model; older shapes used dict['name'].
-        name = getattr(m, 'model', None) or getattr(m, 'name', None)
-        if name is None and isinstance(m, dict):
-            name = m.get('model') or m.get('name')
+        name = _model_field(m, 'model') or _model_field(m, 'name')
         if not name:
             continue
 
         # `details.parameter_size` is a human-readable string like "3.2B" or "7B"
-        details = getattr(m, 'details', None)
-        if details is None and isinstance(m, dict):
-            details = m.get('details')
+        details = _model_field(m, 'details')
         parameter_size = None
         if details is not None:
             parameter_size = getattr(details, 'parameter_size', None)
             if parameter_size is None and isinstance(details, dict):
                 parameter_size = details.get('parameter_size')
 
-        out.append({"name": name, "parameter_size": parameter_size})
+        out.append({
+            "name": name,
+            "parameter_size": parameter_size,
+            "size": _model_field(m, 'size'),
+        })
     return out
+
+
+def list_loaded_models() -> list[dict]:
+    """Models Ollama currently holds in memory (`ollama ps`).
+
+    Returns [{"name": str, "size_vram": int | None}, ...] — size_vram is 0
+    for a fully CPU-resident model. Raises on daemon-unreachable like the
+    other control-plane calls.
+    """
+    response = _get_control_client().ps()
+    raw_models = response.get('models', []) if isinstance(response, dict) else getattr(response, 'models', [])
+    out = []
+    for m in raw_models:
+        name = _model_field(m, 'model') or _model_field(m, 'name')
+        if not name:
+            continue
+        out.append({"name": name, "size_vram": _model_field(m, 'size_vram')})
+    return out
+
+
+def load_model(model_name: str) -> None:
+    """Load a model into Ollama's memory and pin it there (`keep_alive=-1`).
+
+    An empty prompt is the documented Ollama idiom for "load without
+    generating". Pinning means it stays resident until unload_model() or the
+    daemon restarts — though a later chat that uses the default keep_alive
+    resets the model back to Ollama's standard 5-minute idle eviction.
+
+    Uses the chat client: a cold load of a large model reads GBs from disk
+    and can far exceed the control-plane timeout.
+    """
+    _get_chat_client().generate(model=model_name, prompt='', keep_alive=-1)
+
+
+def unload_model(model_name: str) -> None:
+    """Evict a model from Ollama's memory now (`keep_alive=0`)."""
+    _get_control_client().generate(model=model_name, prompt='', keep_alive=0)
 
 
 def normalize_tag(name: str) -> str:

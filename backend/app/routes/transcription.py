@@ -272,7 +272,12 @@ def transcribe():
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def list_ollama_models():
-    """Return the list of models installed in the local Ollama server."""
+    """Return the models installed in the local Ollama server.
+
+    Each entry carries `size` (bytes on disk) and `loaded` (currently held in
+    Ollama's memory, per `ollama ps`). `default` is the active model templates
+    fall back to when they don't pin their own.
+    """
     try:
         models = ollama_client.list_installed_models()
     except Exception as e:
@@ -281,6 +286,19 @@ def list_ollama_models():
             "error": "Could not reach Ollama. Make sure `ollama serve` is running.",
             "models": [],
         }), 503
+
+    # Loaded-state is decoration on the list — if `ps` fails (e.g. an older
+    # daemon without the endpoint) every model just shows as not loaded.
+    try:
+        loaded = {
+            ollama_client.normalize_tag(m["name"])
+            for m in ollama_client.list_loaded_models()
+        }
+    except Exception as e:
+        logger.warning(f"Ollama ps failure: {type(e).__name__}: {e}")
+        loaded = set()
+    for m in models:
+        m["loaded"] = ollama_client.normalize_tag(m["name"]) in loaded
 
     return jsonify({
         "models": models,
@@ -674,3 +692,66 @@ def delete_ollama_model(model_name):
     )
     db.session.commit()
     return jsonify({"ok": True, "deleted": model_name})
+
+
+def _ollama_memory_op(action: str):
+    """Shared body for the load/unload-into-memory endpoints.
+
+    Validates the request, runs the ollama_client call, audit-logs, and maps
+    failures the same way the other ollama routes do. `action` is 'load' or
+    'unload'.
+    """
+    data = request.get_json(silent=True) or {}
+    model_name = (data.get('model') or '').strip()
+    if not model_name:
+        return jsonify({"error": "model is required"}), 400
+    if len(model_name) > 200:
+        return jsonify({"error": "model name too long"}), 400
+
+    # Send the normalized form so untagged input ('tinyllama') hits the same
+    # name Ollama lists ('tinyllama:latest') and audit rows stay uniform.
+    model_name = ollama_client.normalize_tag(model_name)
+    try:
+        if not ollama_client.is_model_installed(model_name):
+            return jsonify({"error": f"Model '{model_name}' is not installed."}), 404
+        if action == 'load':
+            ollama_client.load_model(model_name)
+        else:
+            ollama_client.unload_model(model_name)
+    except Exception as e:
+        logger.error(f"Ollama {action} failure: {type(e).__name__}: {e}")
+        if getattr(e, 'status_code', None) == 404:
+            return jsonify({"error": f"Model '{model_name}' is not installed."}), 404
+        return jsonify({
+            "error": "Could not reach Ollama. Make sure `ollama serve` is running.",
+        }), 503
+
+    log_action(
+        f'admin.ollama_{action}',
+        user_id=get_jwt_identity(),
+        resource_type='ollama_model',
+        resource_id=model_name,
+    )
+    db.session.commit()
+    return jsonify({"ok": True, "model": model_name})
+
+
+@bp.route('/api/ollama/load', methods=['POST'])
+@require_admin
+def load_ollama_model():
+    """Load a model into Ollama's memory and pin it (admin RAM control).
+
+    Body: {"model": "name:tag"}. Blocks until the load finishes — a cold
+    multi-GB model can take a while, so the client should show a spinner.
+    """
+    return _ollama_memory_op('load')
+
+
+@bp.route('/api/ollama/unload', methods=['POST'])
+@require_admin
+def unload_ollama_model():
+    """Evict a model from Ollama's memory immediately.
+
+    Body: {"model": "name:tag"}.
+    """
+    return _ollama_memory_op('unload')

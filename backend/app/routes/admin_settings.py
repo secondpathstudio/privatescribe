@@ -13,7 +13,7 @@ from flask_jwt_extended import get_jwt_identity
 from app.extensions import db
 from app.security.auth import require_admin
 from app.services import audio_retention, diarization, settings as settings_service
-from app.services import whisper, whisper_manager
+from app.services import ollama_client, whisper, whisper_manager
 from app.services.audit import log_action
 
 logger = logging.getLogger(__name__)
@@ -790,6 +790,48 @@ def update_diarization_device():
         "diarization_device": value,
         "diarization_device_effective": effective,
     })
+
+
+@bp.route('/llm-model', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_llm_model():
+    """Set the active default LLM model — what templates without their own
+    pinned model format with.
+
+    Body: {"value": "name:tag"}. The model must already be installed in
+    Ollama; the Models admin page only offers installed ones, and rejecting
+    here keeps a typo from silently breaking every unpinned template.
+    """
+    data = request.get_json(silent=True) or {}
+    value = (data.get('value') or '').strip() if isinstance(data.get('value'), str) else ''
+    if not value:
+        return jsonify({"error": "value must be a non-empty string"}), 400
+    if len(value) > 200:
+        return jsonify({"error": "model name too long"}), 400
+
+    try:
+        if not ollama_client.is_model_installed(value):
+            return jsonify({"error": f"Model '{value}' is not installed."}), 422
+    except Exception as e:
+        logger.error(f"Ollama list failure: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "Could not reach Ollama. Make sure `ollama serve` is running.",
+        }), 503
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_llm_model()
+    settings_service.set_value(settings_service.LLM_MODEL, value, updated_by=current_user)
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.LLM_MODEL,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({"llm_model": settings_service.get_llm_model()})
 
 
 @bp.route('/whisper/models', methods=['GET'])
