@@ -613,3 +613,64 @@ def pull_ollama_model():
             yield json.dumps({"error": str(e), "done": True}) + "\n"
 
     return Response(generate(), mimetype="application/x-ndjson")
+
+
+@bp.route('/api/ollama/models/<path:model_name>', methods=['DELETE'])
+@require_admin
+def delete_ollama_model(model_name):
+    """Remove an installed model from the Ollama store.
+
+    Guards, in order:
+      - 409 when the model is the active default (`llm_model` setting) —
+        the admin must switch the default before deleting it.
+      - 409 listing template names when any non-deleted template overrides
+        its model to this one, unless `?force=1` — the client shows those
+        names in a second confirmation and retries with force.
+
+    `<path:...>` (not `<string:...>`) because model names can contain
+    slashes (e.g. `hf.co/org/repo:tag`).
+    """
+    model_name = model_name.strip()
+    if not model_name:
+        return jsonify({"error": "model is required"}), 400
+
+    normalized = ollama_client.normalize_tag(model_name)
+    active = ollama_client.normalize_tag(settings_service.get_llm_model())
+    if normalized == active:
+        return jsonify({
+            "error": "This is the active default model. Choose a different "
+                     "default before deleting it.",
+        }), 409
+
+    referencing = [
+        t.name for t in Template.query.filter(
+            Template.llm_model.isnot(None),
+            Template.is_deleted.is_(False),
+        )
+        if ollama_client.normalize_tag(t.llm_model) == normalized
+    ]
+    if referencing and not _truthy(request.args.get('force')):
+        return jsonify({
+            "error": "Templates reference this model.",
+            "templates": referencing,
+        }), 409
+
+    try:
+        ollama_client.delete_model(model_name)
+    except Exception as e:
+        status = getattr(e, 'status_code', None)
+        if status == 404:
+            return jsonify({"error": f"Model '{model_name}' is not installed."}), 404
+        logger.error(f"Ollama delete failure: {type(e).__name__}: {e}")
+        return jsonify({
+            "error": "Could not reach Ollama. Make sure `ollama serve` is running.",
+        }), 503
+
+    log_action(
+        'admin.ollama_delete',
+        user_id=get_jwt_identity(),
+        resource_type='ollama_model',
+        resource_id=model_name,
+    )
+    db.session.commit()
+    return jsonify({"ok": True, "deleted": model_name})

@@ -149,7 +149,7 @@ def list_installed_models() -> list[dict]:
     return out
 
 
-def _normalize_tag(name: str) -> str:
+def normalize_tag(name: str) -> str:
     """Append :latest when no tag is specified, matching Ollama CLI convention.
 
     Ollama treats `llama3.2` and `llama3.2:latest` as the same model, but its
@@ -170,14 +170,24 @@ def is_model_installed(model_name: str) -> bool:
     Raises whatever ollama raises if the daemon is unreachable; callers should
     distinguish 'unreachable' from 'reachable but missing'.
     """
-    needle = _normalize_tag(model_name)
-    return any(_normalize_tag(m["name"]) == needle for m in list_installed_models())
+    needle = normalize_tag(model_name)
+    return any(normalize_tag(m["name"]) == needle for m in list_installed_models())
 
 
 def pull_model_stream(model_name: str):
     """Yield normalized progress dicts for a `ollama pull <model>` operation."""
     for chunk in ollama.pull(model_name, stream=True):
         yield _normalize_progress(chunk)
+
+
+def delete_model(model_name: str) -> None:
+    """Remove an installed model from the Ollama store (`ollama rm <model>`).
+
+    Raises ollama.ResponseError (404) when the model isn't installed, or a
+    connection error when the daemon is unreachable; the route handler maps
+    both onto HTTP responses.
+    """
+    _get_control_client().delete(model_name)
 
 
 _DATE_FORMATS = (
