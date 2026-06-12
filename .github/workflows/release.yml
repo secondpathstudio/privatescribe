@@ -101,6 +101,9 @@ jobs:
       - name: Stage bundled Ollama runtime (per-OS archive)
         run: npm run build:ollama
 
+      - name: Stage Caddy web server (per-OS archive)
+        run: npm run build:caddy
+
       - name: Stage pyannote diarization models
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}

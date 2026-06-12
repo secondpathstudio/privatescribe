@@ -60,11 +60,15 @@ extraResources:
     to: pyannote-models
     filter:
       - "**/*"
-  # NOTE: Caddy (web server for server mode) is staged only on macOS — see
-  # mac.extraResources below. scripts/fetch-caddy.mjs is mac-arm64 today, so
-  # excluding it from Win/Linux builds keeps the desktop-only release green
-  # while the cross-platform Caddy + server-mode service port land later.
-  #
+  # Caddy (LAN-facing web server for server mode) + its Caddyfile template.
+  # Staged per-OS by scripts/fetch-caddy.mjs; the service layer reads the
+  # template from Resources/caddy-runtime/ when installing the server services.
+  - from: build-resources/caddy
+    to: caddy-runtime
+    filter:
+      - "**/*"
+  - from: build-resources/Caddyfile.template
+    to: caddy-runtime/Caddyfile.template
   # A plain (non-asar) copy of the built SPA for Caddy to file-serve in server
   # mode — an external process can't read frontend/dist from inside app.asar.
   # Lands at Resources/frontend/.
@@ -74,17 +78,6 @@ extraResources:
       - "**/*"
 
 mac:
-  # mac-only extras: the Caddy server-mode binary + its rendered Caddyfile
-  # template. Both are staged by scripts/fetch-caddy.mjs, which is currently
-  # mac-arm64 only; move these back to the top-level extraResources once Caddy
-  # is cross-platform (Phase 1 #3 + the server-mode service port).
-  extraResources:
-    - from: build-resources/caddy
-      to: caddy-runtime
-      filter:
-        - "**/*"
-    - from: build-resources/Caddyfile.template
-      to: caddy-runtime/Caddyfile.template
   category: public.app-category.productivity
   # Overrides Electron's generic default microphone-permission text — this is
   # the description macOS shows in the permission prompt on first recording.

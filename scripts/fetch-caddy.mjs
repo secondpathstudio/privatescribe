@@ -5,14 +5,17 @@
  * In server mode (roadmap Phase 9) Caddy is the only LAN-facing process: it
  * terminates TLS with a self-signed cert (Caddy's `tls internal` local CA),
  * serves the built frontend, and reverse-proxies /api to the loopback backend.
- * This script downloads Caddy's official static macOS arm64 binary, verifies it
- * against the checksum the release publishes, and stages it. electron-builder
- * copies build-resources/caddy/ into the app bundle as Resources/caddy-runtime/
- * (see extraResources in electron-builder.yml); the service layer (Phase 9
- * item 3) launches Resources/caddy-runtime/caddy with a rendered Caddyfile.
+ * This script downloads Caddy's official static binary for the host OS/arch,
+ * verifies it against the checksum the release publishes, and stages it.
+ * electron-builder copies build-resources/caddy/ into the app bundle as
+ * Resources/caddy-runtime/ (see extraResources in electron-builder.yml); the
+ * service layer launches Resources/caddy-runtime/privatescribe-webserver with
+ * a rendered Caddyfile.
  *
- * macOS arm64 only, matching the app's release target. Linux/Windows server
- * variants will vendor their own Caddy build later.
+ * Per-platform release assets (Caddy publishes static single-binary builds):
+ *   - macOS:   caddy_<ver>_mac_<arch>.tar.gz       → tar xzf
+ *   - Linux:   caddy_<ver>_linux_<arch>.tar.gz     → tar xzf
+ *   - Windows: caddy_<ver>_windows_<arch>.zip      → tar -xf (bsdtar)
  *
  * Usage:
  *   node scripts/fetch-caddy.mjs           # stage the binary if not present
@@ -32,8 +35,25 @@ import { fileURLToPath } from 'node:url';
 // packaged build — verify against https://github.com/caddyserver/caddy/releases.
 const CADDY_VERSION = process.env.CADDY_VERSION || '2.8.4';
 
-// The static macOS arm64 server binary.
-const ASSET = `caddy_${CADDY_VERSION}_mac_arm64.tar.gz`;
+// Resolve the static server binary asset for the host OS/arch. Caddy's
+// release assets: tar.gz for mac/linux, zip for windows; the archive holds a
+// single `caddy`/`caddy.exe` binary at its root on every platform.
+function resolveTarget() {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+  switch (process.platform) {
+    case 'darwin':
+      return { asset: `caddy_${CADDY_VERSION}_mac_${arch}.tar.gz`, binary: 'caddy' };
+    case 'linux':
+      return { asset: `caddy_${CADDY_VERSION}_linux_${arch}.tar.gz`, binary: 'caddy' };
+    case 'win32':
+      return { asset: `caddy_${CADDY_VERSION}_windows_${arch}.zip`, binary: 'caddy.exe' };
+    default:
+      throw new Error(`unsupported platform for Caddy: ${process.platform}`);
+  }
+}
+
+const TARGET = resolveTarget();
+const ASSET = TARGET.asset;
 const CHECKSUMS = `caddy_${CADDY_VERSION}_checksums.txt`;
 const RELEASE_BASE = `https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}`;
 const LICENSE_URL = `https://raw.githubusercontent.com/caddyserver/caddy/v${CADDY_VERSION}/LICENSE`;
@@ -42,8 +62,11 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const CACHE_DIR = path.join(REPO_ROOT, 'build-resources', '.cache');
 const TGZ_PATH = path.join(CACHE_DIR, ASSET);
 const OUT_DIR = path.join(REPO_ROOT, 'build-resources', 'caddy');
-// Records which version is staged so re-runs are a no-op until the pin moves.
+// Records which version + target is staged so re-runs are a no-op until the
+// pin (or the host platform) changes — re-staging on a different OS must
+// re-extract.
 const VERSION_MARKER = path.join(OUT_DIR, '.caddy-version');
+const STAGED_ID = `${CADDY_VERSION} ${process.platform}-${process.arch}`;
 
 const force = process.argv.includes('--force');
 
@@ -105,8 +128,8 @@ async function main() {
   // Idempotent: skip entirely when the pinned version is already staged.
   if (!force && (await exists(VERSION_MARKER))) {
     const staged = (await fs.readFile(VERSION_MARKER, 'utf8')).trim();
-    if (staged === CADDY_VERSION) {
-      log(`Caddy ${CADDY_VERSION} already staged — use --force to refresh.`);
+    if (staged === STAGED_ID) {
+      log(`Caddy ${STAGED_ID} already staged — use --force to refresh.`);
       return;
     }
   }
@@ -142,16 +165,22 @@ async function main() {
   await fs.rm(OUT_DIR, { recursive: true, force: true });
   await fs.mkdir(OUT_DIR, { recursive: true });
   log('extracting binary…');
-  execFileSync('tar', ['xzf', TGZ_PATH, '-C', OUT_DIR], { stdio: 'inherit' });
+  // Windows must use System32's bsdtar (handles .zip); MSYS tar from a git
+  // bash PATH chokes on Windows-style absolute paths ("C:\…").
+  const tar = process.platform === 'win32' ? 'C:\\Windows\\System32\\tar.exe' : 'tar';
+  execFileSync(tar, ['-xf', TGZ_PATH, '-C', OUT_DIR], { stdio: 'inherit' });
 
-  const extracted = path.join(OUT_DIR, 'caddy');
+  const extracted = path.join(OUT_DIR, TARGET.binary);
   if (!(await exists(extracted))) {
     throw new Error(`expected caddy binary at ${extracted} after extraction`);
   }
-  // Rename to a PrivateScribe-specific name so it's identifiable in Activity
-  // Monitor as our web server, not a generic "caddy" (Caddy doesn't care about
-  // its own filename). service-config.ts launches it under this name.
-  const binary = path.join(OUT_DIR, 'privatescribe-webserver');
+  // Rename to a PrivateScribe-specific name so it's identifiable in the
+  // process list as our web server, not a generic "caddy" (Caddy doesn't care
+  // about its own filename). service-config.ts launches it under this name.
+  const binary = path.join(
+    OUT_DIR,
+    process.platform === 'win32' ? 'privatescribe-webserver.exe' : 'privatescribe-webserver',
+  );
   await fs.rename(extracted, binary);
   await fs.chmod(binary, 0o755);
 
@@ -162,10 +191,10 @@ async function main() {
     log(`WARNING: could not fetch Caddy LICENSE — ${err.message}`);
   }
 
-  await fs.writeFile(VERSION_MARKER, `${CADDY_VERSION}\n`);
+  await fs.writeFile(VERSION_MARKER, `${STAGED_ID}\n`);
 
-  const size = execFileSync('du', ['-sh', OUT_DIR]).toString().trim().split('\t')[0];
-  log(`staged Caddy ${CADDY_VERSION} (${size}) → ${path.relative(REPO_ROOT, OUT_DIR)}/`);
+  const size = `${((await fs.stat(binary)).size / 1024 / 1024).toFixed(1)} MB`;
+  log(`staged Caddy ${STAGED_ID} (${size}) → ${path.relative(REPO_ROOT, OUT_DIR)}/`);
 }
 
 main().catch((err) => {
