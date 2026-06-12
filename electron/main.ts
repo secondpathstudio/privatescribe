@@ -229,8 +229,8 @@ function lanIp(): string | null {
 
 /**
  * Wire up the renderer-facing server-mode IPC for the "Become a server" wizard
- * (Phase 9). install/uninstall shell out to launchctl behind a single admin
- * prompt (electron/server/service-control.ts); errors are returned to the
+ * (Phase 9). install/uninstall shell out to launchctl/systemctl behind a single
+ * admin prompt (electron/server/service-control.ts); errors are returned to the
  * renderer rather than thrown so the wizard can show them.
  */
 function registerServerIpc(): void {
@@ -280,7 +280,7 @@ function registerServerIpc(): void {
 
   ipcMain.handle('server:info', () => {
     const cfg = defaultServerConfig(process.resourcesPath);
-    const host = lanIp() ?? '<this-mac-ip>';
+    const host = lanIp() ?? '<server-ip>';
     // Deep-link to /login: a plain browser has no window.electron, so the SPA's
     // root route shows the public marketing page instead of the login screen.
     return { lanPort: cfg.lanPort, pairingUrl: `https://${host}:${cfg.lanPort}/login` };

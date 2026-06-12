@@ -1,33 +1,48 @@
 /**
  * Server-mode service configuration (roadmap Phase 9 item 3).
  *
- * Pure config generation for the three macOS launchd daemons that make up a
- * PrivateScribe server — no side effects, so it's unit-testable without
- * touching the system. The privileged install/lifecycle (writing to
- * /Library/LaunchDaemons, elevation, launchctl) lives in service-control.ts.
+ * Pure config generation for the three daemons that make up a PrivateScribe
+ * server — launchd plists on macOS, systemd units on Linux. No side effects,
+ * so it's unit-testable without touching the system. The privileged
+ * install/lifecycle (writing the service files, elevation, launchctl /
+ * systemctl) lives in service-control.ts.
  *
  * Topology: Caddy is the only LAN-facing process. The backend binds loopback
  * only; Ollama binds a private loopback port; Caddy terminates TLS on the LAN
  * port, serves the built SPA, and reverse-proxies /api to the backend.
  *
- * The daemons run as root LaunchDaemons (survive logout, no user session
+ * The daemons run as root system services (survive logout, no user session
  * needed) with data under a shared system directory. The SQLCipher key is read
- * by the backend from the data dir's .env — never placed in a plist.
+ * by the backend from the data dir's .env — never placed in a service file.
  */
 import * as path from 'path';
 
 import { exe, resolveOllamaBinary } from '../platform';
 
+const IS_LINUX = process.platform === 'linux';
+
 // Shared, root-owned locations for a server install (not the per-user
-// app-support dir standalone uses).
-export const SERVER_DATA_DIR = '/Library/Application Support/PrivateScribe';
-export const LOG_DIR = '/Library/Logs/PrivateScribe';
+// app-support dir standalone uses). Linux follows the FHS; macOS uses /Library.
+export const SERVER_DATA_DIR = IS_LINUX
+  ? '/var/lib/privatescribe'
+  : '/Library/Application Support/PrivateScribe';
+export const LOG_DIR = IS_LINUX
+  ? '/var/log/privatescribe'
+  : '/Library/Logs/PrivateScribe';
 export const LAUNCH_DAEMON_DIR = '/Library/LaunchDaemons';
+export const SYSTEMD_UNIT_DIR = '/etc/systemd/system';
 
 export const LABELS = {
   backend: 'com.secondpath.privatescribe.backend',
   ollama: 'com.secondpath.privatescribe.ollama',
   caddy: 'com.secondpath.privatescribe.caddy',
+} as const;
+
+// systemd unit file names (Linux counterpart of LABELS).
+export const UNIT_NAMES = {
+  backend: 'privatescribe-backend.service',
+  ollama: 'privatescribe-ollama.service',
+  caddy: 'privatescribe-caddy.service',
 } as const;
 
 // The app bundle id. Stamped into each daemon's plist as
@@ -201,6 +216,109 @@ export function caddyPlist(cfg: ServerConfig): string {
     ],
     environment: {
       // launchd sets no HOME; Caddy warns and may misplace assets without it.
+      HOME: cfg.dataDir,
+      // Caddy persists its internal CA + leaf cert here so the cert (and the
+      // fingerprint clients pin) is stable across restarts.
+      XDG_DATA_HOME: path.join(cfg.dataDir, 'caddy', 'data'),
+      XDG_CONFIG_HOME: path.join(cfg.dataDir, 'caddy', 'config'),
+    },
+    stdoutPath: path.join(LOG_DIR, 'caddy.log'),
+    stderrPath: path.join(LOG_DIR, 'caddy.err.log'),
+  });
+}
+
+/** Quote a word for a systemd ExecStart= or Environment= line: double quotes
+ *  allow \ and " escapes, and % must be doubled or systemd expands it as a
+ *  specifier. */
+function unitQuote(s: string): string {
+  return `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/%/g, '%%')}"`;
+}
+
+interface UnitSpec {
+  description: string;
+  execStart: string[];
+  environment?: Record<string, string>;
+  stdoutPath: string;
+  stderrPath: string;
+}
+
+/** Render a systemd system unit — the Linux counterpart of renderPlist.
+ *  Restart=always restarts on crash; enabling it (WantedBy=multi-user.target)
+ *  starts it at boot. Runs as root, matching the macOS LaunchDaemons. */
+export function renderUnit(spec: UnitSpec): string {
+  const lines = [
+    '[Unit]',
+    `Description=${spec.description}`,
+    'After=network.target',
+    '',
+    '[Service]',
+    `ExecStart=${spec.execStart.map(unitQuote).join(' ')}`,
+  ];
+  for (const [k, v] of Object.entries(spec.environment ?? {})) {
+    lines.push(`Environment=${unitQuote(`${k}=${v}`)}`);
+  }
+  lines.push(
+    'Restart=always',
+    'RestartSec=2',
+    // append: needs systemd >= 240 (2018) — a given on any distro recent
+    // enough to run the app.
+    `StandardOutput=append:${spec.stdoutPath}`,
+    `StandardError=append:${spec.stderrPath}`,
+    '',
+    '[Install]',
+    'WantedBy=multi-user.target',
+  );
+  return lines.join('\n') + '\n';
+}
+
+export function backendUnit(cfg: ServerConfig): string {
+  const p = serverPaths(cfg.resourcesPath);
+  return renderUnit({
+    description: 'PrivateScribe backend',
+    execStart: [p.backend],
+    environment: {
+      // System services get no HOME; tools that expect one (matplotlib's
+      // font cache, etc.) need it. Point it at the writable data dir.
+      HOME: cfg.dataDir,
+      PRIVATESCRIBE_MODE: 'server',
+      PRIVATESCRIBE_DATA_DIR: cfg.dataDir,
+      // Backend binds loopback only — Caddy is the LAN face.
+      PRIVATESCRIBE_HOST: '127.0.0.1',
+      PRIVATESCRIBE_PORT: String(cfg.backendPort),
+      // Caddy's LAN HTTPS port — what clients actually connect to. The backend
+      // advertises this (not its own loopback port) over mDNS for discovery.
+      PRIVATESCRIBE_LAN_PORT: String(cfg.lanPort),
+      OLLAMA_HOST: `127.0.0.1:${cfg.ollamaPort}`,
+      PYANNOTE_MODELS_DIR: p.pyannote,
+    },
+    stdoutPath: path.join(LOG_DIR, 'backend.log'),
+    stderrPath: path.join(LOG_DIR, 'backend.err.log'),
+  });
+}
+
+export function ollamaUnit(cfg: ServerConfig): string {
+  const p = serverPaths(cfg.resourcesPath);
+  return renderUnit({
+    description: 'PrivateScribe Ollama runtime',
+    execStart: [p.ollama, 'serve'],
+    environment: {
+      // Ollama hard-errors ("$HOME is not defined") without HOME.
+      HOME: cfg.dataDir,
+      OLLAMA_HOST: `127.0.0.1:${cfg.ollamaPort}`,
+      // Persist pulled models in the shared data dir, not root's home.
+      OLLAMA_MODELS: path.join(cfg.dataDir, 'ollama-models'),
+    },
+    stdoutPath: path.join(LOG_DIR, 'ollama.log'),
+    stderrPath: path.join(LOG_DIR, 'ollama.err.log'),
+  });
+}
+
+export function caddyUnit(cfg: ServerConfig): string {
+  const p = serverPaths(cfg.resourcesPath);
+  return renderUnit({
+    description: 'PrivateScribe web server (Caddy)',
+    execStart: [p.caddy, 'run', '--config', caddyfilePath(cfg), '--adapter', 'caddyfile'],
+    environment: {
       HOME: cfg.dataDir,
       // Caddy persists its internal CA + leaf cert here so the cert (and the
       // fingerprint clients pin) is stable across restarts.
