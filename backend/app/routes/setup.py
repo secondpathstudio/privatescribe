@@ -14,6 +14,7 @@ from app.extensions import db, limiter
 from app.models import User, Organization
 from app.security import password_policy
 from app.security.auth import _ADMIN_ROLES, ROLE_ADMIN, ROLE_SUPER_ADMIN
+from app.services import settings as settings_service
 from app.services.audit import log_action
 
 bp = Blueprint("setup", __name__)
@@ -31,8 +32,17 @@ def _needs_setup() -> bool:
 @bp.route('/api/setup/status', methods=['GET'])
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 def setup_status():
-    """Unauthenticated probe so the login screen can flip to setup mode."""
-    return jsonify({"needs_setup": _needs_setup()})
+    """Unauthenticated probe so the login screen can flip to setup mode.
+
+    Also reports no-login mode + the deployment mode so the login screen can
+    decide whether to auto-sign-in (kiosk) instead of showing the password
+    form, and so the admin UI can warn about no-login on a networked server.
+    """
+    return jsonify({
+        "needs_setup": _needs_setup(),
+        "no_login": settings_service.get_no_login_mode(),
+        "deployment_mode": current_app.config.get("DEPLOYMENT_MODE", "standalone"),
+    })
 
 
 @bp.route('/api/setup/create-admin', methods=['POST'])
@@ -48,6 +58,7 @@ def setup_create_admin():
     first_name = (data.get('firstName') or '').strip()
     last_name = (data.get('lastName') or '').strip()
     organization = (data.get('organization') or '').strip()
+    no_login = bool(data.get('noLogin'))
 
     if not email or '@' not in email:
         return jsonify({"error": "Valid email required"}), 400

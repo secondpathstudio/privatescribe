@@ -24,9 +24,12 @@ def _pending_backup_key_ack(user) -> bool:
     return is_admin(user) and not is_backup_key_acknowledged()
 
 
-def _user_payload(user) -> dict:
+def _user_payload(user, kiosk: bool = False) -> dict:
     """The user object the frontend caches in localStorage. Shared by login
-    and /api/validateToken so the two can't drift."""
+    and /api/validateToken so the two can't drift.
+
+    `kiosk` marks a no-login (passwordless) session so the frontend knows to
+    gate admin areas behind the step-up password modal."""
     return {
         "id": user.id,
         "email": user.email,
@@ -45,10 +48,13 @@ def _user_payload(user) -> dict:
         "exportsEnabled": settings_service.get_exports_enabled(),
         "dictationMarkersEnabled": settings_service.get_dictation_markers_enabled(),
         "idleTimeoutMinutes": settings_service.get_session_idle_timeout_minutes(),
+        # True when this session was issued passwordlessly by no-login mode.
+        # The frontend shows the elevation modal before any admin route.
+        "kiosk": kiosk,
     }
 
 
-def _build_login_response(user):
+def _build_login_response(user, kiosk: bool = False):
     """Issue the final access+refresh token pair and the user payload that
     the frontend caches in localStorage. Called from /api/login when 2FA is
     not required, and from /api/login/2fa and /api/login/2fa-enroll-verify
@@ -56,16 +62,20 @@ def _build_login_response(user):
 
     Creates the server-side Session row and stamps its id into both tokens as
     the `sid` claim — the request guard validates that row on every call, so
-    logout / idle timeout / deactivation can revoke access immediately."""
+    logout / idle timeout / deactivation can revoke access immediately.
+
+    `kiosk` stamps a matching claim into the tokens so require_admin can refuse
+    admin routes until the session is elevated (see /api/auth/auto-login and
+    /api/auth/elevate)."""
     session = sessions.start_session(user.id)
-    claims = {"sid": session.id}
+    claims = {"sid": session.id, "kiosk": kiosk}
     access_token = create_access_token(identity=user.id, additional_claims=claims)
     refresh_token = create_refresh_token(identity=user.id, additional_claims=claims)
     user.last_login = datetime.utcnow()
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
-        "user": _user_payload(user),
+        "user": _user_payload(user, kiosk=kiosk),
     }
 
 
@@ -77,7 +87,7 @@ def validate_token():
         return jsonify({"error": "User not found"}), 404
     return jsonify({
         "message": "Valid token",
-        "user": _user_payload(user),
+        "user": _user_payload(user, kiosk=bool(get_jwt().get('kiosk'))),
     })
 
 
@@ -345,8 +355,11 @@ def refresh():
             "code": "account_deactivated",
         }), 401
     sessions.touch(session)
+    # Carry the kiosk claim across refresh — otherwise a no-login session would
+    # silently elevate to a full one the first time its access token refreshed.
     new_access_token = create_access_token(
-        identity=current_user, additional_claims={"sid": sid}
+        identity=current_user,
+        additional_claims={"sid": sid, "kiosk": bool(get_jwt().get('kiosk'))},
     )
     log_action('auth.token_refresh', user_id=current_user)
     db.session.commit()
@@ -364,3 +377,71 @@ def logout():
         log_action('auth.logout', user_id=get_jwt_identity())
         db.session.commit()
     return jsonify({"message": "Logged out"}), 200
+
+
+@bp.route('/api/auth/auto-login', methods=['POST'])
+@limiter.limit("10 per minute")
+def auto_login():
+    """Passwordless sign-in for no-login (kiosk) mode.
+
+    Only works when an admin has turned no-login mode on. Issues a token pair
+    for the designated NO_LOGIN_USER_ID, flagged `kiosk` so admin routes stay
+    behind the password (see require_admin and /api/auth/elevate). Refuses if
+    the designated user can't safely be auto-signed-in — missing, deactivated,
+    owing a password change, or protected by a second factor a silent login
+    must never skip."""
+    if not settings_service.get_no_login_mode():
+        return jsonify({"error": "No-login mode is not enabled."}), 403
+
+    user_id = settings_service.get_no_login_user_id()
+    user = User.query.get(user_id) if user_id else None
+    if user is None or not user.is_active:
+        return jsonify({
+            "error": "No-login mode is misconfigured. Please sign in normally.",
+        }), 403
+    if user.force_password_change:
+        return jsonify({
+            "error": "This account must change its password before it can be used.",
+        }), 403
+    if two_factor.is_enrolled(user) or settings_service.get_two_factor_required():
+        return jsonify({
+            "error": "Two-factor authentication is required; please sign in normally.",
+        }), 403
+
+    response_body = _build_login_response(user, kiosk=True)
+    log_action('auth.auto_login', user_id=user.id, user_email=user.email)
+    db.session.commit()
+    return jsonify(response_body), 200
+
+
+@bp.route('/api/auth/elevate', methods=['POST'])
+@jwt_required()
+@limiter.limit("10 per minute")
+def elevate():
+    """Step a kiosk (no-login) session up to a full one by re-entering the
+    password. Body: {password}. On success mints a fresh non-kiosk token pair
+    (a new session) so admin routes open up. The frontend calls this when an
+    admin action comes back with `elevation_required`."""
+    data = request.get_json(silent=True) or {}
+    password = data.get('password')
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+
+    user = User.query.get(get_jwt_identity())
+    if user is None or not user.is_active:
+        return jsonify({"error": "This account is no longer active."}), 401
+    if not check_password_hash(user.password, password):
+        log_action(
+            'auth.elevate',
+            user_id=user.id,
+            user_email=user.email,
+            status='failure',
+            extra={'reason': 'invalid_password'},
+        )
+        db.session.commit()
+        return jsonify({"error": "Invalid password"}), 401
+
+    response_body = _build_login_response(user, kiosk=False)
+    log_action('auth.elevate', user_id=user.id, user_email=user.email)
+    db.session.commit()
+    return jsonify(response_body), 200

@@ -33,10 +33,27 @@ def is_super_admin(user) -> bool:
     return user is not None and user.role == ROLE_SUPER_ADMIN
 
 
+def _elevation_required_response():
+    """403 telling a kiosk (no-login) session to step up with the password.
+
+    The frontend catches this `code` and shows the re-auth modal, which calls
+    /api/auth/elevate to swap the kiosk token for a full one."""
+    return jsonify({
+        "error": "Re-enter your password to access admin settings.",
+        "code": "elevation_required",
+    }), 403
+
+
 def require_admin(fn):
     @wraps(fn)
     @jwt_required()
     def wrapper(*args, **kwargs):
+        # A kiosk (no-login) token can carry an admin identity, but admin
+        # routes stay gated until the session is elevated with the password —
+        # this is the server-side half of step-up, so hitting the API
+        # directly can't bypass the frontend re-auth modal.
+        if get_jwt().get('kiosk'):
+            return _elevation_required_response()
         user = User.query.get(get_jwt_identity())
         if not is_admin(user):
             return jsonify({"error": "Admin privileges required"}), 403
@@ -50,6 +67,8 @@ def require_super_admin(fn):
     @wraps(fn)
     @jwt_required()
     def wrapper(*args, **kwargs):
+        if get_jwt().get('kiosk'):
+            return _elevation_required_response()
         user = User.query.get(get_jwt_identity())
         if not is_super_admin(user):
             return jsonify({"error": "Super-admin privileges required"}), 403

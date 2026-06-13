@@ -37,6 +37,8 @@ LAST_BACKUP_AT = "last_backup_at"
 AUDIT_ARCHIVE_WATERMARK = "audit_archive_watermark"
 ACCOUNT_LOCKOUT_THRESHOLD = "account_lockout_threshold"
 ACCOUNT_LOCKOUT_MINUTES = "account_lockout_minutes"
+NO_LOGIN_MODE = "no_login_mode"
+NO_LOGIN_USER_ID = "no_login_user_id"
 
 DEFAULT_UPLOAD_LIMIT_MB = 500
 MIN_UPLOAD_LIMIT_MB = 1
@@ -186,6 +188,23 @@ MAX_ACCOUNT_LOCKOUT_THRESHOLD = 100
 DEFAULT_ACCOUNT_LOCKOUT_MINUTES = 15
 MIN_ACCOUNT_LOCKOUT_MINUTES = 1
 MAX_ACCOUNT_LOCKOUT_MINUTES = 1440
+
+
+# No-login (kiosk) mode. When True, the frontend silently auto-logs-in as the
+# designated NO_LOGIN_USER_ID via /api/auth/auto-login — no password prompt —
+# so a personal/home install can record a quick note without signing in each
+# time. The auto-issued token carries a `kiosk` claim that require_admin
+# rejects, so reaching admin settings still demands the admin password
+# (step-up via /api/auth/elevate). Default False preserves the
+# password-on-every-launch behavior. Intended for standalone/loopback installs;
+# in a networked `server` deployment it is a credential-free token grant
+# reachable by anyone who can hit the backend, so the UI warns loudly there.
+DEFAULT_NO_LOGIN_MODE = False
+
+# The id of the user that no-login mode auto-signs-in as. Set alongside
+# NO_LOGIN_MODE (at setup time, or by the admin toggling it on). Empty when the
+# mode has never been enabled.
+DEFAULT_NO_LOGIN_USER_ID = ""
 
 
 def _get_raw(key: str) -> Optional[str]:
@@ -359,6 +378,16 @@ def get_account_lockout_minutes() -> int:
     value = get_int(ACCOUNT_LOCKOUT_MINUTES, DEFAULT_ACCOUNT_LOCKOUT_MINUTES)
     # Clamp defensively — a bad row shouldn't disable or absurdly extend it.
     return max(MIN_ACCOUNT_LOCKOUT_MINUTES, min(MAX_ACCOUNT_LOCKOUT_MINUTES, value))
+
+
+def get_no_login_mode() -> bool:
+    """Whether the app auto-logs-in as NO_LOGIN_USER_ID without a password."""
+    return get_bool(NO_LOGIN_MODE, DEFAULT_NO_LOGIN_MODE)
+
+
+def get_no_login_user_id() -> str:
+    """Id of the user no-login mode signs in as, or "" if never enabled."""
+    return get_str(NO_LOGIN_USER_ID, DEFAULT_NO_LOGIN_USER_ID)
 
 
 def get_audit_archive_watermark() -> Optional[dict]:
