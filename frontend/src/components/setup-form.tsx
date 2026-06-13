@@ -22,6 +22,7 @@ const buildSetupSchema = (serverMode: boolean) =>
       email: z.string().email("Invalid email address"),
       password: z.string().min(8, "Password must be at least 8 characters"),
       passwordConfirm: z.string(),
+      noLogin: z.boolean().optional(),
     })
     .refine((d) => d.password === d.passwordConfirm, {
       message: "Passwords do not match",
@@ -59,6 +60,8 @@ export default function SetupForm({ onDone, serverMode = false }: SetupFormProps
           lastName: formData.lastName,
           // Omitted in server mode — the super-admin is org-less.
           ...(serverMode ? {} : { organization: formData.organization }),
+          // Standalone only: skip the login screen on this device from now on.
+          ...(serverMode ? {} : { noLogin: !!formData.noLogin }),
         }),
       });
       if (!res.ok) {
@@ -154,6 +157,22 @@ export default function SetupForm({ onDone, serverMode = false }: SetupFormProps
                 <p className="text-red-500 text-sm">{errors.passwordConfirm.message as string}</p>
               )}
             </div>
+            {!serverMode && (
+              <label className="flex items-start gap-3 cursor-pointer select-none border-2 border-black p-3">
+                <input
+                  type="checkbox"
+                  {...register("noLogin")}
+                  className="mt-1 size-4 border-2 border-black accent-[#fd3777]"
+                />
+                <span className="text-sm">
+                  <strong>Skip the login screen on this device.</strong> Open the
+                  app straight to your notes without signing in each time. Admin
+                  settings still ask for your password. You can change this later
+                  in Admin → No-Login Mode. Only use this on a device you
+                  physically control.
+                </span>
+              </label>
+            )}
             <div className="border-2 border-black bg-yellow-100 p-3 text-sm">
               <p className="font-black">⚠ Write your password down somewhere safe.</p>
               <p className="mt-1">
