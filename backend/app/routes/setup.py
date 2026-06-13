@@ -97,10 +97,24 @@ def setup_create_admin():
     )
     db.session.add(admin)
     db.session.flush()  # populates admin.id
+
+    # Opt-in passwordless mode for a personal/home install: auto-sign-in as
+    # this admin from now on. Server mode is multi-user and network-facing, so
+    # the checkbox isn't offered there; ignore the flag defensively if it
+    # somehow arrives. Admin areas still require the password (kiosk step-up).
+    if no_login and not is_server:
+        settings_service.set_value(
+            settings_service.NO_LOGIN_MODE, True, updated_by=admin.id
+        )
+        settings_service.set_value(
+            settings_service.NO_LOGIN_USER_ID, admin.id, updated_by=admin.id
+        )
+
     log_action(
         'setup.create_admin',
         user_id=admin.id,
         user_email=admin.email,
+        extra={'no_login': no_login and not is_server},
     )
     db.session.commit()
 

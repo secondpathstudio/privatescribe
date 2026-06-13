@@ -9,8 +9,10 @@ import logging
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
+from werkzeug.security import check_password_hash
 
 from app.extensions import db
+from app.models import User
 from app.security.auth import require_admin
 from app.services import audio_retention, diarization, settings as settings_service
 from app.services import ollama_client, whisper, whisper_manager
@@ -102,6 +104,12 @@ def get_settings():
         "account_lockout_minutes": settings_service.get_account_lockout_minutes(),
         "account_lockout_minutes_min": settings_service.MIN_ACCOUNT_LOCKOUT_MINUTES,
         "account_lockout_minutes_max": settings_service.MAX_ACCOUNT_LOCKOUT_MINUTES,
+        # No-login (kiosk) mode: when on, the app auto-signs-in as
+        # no_login_user_id without a password. deployment_mode lets the UI warn
+        # that this is a network-wide exposure on a `server` install.
+        "no_login_mode": settings_service.get_no_login_mode(),
+        "no_login_user_id": settings_service.get_no_login_user_id(),
+        "deployment_mode": current_app.config.get("DEPLOYMENT_MODE", "standalone"),
     })
 
 
@@ -524,6 +532,87 @@ def update_account_lockout():
     return jsonify({
         "account_lockout_threshold": settings_service.get_account_lockout_threshold(),
         "account_lockout_minutes": settings_service.get_account_lockout_minutes(),
+    })
+
+
+@bp.route('/no-login-mode', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_no_login_mode():
+    """Turn no-login (kiosk) mode on or off. Requires the admin's password.
+
+    Body: {"value": bool, "password": str, "userId"?: str}. Re-verifying the
+    password here is the "requires admin password" gate, enforced server-side —
+    and because @require_admin rejects kiosk tokens, a kiosk session must first
+    elevate (also a password) before it can even reach this route.
+
+    When enabling, the app will auto-sign-in as `userId` (defaults to the
+    calling admin). The target must be an active account with no second factor,
+    since a passwordless login must never silently skip 2FA. Disabling clears
+    the flag; the user id is left in place so re-enabling is a one-field change.
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if not isinstance(value, bool):
+        return jsonify({"error": "value must be a boolean"}), 400
+
+    password = data.get('password')
+    if not password:
+        return jsonify({"error": "Password required"}), 400
+
+    current_user = get_jwt_identity()
+    actor = User.query.get(current_user)
+    if not actor or not check_password_hash(actor.password, password):
+        log_action(
+            'admin.settings_update',
+            user_id=current_user,
+            resource_type='setting',
+            resource_id=settings_service.NO_LOGIN_MODE,
+            status='failure',
+            extra={'reason': 'invalid_password'},
+        )
+        db.session.commit()
+        return jsonify({"error": "Invalid password"}), 401
+
+    target_id = None
+    if value:
+        target_id = (data.get('userId') or current_user)
+        target = User.query.get(target_id)
+        if target is None or not target.is_active:
+            return jsonify({"error": "Chosen user is not an active account."}), 400
+        if target.force_password_change:
+            return jsonify({
+                "error": "Chosen user must change their password first.",
+            }), 400
+        # A silent login can't satisfy a second factor, so refuse to point
+        # no-login at a 2FA-enrolled user or to enable it under a global 2FA
+        # requirement — the two settings are mutually exclusive by design.
+        from app.services import two_factor
+        if two_factor.is_enrolled(target) or settings_service.get_two_factor_required():
+            return jsonify({
+                "error": "No-login mode can't be used with two-factor authentication.",
+            }), 400
+
+    previous = settings_service.get_no_login_mode()
+    settings_service.set_value(
+        settings_service.NO_LOGIN_MODE, value, updated_by=current_user
+    )
+    if value:
+        settings_service.set_value(
+            settings_service.NO_LOGIN_USER_ID, target_id, updated_by=current_user
+        )
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.NO_LOGIN_MODE,
+        extra={'old': previous, 'new': value, 'user_id': target_id},
+    )
+    db.session.commit()
+
+    return jsonify({
+        "no_login_mode": settings_service.get_no_login_mode(),
+        "no_login_user_id": settings_service.get_no_login_user_id(),
     })
 
 
