@@ -93,7 +93,9 @@ export function installAuthFetch(): void {
       // Only our API, only requests that carried a token, never the auth
       // endpoints themselves, and never a request we already retried.
       if (!url.startsWith(API_BASE)) return res;
-      if (url.includes("/refresh") || url.includes("/api/login")) return res;
+      // Auth endpoints surface their own 401s (bad password on elevate, no-login
+      // disabled on auto-login) — never refresh-and-retry those.
+      if (url.includes("/refresh") || url.includes("/api/login") || url.includes("/api/auth/")) return res;
       if (!headerValue(init, "Authorization")) return res;
       if ((init as { __psRetried?: boolean } | undefined)?.__psRetried) return res;
 
