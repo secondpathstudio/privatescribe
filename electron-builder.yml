@@ -136,9 +136,13 @@ nsis:
   # Until then, Windows will show "Unknown publisher" on first install; expected.
 
 linux:
-  # electron-builder accepts a single PNG >=512px and auto-generates the
-  # per-size variants AppImage / deb need; our source is 1024x1024.
-  icon: electron/assets/icon.png
+  # IMPORTANT: a single PNG does NOT get downscaled into a size set — the
+  # app-builder icon generator just registers it at its native size (1024),
+  # so only hicolor/1024x1024/apps/privatescribe.png gets installed and GNOME's
+  # taskbar/dash (which requests ~48px via the .desktop Icon= name) can't
+  # resolve it and falls back to a generic icon. Pointing at the multi-res
+  # .icns makes app-builder emit the full 16..1024 set the deb/AppImage need.
+  icon: electron/assets/icon.icns
   # freedesktop main category — primary action is recording + transcribing audio.
   category: AudioVideo
   # TODO: replace with the real publishing email before the first .deb release —
