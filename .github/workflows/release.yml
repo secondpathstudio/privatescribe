@@ -27,6 +27,10 @@ on:
 jobs:
   build:
     name: build (${{ matrix.os }})
+    # The default GITHUB_TOKEN is read-only unless granted write here; the Linux
+    # job needs contents:write to create/upload the GitHub Release.
+    permissions:
+      contents: write
     timeout-minutes: 75 # heavy installs + per-OS PyInstaller pass + electron-builder
     strategy:
       fail-fast: false # see both OSes' results, not just the first failure
@@ -117,13 +121,18 @@ jobs:
         working-directory: backend
         run: pyinstaller --noconfirm --log-level WARN privatescribe-backend.spec
 
-      # --publish never: produce installers locally on the runner, upload as
-      # artifacts for download + smoke-test. Switch to --publish always once
-      # a manual run is green and we trust the matrix end-to-end.
+      # Linux is confirmed: --publish always uploads the AppImage/.deb and the
+      # latest-linux.yml auto-update manifest straight to the GitHub Release for
+      # the current version, so electron-updater can serve Linux clients.
       - name: Package desktop installer (Linux)
         if: runner.os == 'Linux'
-        run: npx electron-builder --linux --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --linux --publish always
 
+      # --publish never: Windows isn't confirmed yet — produce the installer on
+      # the runner and upload it as an artifact for download + smoke-test only.
+      # Switch to --publish always once a Windows run is green and trusted.
       - name: Package desktop installer (Windows)
         if: runner.os == 'Windows'
         run: npx electron-builder --win --publish never
