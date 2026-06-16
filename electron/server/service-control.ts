@@ -2,15 +2,16 @@
  * Server-mode service install + lifecycle (roadmap Phase 9 item 3b).
  *
  * Installs the three PrivateScribe daemons (backend, Ollama, Caddy) as system
- * services — macOS LaunchDaemons or Linux systemd units — so the server
- * survives logout and restarts on crash. The privileged steps — writing the
- * service files, chown/chmod, launchctl bootstrap / systemctl enable — run
- * inside a single shell script executed once with administrator privileges
- * (osascript's native auth prompt on macOS, polkit's pkexec on Linux), so the
- * operator approves the whole install in one elevation.
+ * services — macOS LaunchDaemons, Linux systemd units, or Windows Services via
+ * WinSW — so the server survives logout and restarts on crash. The privileged
+ * steps — writing the service files, chown/chmod, launchctl bootstrap /
+ * systemctl enable / WinSW install, plus the Windows Firewall rule — run inside
+ * a single script executed once with administrator privileges (osascript's
+ * native auth prompt on macOS, polkit's pkexec on Linux, a UAC RunAs elevation
+ * on Windows), so the operator approves the whole install in one elevation.
  *
- * The plist/unit/Caddyfile *contents* come from service-config.ts (pure,
- * tested). The script-building functions here are also pure; only
+ * The plist/unit/WinSW-XML/Caddyfile *contents* come from service-config.ts
+ * (pure, tested). The script-building functions here are also pure; only
  * runElevated() and the install/uninstall/restart wrappers touch the system,
  * and those require a real machine with admin to verify (no elevation in CI).
  *
@@ -25,31 +26,40 @@ import { promisify } from 'util';
 
 import {
   backendPlist,
+  backendService,
   backendUnit,
   caddyPlist,
+  caddyService,
   caddyUnit,
   caddyfilePath,
   LABELS,
   LAUNCH_DAEMON_DIR,
   LOG_DIR,
   ollamaPlist,
+  ollamaService,
   ollamaUnit,
   renderCaddyfile,
+  SERVICE_IDS,
   serverPaths,
   ServerConfig,
   SYSTEMD_UNIT_DIR,
   UNIT_NAMES,
+  WINSW_DIR,
 } from './service-config';
 
 const execFileAsync = promisify(execFile);
 
 const IS_LINUX = process.platform === 'linux';
+const IS_WIN = process.platform === 'win32';
 
 const ORDER = ['backend', 'ollama', 'caddy'] as const;
 type DaemonName = (typeof ORDER)[number];
 
-/** Where the daemon's service file lives once installed. */
+/** Where the daemon's service file lives once installed. On Windows this is the
+ *  WinSW wrapper exe (its presence is the install signal isServerInstalled
+ *  checks). */
 function serviceFilePath(name: DaemonName): string {
+  if (IS_WIN) return path.join(WINSW_DIR, `${SERVICE_IDS[name]}.exe`);
   return IS_LINUX
     ? path.join(SYSTEMD_UNIT_DIR, UNIT_NAMES[name])
     : path.join(LAUNCH_DAEMON_DIR, `${LABELS[name]}.plist`);
@@ -57,12 +67,19 @@ function serviceFilePath(name: DaemonName): string {
 
 /** The staged service file's name within the staging dir. */
 function stagedFileName(name: DaemonName): string {
+  if (IS_WIN) return `${SERVICE_IDS[name]}.xml`;
   return IS_LINUX ? `${name}.service` : `${name}.plist`;
 }
 
 /** Shell-quote a path for safe embedding in the install script. */
 function sh(p: string): string {
   return `'${p.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Quote a string as a PowerShell single-quoted literal (only ' needs escaping,
+ *  by doubling) for safe embedding in the Windows install script. */
+function psQuote(s: string): string {
+  return `'${s.replace(/'/g, `''`)}'`;
 }
 
 /**
@@ -151,11 +168,109 @@ export function buildRestartScript(): string {
   return lines.join('\n') + '\n';
 }
 
+// ---------------------------------------------------------------------------
+// Windows: PowerShell install scripts driving WinSW. A console exe can't be a
+// Windows Service on its own, so each daemon is wrapped — winsw.exe is copied
+// to <id>.exe alongside its <id>.xml (rendered by service-config.ts) and
+// installed with `<id>.exe install`. The scripts run elevated via one UAC
+// prompt.
+// ---------------------------------------------------------------------------
+
+/** Windows Firewall rules opening the LAN HTTPS port (what clients connect to)
+ *  and mDNS discovery. A LocalSystem service can't answer the interactive
+ *  firewall prompt, so without these inbound LAN traffic is silently dropped.
+ *  Idempotent: each rule is removed (if present) before being re-added. */
+function firewallLines(lanPort: number): string[] {
+  const tcpName = `PrivateScribe LAN (TCP ${lanPort})`;
+  const mdnsName = 'PrivateScribe mDNS (UDP 5353)';
+  return [
+    `Remove-NetFirewallRule -DisplayName ${psQuote(tcpName)} -ErrorAction SilentlyContinue`,
+    `New-NetFirewallRule -DisplayName ${psQuote(tcpName)} -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${lanPort} | Out-Null`,
+    `Remove-NetFirewallRule -DisplayName ${psQuote(mdnsName)} -ErrorAction SilentlyContinue`,
+    `New-NetFirewallRule -DisplayName ${psQuote(mdnsName)} -Direction Inbound -Action Allow -Protocol UDP -LocalPort 5353 | Out-Null`,
+  ];
+}
+
+/** PowerShell counterpart of buildInstallScript for Windows. Creates the data +
+ *  log dirs, drops the rendered Caddyfile, then for each service copies the
+ *  WinSW wrapper to <id>.exe beside its <id>.xml and (re)installs + starts it,
+ *  and finally opens the firewall. Pure (returns the script text). */
+export function buildInstallScriptWin(cfg: ServerConfig, staging: string): string {
+  const p = serverPaths(cfg.resourcesPath);
+  const lines: string[] = ["$ErrorActionPreference = 'Stop'"];
+
+  const dirs = [
+    cfg.dataDir,
+    path.join(cfg.dataDir, 'caddy', 'data'),
+    path.join(cfg.dataDir, 'caddy', 'config'),
+    path.join(cfg.dataDir, 'ollama-models'),
+    LOG_DIR,
+    WINSW_DIR,
+  ];
+  lines.push(`New-Item -ItemType Directory -Force -Path ${dirs.map(psQuote).join(',')} | Out-Null`);
+
+  // Rendered Caddyfile into the data dir.
+  lines.push(
+    `Copy-Item -Force ${psQuote(path.join(staging, 'Caddyfile'))} ${psQuote(caddyfilePath(cfg))}`,
+  );
+
+  for (const name of ORDER) {
+    const id = SERVICE_IDS[name];
+    const wrapperExe = path.join(WINSW_DIR, `${id}.exe`);
+    // WinSW finds its config by swapping <wrapper>.exe → <wrapper>.xml, so the
+    // wrapper and its XML share the service id as their base name.
+    lines.push(`Copy-Item -Force ${psQuote(p.winsw)} ${psQuote(wrapperExe)}`);
+    lines.push(
+      `Copy-Item -Force ${psQuote(path.join(staging, stagedFileName(name)))} ` +
+        psQuote(path.join(WINSW_DIR, `${id}.xml`)),
+    );
+    // Idempotent: stop + uninstall any prior instance (ignoring failures on a
+    // fresh box) before reinstalling, so a re-run / auto-update picks up new
+    // config. The pause lets the SCM finish deleting before we reinstall.
+    lines.push(`& ${psQuote(wrapperExe)} stop 2>$null`);
+    lines.push(`& ${psQuote(wrapperExe)} uninstall 2>$null`);
+    lines.push('Start-Sleep -Milliseconds 1000');
+    lines.push(`& ${psQuote(wrapperExe)} install; if ($LASTEXITCODE -ne 0) { throw 'install ${id} failed' }`);
+    lines.push(`& ${psQuote(wrapperExe)} start; if ($LASTEXITCODE -ne 0) { throw 'start ${id} failed' }`);
+  }
+
+  lines.push(...firewallLines(cfg.lanPort));
+  return lines.join('\n') + '\n';
+}
+
+/** Tear down all three Windows services + their files and firewall rules. */
+export function buildUninstallScriptWin(): string {
+  const lines: string[] = ["$ErrorActionPreference = 'SilentlyContinue'"];
+  for (const name of ORDER) {
+    const id = SERVICE_IDS[name];
+    const wrapperExe = path.join(WINSW_DIR, `${id}.exe`);
+    lines.push(`& ${psQuote(wrapperExe)} stop 2>$null`);
+    lines.push(`& ${psQuote(wrapperExe)} uninstall 2>$null`);
+    lines.push(`Remove-Item -Force ${psQuote(wrapperExe)} 2>$null`);
+    lines.push(`Remove-Item -Force ${psQuote(path.join(WINSW_DIR, `${id}.xml`))} 2>$null`);
+  }
+  // Wildcard match drops the LAN rule whatever port it was created with.
+  lines.push(`Remove-NetFirewallRule -DisplayName 'PrivateScribe LAN (TCP *)'`);
+  lines.push(`Remove-NetFirewallRule -DisplayName 'PrivateScribe mDNS (UDP 5353)'`);
+  return lines.join('\n') + '\n';
+}
+
+/** Restart all three Windows services (used after an auto-update, which
+ *  replaces the app the wrappers' exec paths point at). */
+export function buildRestartScriptWin(): string {
+  const lines: string[] = ["$ErrorActionPreference = 'SilentlyContinue'"];
+  for (const name of ORDER) {
+    const wrapperExe = path.join(WINSW_DIR, `${SERVICE_IDS[name]}.exe`);
+    lines.push(`& ${psQuote(wrapperExe)} restart 2>$null`);
+  }
+  return lines.join('\n') + '\n';
+}
+
 /** Run a shell script once with administrator privileges via the platform's
  *  native auth prompt. Device-test-pending. */
 async function runElevated(scriptBody: string, promptReason: string): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-svc-'));
-  const scriptPath = path.join(dir, 'install.sh');
+  const scriptPath = path.join(dir, IS_WIN ? 'install.ps1' : 'install.sh');
   fs.writeFileSync(scriptPath, scriptBody, { mode: 0o700 });
   try {
     if (IS_LINUX) {
@@ -185,6 +300,34 @@ async function runElevated(scriptBody: string, promptReason: string): Promise<vo
         `do shell script "/bin/sh " & quoted form of ${JSON.stringify(scriptPath)} ` +
         `with prompt ${JSON.stringify(promptReason)} with administrator privileges`;
       await execFileAsync('osascript', ['-e', apple]);
+    } else if (IS_WIN) {
+      // Run the PowerShell install script elevated. Start-Process -Verb RunAs
+      // shows the UAC prompt; -Wait blocks until it finishes and -PassThru lets
+      // us read the elevated process's exit code (the inner script throws and
+      // exits non-zero on failure). -ArgumentList is a single string so the
+      // script path stays quoted correctly even under a user dir with spaces.
+      const innerArgs = `-NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`;
+      const outer =
+        `$p = Start-Process -FilePath 'powershell' -Verb RunAs -Wait -PassThru ` +
+        `-ArgumentList ${psQuote(innerArgs)}; exit $p.ExitCode`;
+      try {
+        await execFileAsync('powershell', [
+          '-NoProfile',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-Command',
+          outer,
+        ]);
+      } catch (err) {
+        const e = err as { code?: string | number };
+        // ENOENT = powershell missing; any other non-zero exit means the UAC
+        // prompt was dismissed or the elevated script itself failed.
+        throw new Error(
+          e.code === 'ENOENT'
+            ? 'PowerShell was not found — cannot install the server services.'
+            : `Administrator authorization was cancelled, or the server install failed. Check the logs in ${LOG_DIR}.`,
+        );
+      }
     } else {
       throw new Error(`Server setup is not supported on this platform (${process.platform}).`);
     }
@@ -215,9 +358,11 @@ export async function installServer(cfg: ServerConfig): Promise<void> {
   }
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-stage-'));
   try {
-    const render = IS_LINUX
-      ? { backend: backendUnit, ollama: ollamaUnit, caddy: caddyUnit }
-      : { backend: backendPlist, ollama: ollamaPlist, caddy: caddyPlist };
+    const render = IS_WIN
+      ? { backend: backendService, ollama: ollamaService, caddy: caddyService }
+      : IS_LINUX
+        ? { backend: backendUnit, ollama: ollamaUnit, caddy: caddyUnit }
+        : { backend: backendPlist, ollama: ollamaPlist, caddy: caddyPlist };
     for (const name of ORDER) {
       fs.writeFileSync(path.join(staging, stagedFileName(name)), render[name](cfg));
     }
@@ -226,7 +371,7 @@ export async function installServer(cfg: ServerConfig): Promise<void> {
     fs.writeFileSync(path.join(staging, 'Caddyfile'), renderCaddyfile(template, cfg));
 
     await runElevated(
-      buildInstallScript(cfg, staging),
+      IS_WIN ? buildInstallScriptWin(cfg, staging) : buildInstallScript(cfg, staging),
       'PrivateScribe needs administrator access to install the server background services.',
     );
   } finally {
@@ -236,14 +381,14 @@ export async function installServer(cfg: ServerConfig): Promise<void> {
 
 export async function uninstallServer(): Promise<void> {
   await runElevated(
-    buildUninstallScript(),
+    IS_WIN ? buildUninstallScriptWin() : buildUninstallScript(),
     'PrivateScribe needs administrator access to remove the server background services.',
   );
 }
 
 export async function restartServer(): Promise<void> {
   await runElevated(
-    buildRestartScript(),
+    IS_WIN ? buildRestartScriptWin() : buildRestartScript(),
     'PrivateScribe needs administrator access to restart the server services.',
   );
 }
