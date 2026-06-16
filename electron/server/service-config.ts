@@ -109,6 +109,9 @@ export function serverPaths(resourcesPath: string) {
     ollama: resolveOllamaBinary(path.join(resourcesPath, 'ollama-runtime')),
     caddy: path.join(resourcesPath, 'caddy-runtime', exe('privatescribe-webserver')),
     caddyfileTemplate: path.join(resourcesPath, 'caddy-runtime', 'Caddyfile.template'),
+    // WinSW service-wrapper exe (Windows only; staged by fetch-winsw.mjs).
+    // service-control.ts copies this to <id>.exe per service at install time.
+    winsw: path.join(resourcesPath, 'winsw-runtime', exe('winsw')),
     // Plain (non-asar) SPA files for Caddy to serve — see extraResources.
     frontend: path.join(resourcesPath, 'frontend'),
     pyannote: path.join(resourcesPath, 'pyannote-models'),

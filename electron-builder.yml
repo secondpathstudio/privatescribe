@@ -112,6 +112,16 @@ mac:
 
 win:
   icon: electron/assets/icon.ico
+  # WinSW service wrapper — Windows-only (staged by scripts/fetch-winsw.mjs).
+  # Server mode copies this to <id>.exe per service to register the backend,
+  # Ollama, and Caddy as auto-starting Windows Services. Platform extraResources
+  # merge with the top-level ones, so the Windows build still gets backend/
+  # ollama/caddy/pyannote/frontend too. Lands at Resources/winsw-runtime/.
+  extraResources:
+    - from: build-resources/winsw
+      to: winsw-runtime
+      filter:
+        - "**/*"
   # Code signing (Authenticode) is a follow-up — without a cert, SmartScreen
   # warns first-time users. When that lands, signtoolOptions.publisherName
   # is where the signing publisher metadata goes.

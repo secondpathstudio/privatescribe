@@ -95,3 +95,6 @@ build-resources/.cache/
 # pyannote diarization model weights, staged by scripts/fetch-pyannote.mjs.
 # Not committed — large, and reproducible from the pinned revisions.
 build-resources/pyannote/
+# WinSW service wrapper (Windows server mode), staged by scripts/fetch-winsw.mjs.
+# Not committed — large (~18 MB), Windows-only, reproducible from the pinned release.
+build-resources/winsw/

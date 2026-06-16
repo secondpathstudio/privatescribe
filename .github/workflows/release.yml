@@ -108,6 +108,12 @@ jobs:
       - name: Stage Caddy web server (per-OS archive)
         run: npm run build:caddy
 
+      # WinSW wraps the server-mode processes as Windows Services — Windows-only,
+      # so it runs only on the Windows runner (the script no-ops elsewhere).
+      - name: Stage WinSW service wrapper (Windows)
+        if: runner.os == 'Windows'
+        run: npm run build:winsw
+
       - name: Stage pyannote diarization models
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
