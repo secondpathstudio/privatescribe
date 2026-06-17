@@ -6,6 +6,16 @@ export type ElectronOllama = {
   setMode: (mode: "bundled" | "system") => Promise<{ ok: boolean }>;
   /** The remembered engine choice, or null if onboarding hasn't chosen. */
   getMode: () => Promise<"bundled" | "system" | null>;
+  /** Subscribe to one-time runtime-download progress while startBundled()
+   *  fetches the engine on first use. Returns an unsubscribe function. Optional:
+   *  absent in older preload builds and in a plain browser. */
+  onFetchProgress?: (
+    cb: (p: {
+      phase: "download" | "verify" | "extract";
+      received?: number;
+      total?: number;
+    }) => void,
+  ) => () => void;
 };
 
 /** Server-mode controls exposed by the Electron preload (desktop app only),

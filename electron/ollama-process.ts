@@ -1,21 +1,24 @@
 /**
  * Ollama lifecycle for the packaged desktop app.
  *
- * PrivateScribe bundles the Ollama runtime (see scripts/fetch-ollama.mjs and
- * extraResources in electron-builder.yml) so a fresh install needs no separate
- * Ollama setup. But many users — developers especially — already run Ollama,
- * and starting a second daemon next to theirs wastes resources. So the bundled
- * runtime is *never* started automatically on a fresh install: the first-run
- * onboarding wizard asks the user whether they already have Ollama, and only
- * starts the bundled runtime if they say they don't (via startBundledOllama(),
- * driven by an IPC call from the renderer).
+ * PrivateScribe fetches the Ollama runtime on demand into the user data dir
+ * (see electron/ollama-download.ts and OLLAMA_RUNTIME_FETCH_SPEC.md) — it is no
+ * longer bundled in the installer, which kept the Win/Linux installers under
+ * GitHub's 2 GiB Release cap. Many users — developers especially — already run
+ * Ollama, and starting a second daemon next to theirs wastes resources. So the
+ * runtime is *never* fetched or started automatically on a fresh install: the
+ * first-run onboarding wizard asks whether the user already has Ollama, and only
+ * downloads + starts the built-in runtime if they say they don't (via
+ * startBundledOllama(), driven by an IPC call from the renderer).
  *
  * The choice is remembered in a small JSON file under userData (getOllamaMode /
  * setOllamaMode). On every later launch resolveOllama() reads it:
  *
  *   - If something already serves the Ollama API on 127.0.0.1:11434, reuse it
  *     untouched. We never manage a process we did not start.
- *   - Else if mode is "bundled", start the bundled runtime.
+ *   - Else if mode is "bundled" and the runtime is already staged, start it.
+ *     (If it isn't staged yet, boot does not block on the ~1.2 GB download —
+ *     onboarding or OllamaGate fetches it on demand.)
  *   - Else (mode "system", or unset on first run) start nothing — onboarding
  *     or OllamaGate will prompt the user.
  *
@@ -38,6 +41,11 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import {
+  ensureOllamaRuntime,
+  isOllamaRuntimeStaged,
+  type OllamaFetchProgress,
+} from './ollama-download';
 import { resolveOllamaBinary } from './platform';
 
 /** Which AI engine the user opted into during onboarding. */
@@ -131,18 +139,21 @@ async function isOllamaUp(): Promise<boolean> {
   }
 }
 
-/** Absolute path to the bundled `ollama` binary, packaged or in a dev tree.
- * The binary's location inside the runtime dir varies per platform (flat on
- * mac, nested on Linux), so resolveOllamaBinary reads the marker that
- * scripts/fetch-ollama.mjs wrote at stage time. */
-function bundledBinaryPath(): string {
-  // Packaged: extraResources puts the runtime under Resources/ollama-runtime/
-  // (see electron-builder.yml). Dev: scripts/fetch-ollama.mjs stages it at
-  // <repo>/build-resources/ollama/ — __dirname is <repo>/electron/dist.
-  const runtimeDir = app.isPackaged
-    ? path.join(process.resourcesPath, 'ollama-runtime')
+/** Where the Ollama runtime lives on disk. Packaged: fetched on demand into the
+ *  user data dir (it is no longer bundled in Resources — see
+ *  OLLAMA_RUNTIME_FETCH_SPEC.md). Dev: the build-resources/ staging dir, so
+ *  `npm run build:ollama` pre-stages it and dev never re-downloads. */
+function ollamaRuntimeDir(): string {
+  return app.isPackaged
+    ? path.join(app.getPath('userData'), 'ollama-runtime')
     : path.join(__dirname, '..', '..', 'build-resources', 'ollama');
-  return resolveOllamaBinary(runtimeDir);
+}
+
+/** Absolute path to the `ollama` binary inside the runtime dir. Its location
+ * varies per platform (flat on mac, nested on Linux), so resolveOllamaBinary
+ * reads the `.ollama-binary` marker the fetch wrote. */
+function bundledBinaryPath(): string {
+  return resolveOllamaBinary(ollamaRuntimeDir());
 }
 
 /**
@@ -216,22 +227,35 @@ async function logWhenReady(): Promise<void> {
 }
 
 /**
- * Start the bundled runtime on demand and remember "bundled" as the engine
- * choice. Driven by an IPC call when the onboarding wizard's "I don't have
- * Ollama" branch is taken, or by OllamaGate's built-in-engine escape hatch.
+ * Download (if needed) and start the built-in runtime on demand, remembering
+ * "bundled" as the engine choice. Driven by an IPC call from the onboarding
+ * wizard's "I don't have Ollama" branch, or OllamaGate's escape hatch. The
+ * optional onProgress streams the one-time runtime download to the caller's UI.
  *
  * Idempotent: returns ok immediately when Ollama already answers (a system
- * install, or a bundled runtime we started earlier). Otherwise it spawns the
- * runtime and waits — up to READY_TIMEOUT_MS — for it to answer, so the caller
- * gets a definitive ok/error to drive its UI.
+ * install, or a runtime we started earlier). Otherwise it fetches the runtime if
+ * it isn't staged, spawns it, and waits — up to READY_TIMEOUT_MS — for it to
+ * answer, so the caller gets a definitive ok/error to drive its UI.
  */
-export async function startBundledOllama(): Promise<{
+export async function startBundledOllama(
+  onProgress?: (p: OllamaFetchProgress) => void,
+): Promise<{
   ok: boolean;
   error?: string;
 }> {
   setOllamaMode('bundled');
 
   if (await isOllamaUp()) return { ok: true };
+
+  // The runtime is no longer bundled — fetch it on first use (a no-op once the
+  // pinned version is staged), streaming progress to the caller.
+  const dir = ollamaRuntimeDir();
+  if (!(await isOllamaRuntimeStaged(dir))) {
+    const fetched = await ensureOllamaRuntime(dir, onProgress);
+    if (!fetched.ok) {
+      return { ok: false, error: `The local AI engine could not be downloaded — ${fetched.error}` };
+    }
+  }
 
   // Only spawn a fresh child if we don't already have one coming up.
   if (!bundledProc || bundledProc.killed || bundledProc.exitCode !== null) {
@@ -275,8 +299,8 @@ export async function resolveOllama(): Promise<string> {
   }
 
   const mode = getOllamaMode();
-  if (mode === 'bundled') {
-    console.log('[ollama] engine mode is "bundled" — starting the bundled runtime');
+  if (mode === 'bundled' && (await isOllamaRuntimeStaged(ollamaRuntimeDir()))) {
+    console.log('[ollama] engine mode is "bundled" — starting the staged runtime');
     try {
       restarts = 0;
       stopping = false;
@@ -289,12 +313,12 @@ export async function resolveOllama(): Promise<string> {
       console.error(`[ollama] could not start the bundled runtime: ${msg}`);
     }
   } else {
-    // First run (mode unset), or the user chose their own Ollama. Don't start
-    // anything: onboarding (first run) or OllamaGate (later) lets the user
-    // start their Ollama or the bundled runtime on demand.
+    // First run (mode unset), the user chose their own Ollama, or "bundled" was
+    // chosen but the runtime isn't fetched yet — never block boot on a ~1.2 GB
+    // download. Onboarding (first run) or OllamaGate (later) fetches + starts it
+    // on demand.
     console.log(
-      '[ollama] no Ollama running and engine mode is not "bundled" — ' +
-        'leaving the choice to the user',
+      '[ollama] not starting a runtime at boot — leaving it to onboarding/OllamaGate',
     );
   }
   return OLLAMA_HOST;

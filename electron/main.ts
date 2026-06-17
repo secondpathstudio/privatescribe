@@ -138,10 +138,13 @@ function createServerTray(apiBase: string): void {
  * opens, so an invoke can never race the handler.
  */
 function registerOllamaIpc(): void {
-  // Onboarding "I don't have Ollama" / OllamaGate escape hatch. Spawns the
-  // bundled runtime, persists "bundled", and resolves once it answers (or
-  // fails) so the renderer can show a real result.
-  ipcMain.handle('ollama:start-bundled', () => startBundledOllama());
+  // Onboarding "I don't have Ollama" / OllamaGate escape hatch. Fetches the
+  // runtime on first use (streaming download progress back as
+  // 'ollama:fetch-progress' events), starts it, persists "bundled", and resolves
+  // once it answers (or fails) so the renderer can show a real result.
+  ipcMain.handle('ollama:start-bundled', (event) =>
+    startBundledOllama((p) => event.sender.send('ollama:fetch-progress', p)),
+  );
   // Onboarding "I have my own Ollama" — remember the choice; start nothing.
   ipcMain.handle('ollama:set-mode', (_event, mode: unknown) => {
     if (mode === 'bundled' || mode === 'system') setOllamaMode(mode);
