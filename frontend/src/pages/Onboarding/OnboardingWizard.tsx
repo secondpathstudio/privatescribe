@@ -373,8 +373,16 @@ type PickerPhase = "loading" | "ready" | "down";
 // Ollama, "bundled" starts PrivateScribe's built-in engine on demand.
 type DownStep = "ask" | "have-it" | "bundled";
 
-// Progress of the on-demand bundled-engine launch within the "bundled" step.
-type BundledState = "starting" | "failed";
+// Progress of the on-demand built-in-engine launch within the "bundled" step.
+// "downloading" covers the one-time runtime fetch (first use only).
+type BundledState = "downloading" | "starting" | "failed";
+
+// A runtime-download progress event from the Electron ollama bridge.
+type FetchProgress = {
+  phase: "download" | "verify" | "extract";
+  received?: number;
+  total?: number;
+};
 
 // Step 4 of the wizard: get a local AI engine running, then pick the language
 // model. The chosen model is downloaded here (streamed `ollama pull` with a
@@ -392,6 +400,9 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
   // down-step.
   const [bundledState, setBundledState] = useState<BundledState>("starting");
   const [bundledError, setBundledError] = useState<string | null>(null);
+  // Runtime-download progress, shown while the built-in engine is fetched on
+  // first use. Only meaningful while bundledState === "downloading".
+  const [fetchProgress, setFetchProgress] = useState<FetchProgress | null>(null);
   // Normalized tags of models already present in Ollama.
   const [installed, setInstalled] = useState<Set<string>>(new Set());
   const [pulling, setPulling] = useState(false);
@@ -462,29 +473,43 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
     setDownStep("have-it");
   };
 
-  // "No, I don't have Ollama" / the escape hatch — start PrivateScribe's
-  // bundled engine on demand. The IPC call resolves once the runtime answers
-  // (or fails), so we get a definitive result to drive the UI.
+  // "No, I don't have Ollama" / the escape hatch — fetch + start PrivateScribe's
+  // built-in engine on demand. The IPC call downloads the runtime on first use
+  // (streaming progress via onFetchProgress) then resolves once it answers (or
+  // fails), so we get a definitive result to drive the UI.
   const startBundledEngine = useCallback(async () => {
     setDownStep("bundled");
     setBundledState("starting");
     setBundledError(null);
+    setFetchProgress(null);
     if (!ollamaApi) {
-      // Plain browser build: there is no bundled runtime to start. Fall back
+      // Plain browser build: there is no built-in runtime to start. Fall back
       // to walking the user through a manual Ollama install.
       setBundledState("failed");
       return;
     }
-    const result = await ollamaApi.startBundled();
-    if (result.ok) {
-      // Confirm through the backend, then drop into the model picker.
-      if (!(await refreshModels())) {
+    // Stream the one-time runtime download into a progress bar — no events fire
+    // when it's already staged, so a re-run goes straight to "starting".
+    const unsubscribe = ollamaApi.onFetchProgress?.((p) => {
+      setBundledState("downloading");
+      setFetchProgress(p);
+    });
+    try {
+      const result = await ollamaApi.startBundled();
+      if (result.ok) {
+        // Download + launch done; confirm through the backend, then drop into
+        // the model picker.
+        setBundledState("starting");
+        if (!(await refreshModels())) {
+          setBundledState("failed");
+          setBundledError("The engine started but isn't responding yet.");
+        }
+      } else {
         setBundledState("failed");
-        setBundledError("The engine started but isn't responding yet.");
+        setBundledError(result.error || "The built-in engine couldn't start.");
       }
-    } else {
-      setBundledState("failed");
-      setBundledError(result.error || "The built-in engine couldn't start.");
+    } finally {
+      unsubscribe?.();
     }
   }, [ollamaApi, refreshModels]);
 
@@ -555,6 +580,15 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
   const percent =
     progress?.total && progress?.completed
       ? Math.min(100, Math.round((progress.completed / progress.total) * 100))
+      : null;
+
+  // Percent of the one-time engine download (download phase only).
+  const dlPercent =
+    fetchProgress?.phase === "download" && fetchProgress.total
+      ? Math.min(
+          100,
+          Math.round(((fetchProgress.received ?? 0) / fetchProgress.total) * 100),
+        )
       : null;
 
   return (
@@ -647,6 +681,43 @@ function ModelPickerStep({ selected, onSelect, onNext, onBack }: ModelPickerStep
           </div>
         </div>
       )}
+
+      {phase === "down" &&
+        downStep === "bundled" &&
+        bundledState === "downloading" && (
+          <div className="flex flex-col gap-2 border-4 border-black bg-yellow-100 p-4 text-sm">
+            <p className="font-black uppercase tracking-wide">
+              Downloading the local AI engine
+            </p>
+            <p>
+              One-time setup — about 1.2 GB. It stays on this device, and future
+              app updates won't re-download it.
+            </p>
+            {fetchProgress?.phase === "download" ? (
+              <>
+                <div className="h-4 border-2 border-black bg-white">
+                  <div
+                    className="h-full bg-black transition-all"
+                    style={{ width: `${dlPercent ?? 0}%` }}
+                  />
+                </div>
+                <p className="font-mono text-xs">
+                  {formatGb(fetchProgress.received)}
+                  {fetchProgress.total
+                    ? ` / ${formatGb(fetchProgress.total)}`
+                    : ""}
+                  {dlPercent != null ? ` (${dlPercent}%)` : ""}
+                </p>
+              </>
+            ) : (
+              <p className="animate-pulse font-mono text-xs">
+                {fetchProgress?.phase === "verify"
+                  ? "Verifying download…"
+                  : "Unpacking…"}
+              </p>
+            )}
+          </div>
+        )}
 
       {phase === "down" &&
         downStep === "bundled" &&
