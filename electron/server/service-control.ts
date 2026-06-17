@@ -55,6 +55,14 @@ const IS_WIN = process.platform === 'win32';
 const ORDER = ['backend', 'ollama', 'caddy'] as const;
 type DaemonName = (typeof ORDER)[number];
 
+/** The services to install for this config. The system engine uses the admin's
+ *  own Ollama, so it installs only backend + caddy (no bundled Ollama service).
+ *  Uninstall/restart still iterate the full ORDER — removing or poking an absent
+ *  service is a harmless no-op. */
+function servicesToInstall(cfg: ServerConfig): readonly DaemonName[] {
+  return cfg.engine === 'system' ? (['backend', 'caddy'] as const) : ORDER;
+}
+
 /** Where the daemon's service file lives once installed. On Windows this is the
  *  WinSW wrapper exe (its presence is the install signal isServerInstalled
  *  checks). */
@@ -94,6 +102,7 @@ export function buildInstallScript(
   ollamaRuntimeSrc?: string,
 ): string {
   const lines: string[] = ['#!/bin/sh', 'set -e'];
+  const names = servicesToInstall(cfg);
 
   // Shared data + log dirs (root-owned; the daemons run as root).
   const dirs = [
@@ -121,21 +130,21 @@ export function buildInstallScript(
   if (IS_LINUX) {
     // Install the unit files, then enable (start at boot) + restart (pick up
     // new config/binaries even if an older install is already running).
-    for (const name of ORDER) {
+    for (const name of names) {
       const dest = serviceFilePath(name);
       lines.push(`cp ${sh(path.join(staging, stagedFileName(name)))} ${sh(dest)}`);
       lines.push(`chown root:root ${sh(dest)}`);
       lines.push(`chmod 644 ${sh(dest)}`);
     }
     lines.push('systemctl daemon-reload');
-    for (const name of ORDER) {
+    for (const name of names) {
       lines.push(`systemctl enable ${UNIT_NAMES[name]}`);
       lines.push(`systemctl restart ${UNIT_NAMES[name]}`);
     }
   } else {
     // Each daemon: bootout any existing instance (ignore errors), install the
     // plist with the right owner/mode, then bootstrap it into the system domain.
-    for (const name of ORDER) {
+    for (const name of names) {
       const dest = serviceFilePath(name);
       const src = path.join(staging, stagedFileName(name));
       lines.push(`launchctl bootout system/${LABELS[name]} 2>/dev/null || true`);
@@ -215,6 +224,7 @@ export function buildInstallScriptWin(
 ): string {
   const p = serverPaths(cfg.resourcesPath);
   const lines: string[] = ["$ErrorActionPreference = 'Stop'"];
+  const names = servicesToInstall(cfg);
 
   const dirs = [
     cfg.dataDir,
@@ -241,7 +251,7 @@ export function buildInstallScriptWin(
     `Copy-Item -Force ${psQuote(path.join(staging, 'Caddyfile'))} ${psQuote(caddyfilePath(cfg))}`,
   );
 
-  for (const name of ORDER) {
+  for (const name of names) {
     const id = SERVICE_IDS[name];
     const wrapperExe = path.join(WINSW_DIR, `${id}.exe`);
     // WinSW finds its config by swapping <wrapper>.exe → <wrapper>.xml, so the
@@ -405,7 +415,7 @@ export async function installServer(
       : IS_LINUX
         ? { backend: backendUnit, ollama: ollamaUnit, caddy: caddyUnit }
         : { backend: backendPlist, ollama: ollamaPlist, caddy: caddyPlist };
-    for (const name of ORDER) {
+    for (const name of servicesToInstall(cfg)) {
       fs.writeFileSync(path.join(staging, stagedFileName(name)), render[name](cfg));
     }
 

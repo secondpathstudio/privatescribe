@@ -46,7 +46,10 @@ contextBridge.exposeInMainWorld('electron', {
     isInstalled: (): Promise<boolean> => ipcRenderer.invoke('server:is-installed'),
     /** Install + start the server services (prompts for admin). `lanPort` is
      *  the HTTPS port clients connect to. Resolves once they're installed. */
-    install: (opts: { lanPort?: number }): Promise<{ ok: boolean; error?: string }> =>
+    install: (opts: {
+      lanPort?: number;
+      engine?: 'bundled' | 'system';
+    }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('server:install', opts),
     /** Stop + remove the server services (prompts for admin). */
     uninstall: (): Promise<{ ok: boolean; error?: string }> =>

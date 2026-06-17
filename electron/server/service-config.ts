@@ -88,6 +88,10 @@ export interface ServerConfig {
   ollamaPort: number;
   /** Shared data dir (DB, audio, .env, caddy CA store). */
   dataDir: string;
+  /** Which AI engine the server runs: 'bundled' fetches + runs PrivateScribe's
+   *  own Ollama service on a private port; 'system' uses an Ollama the admin
+   *  installs/runs themselves on the default port (no bundled Ollama service). */
+  engine: 'bundled' | 'system';
   /** Absolute path the Ollama service execs. The runtime is fetched at install
    *  time into <dataDir>/ollama-runtime (it's no longer bundled), so the install
    *  flow sets this from the staged runtime's marker (the binary nests
@@ -102,6 +106,7 @@ export function defaultServerConfig(resourcesPath: string): ServerConfig {
     backendPort: DEFAULT_PORTS.backend,
     ollamaPort: DEFAULT_PORTS.ollama,
     dataDir: SERVER_DATA_DIR,
+    engine: 'bundled',
     // Placeholder — the install flow overrides this with the exact path derived
     // from the staged runtime's marker. Until then it best-effort points at the
     // post-install location.
@@ -193,6 +198,13 @@ ${env}${workdir}\t<key>RunAtLoad</key>
 `;
 }
 
+/** Where the backend reaches Ollama. Bundled engine → the private port the
+ *  PrivateScribe Ollama service binds; system engine → the admin's own Ollama on
+ *  its default port (no bundled Ollama service runs then). */
+function backendOllamaHost(cfg: ServerConfig): string {
+  return cfg.engine === 'system' ? '127.0.0.1:11434' : `127.0.0.1:${cfg.ollamaPort}`;
+}
+
 export function backendPlist(cfg: ServerConfig): string {
   const p = serverPaths(cfg.resourcesPath);
   return renderPlist({
@@ -211,7 +223,7 @@ export function backendPlist(cfg: ServerConfig): string {
       // Caddy's LAN HTTPS port — what clients actually connect to. The backend
       // advertises this (not its own loopback port) over mDNS for discovery.
       PRIVATESCRIBE_LAN_PORT: String(cfg.lanPort),
-      OLLAMA_HOST: `127.0.0.1:${cfg.ollamaPort}`,
+      OLLAMA_HOST: backendOllamaHost(cfg),
       PYANNOTE_MODELS_DIR: p.pyannote,
     },
     stdoutPath: path.join(LOG_DIR, 'backend.log'),
@@ -321,7 +333,7 @@ export function backendUnit(cfg: ServerConfig): string {
       // Caddy's LAN HTTPS port — what clients actually connect to. The backend
       // advertises this (not its own loopback port) over mDNS for discovery.
       PRIVATESCRIBE_LAN_PORT: String(cfg.lanPort),
-      OLLAMA_HOST: `127.0.0.1:${cfg.ollamaPort}`,
+      OLLAMA_HOST: backendOllamaHost(cfg),
       PYANNOTE_MODELS_DIR: p.pyannote,
     },
     stdoutPath: path.join(LOG_DIR, 'backend.log'),
@@ -442,7 +454,7 @@ export function backendService(cfg: ServerConfig): string {
       PRIVATESCRIBE_PORT: String(cfg.backendPort),
       // Caddy's LAN HTTPS port — what clients connect to; advertised over mDNS.
       PRIVATESCRIBE_LAN_PORT: String(cfg.lanPort),
-      OLLAMA_HOST: `127.0.0.1:${cfg.ollamaPort}`,
+      OLLAMA_HOST: backendOllamaHost(cfg),
       PYANNOTE_MODELS_DIR: p.pyannote,
     },
     logDir: LOG_DIR,

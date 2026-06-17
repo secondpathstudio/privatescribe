@@ -241,38 +241,48 @@ function lanIp(): string | null {
 function registerServerIpc(): void {
   ipcMain.handle('server:is-installed', () => isServerInstalled());
 
-  ipcMain.handle('server:install', async (event, opts: { lanPort?: number }) => {
-    try {
-      const cfg = defaultServerConfig(process.resourcesPath);
-      if (opts && typeof opts.lanPort === 'number') cfg.lanPort = opts.lanPort;
-      // The Ollama runtime is no longer bundled — fetch it into a user cache
-      // (streaming progress to the wizard as 'server:install-progress'), then the
-      // elevated install copies it into the shared data dir before the Ollama
-      // service starts.
-      const runtimeSrc = path.join(app.getPath('userData'), 'server-ollama-runtime');
-      const fetched = await ensureOllamaRuntime(runtimeSrc, (p) =>
-        event.sender.send('server:install-progress', p),
-      );
-      if (!fetched.ok) {
-        return { ok: false, error: `Couldn't download the AI engine — ${fetched.error}` };
+  ipcMain.handle(
+    'server:install',
+    async (event, opts: { lanPort?: number; engine?: 'bundled' | 'system' }) => {
+      try {
+        const cfg = defaultServerConfig(process.resourcesPath);
+        if (opts && typeof opts.lanPort === 'number') cfg.lanPort = opts.lanPort;
+        cfg.engine = opts?.engine === 'system' ? 'system' : 'bundled';
+
+        let runtimeSrc: string | undefined;
+        if (cfg.engine === 'bundled') {
+          // The Ollama runtime is no longer bundled — fetch it into a user cache
+          // (streaming progress as 'server:install-progress'), then the elevated
+          // install copies it into the shared data dir before the Ollama service
+          // starts.
+          runtimeSrc = path.join(app.getPath('userData'), 'server-ollama-runtime');
+          const fetched = await ensureOllamaRuntime(runtimeSrc, (p) =>
+            event.sender.send('server:install-progress', p),
+          );
+          if (!fetched.ok) {
+            return { ok: false, error: `Couldn't download the AI engine — ${fetched.error}` };
+          }
+          // The Ollama service execs the runtime from its post-copy location in
+          // the data dir; the binary's relative path comes from the staged marker.
+          cfg.ollamaBinaryPath = path.join(
+            cfg.dataDir,
+            'ollama-runtime',
+            path.relative(runtimeSrc, stagedOllamaBinary(runtimeSrc)),
+          );
+        }
+        // 'system': the admin runs their own Ollama on 127.0.0.1:11434 — install
+        // only backend + caddy (no Ollama service) and skip the runtime download.
+        await installServer(cfg, { ollamaRuntimeSrc: runtimeSrc });
+        // Remember this is now a server box so the next launch targets the service
+        // (behind Caddy) instead of spawning a local backend. The wizard shows the
+        // pairing URL, then calls server:finish-setup to relaunch into that mode.
+        writeAppMode({ mode: 'server', lanPort: cfg.lanPort });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
-      // The Ollama service execs the runtime from its post-copy location in the
-      // data dir; the binary's relative path comes from the staged marker.
-      cfg.ollamaBinaryPath = path.join(
-        cfg.dataDir,
-        'ollama-runtime',
-        path.relative(runtimeSrc, stagedOllamaBinary(runtimeSrc)),
-      );
-      await installServer(cfg, { ollamaRuntimeSrc: runtimeSrc });
-      // Remember this is now a server box so the next launch targets the service
-      // (behind Caddy) instead of spawning a local backend. The wizard shows the
-      // pairing URL, then calls server:finish-setup to relaunch into that mode.
-      writeAppMode({ mode: 'server', lanPort: cfg.lanPort });
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
+    },
+  );
 
   ipcMain.handle('server:uninstall', async () => {
     try {

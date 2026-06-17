@@ -38,6 +38,9 @@ type Props = {
 export default function ServerSetupWizard({ onStandalone, onServerReady }: Props) {
   const [step, setStep] = useState<Step>("choose");
   const [lanPort, setLanPort] = useState(DEFAULT_LAN_PORT);
+  // Which AI engine the server runs: download PrivateScribe's built-in Ollama,
+  // or use one the admin installs/runs themselves.
+  const [engine, setEngine] = useState<"bundled" | "system">("bundled");
   const [pairingUrl, setPairingUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   // One-time engine-download progress during install (server:install-progress).
@@ -107,7 +110,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
     // once the runtime is already staged, so a re-install goes straight through.
     const unsubscribe = server.onInstallProgress?.((p) => setInstallProgress(p));
     try {
-      const res = await server.install({ lanPort });
+      const res = await server.install({ lanPort, engine });
       if (!res.ok) {
         setError(res.error || "Installation failed.");
         setStep("configure");
@@ -200,6 +203,32 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                   value={lanPort}
                   onChange={(e) => setLanPort(Number(e.target.value) || DEFAULT_LAN_PORT)}
                 />
+              </div>
+              <div>
+                <Label className="font-black">AI ENGINE</Label>
+                <div className="mt-1 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEngine("bundled")}
+                    className={`border-2 border-black p-2 text-left ${engine === "bundled" ? "bg-[#fd3777] text-white" : "bg-white text-black"}`}
+                  >
+                    <div className="text-sm font-black">Download the built-in engine</div>
+                    <div className="text-xs">
+                      One-time ~1.2 GB download. Nothing else to install.
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEngine("system")}
+                    className={`border-2 border-black p-2 text-left ${engine === "system" ? "bg-[#fd3777] text-white" : "bg-white text-black"}`}
+                  >
+                    <div className="text-sm font-black">I'll run my own Ollama</div>
+                    <div className="text-xs">
+                      Use an Ollama you install on this machine (port 11434). No
+                      download.
+                    </div>
+                  </button>
+                </div>
               </div>
               <div className="border-2 border-black bg-yellow-100 p-3 text-sm">
                 <p className="font-black">Your system will ask for administrator permission.</p>

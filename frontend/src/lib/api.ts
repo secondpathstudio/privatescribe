@@ -22,7 +22,10 @@ export type ElectronOllama = {
  *  used by the "Become a server" wizard. */
 export type ElectronServer = {
   isInstalled: () => Promise<boolean>;
-  install: (opts: { lanPort?: number }) => Promise<{ ok: boolean; error?: string }>;
+  install: (opts: {
+    lanPort?: number;
+    engine?: "bundled" | "system";
+  }) => Promise<{ ok: boolean; error?: string }>;
   uninstall: () => Promise<{ ok: boolean; error?: string }>;
   restart: () => Promise<{ ok: boolean; error?: string }>;
   info: () => Promise<{ lanPort: number; pairingUrl: string } | null>;
