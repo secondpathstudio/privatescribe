@@ -18,6 +18,7 @@ import {
   stopBackend,
   type BackendInfo,
 } from './backend-process';
+import { ensureOllamaRuntime, stagedOllamaBinary } from './ollama-download';
 import {
   getOllamaMode,
   resolveOllama,
@@ -240,12 +241,30 @@ function lanIp(): string | null {
 function registerServerIpc(): void {
   ipcMain.handle('server:is-installed', () => isServerInstalled());
 
-  ipcMain.handle('server:install', async (_event, opts: { lanPort?: number }) => {
+  ipcMain.handle('server:install', async (event, opts: { lanPort?: number }) => {
     try {
       const cfg = defaultServerConfig(process.resourcesPath);
       if (opts && typeof opts.lanPort === 'number') cfg.lanPort = opts.lanPort;
-      await installServer(cfg);
-      // Remember this is now a server box so the next launch targets the daemon
+      // The Ollama runtime is no longer bundled — fetch it into a user cache
+      // (streaming progress to the wizard as 'server:install-progress'), then the
+      // elevated install copies it into the shared data dir before the Ollama
+      // service starts.
+      const runtimeSrc = path.join(app.getPath('userData'), 'server-ollama-runtime');
+      const fetched = await ensureOllamaRuntime(runtimeSrc, (p) =>
+        event.sender.send('server:install-progress', p),
+      );
+      if (!fetched.ok) {
+        return { ok: false, error: `Couldn't download the AI engine — ${fetched.error}` };
+      }
+      // The Ollama service execs the runtime from its post-copy location in the
+      // data dir; the binary's relative path comes from the staged marker.
+      cfg.ollamaBinaryPath = path.join(
+        cfg.dataDir,
+        'ollama-runtime',
+        path.relative(runtimeSrc, stagedOllamaBinary(runtimeSrc)),
+      );
+      await installServer(cfg, { ollamaRuntimeSrc: runtimeSrc });
+      // Remember this is now a server box so the next launch targets the service
       // (behind Caddy) instead of spawning a local backend. The wizard shows the
       // pairing URL, then calls server:finish-setup to relaunch into that mode.
       writeAppMode({ mode: 'server', lanPort: cfg.lanPort });

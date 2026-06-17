@@ -88,18 +88,31 @@ function psQuote(s: string): string {
  * unprivileged Electron process already wrote; this copies them into place
  * and loads them.
  */
-export function buildInstallScript(cfg: ServerConfig, staging: string): string {
+export function buildInstallScript(
+  cfg: ServerConfig,
+  staging: string,
+  ollamaRuntimeSrc?: string,
+): string {
   const lines: string[] = ['#!/bin/sh', 'set -e'];
 
   // Shared data + log dirs (root-owned; the daemons run as root).
-  for (const d of [
+  const dirs = [
     cfg.dataDir,
     path.join(cfg.dataDir, 'caddy', 'data'),
     path.join(cfg.dataDir, 'caddy', 'config'),
     path.join(cfg.dataDir, 'ollama-models'),
     LOG_DIR,
-  ]) {
-    lines.push(`mkdir -p ${sh(d)}`);
+  ];
+  if (ollamaRuntimeSrc) dirs.push(path.join(cfg.dataDir, 'ollama-runtime'));
+  for (const d of dirs) lines.push(`mkdir -p ${sh(d)}`);
+
+  // Copy the fetched Ollama runtime into the shared, root-owned data dir so the
+  // Ollama service can exec it (it's no longer bundled in the app). The trailing
+  // /. copies the directory's contents, including the .ollama-binary marker.
+  if (ollamaRuntimeSrc) {
+    lines.push(
+      `cp -R ${sh(ollamaRuntimeSrc + '/.')} ${sh(path.join(cfg.dataDir, 'ollama-runtime'))}`,
+    );
   }
 
   // Rendered Caddyfile into the data dir.
@@ -195,7 +208,11 @@ function firewallLines(lanPort: number): string[] {
  *  log dirs, drops the rendered Caddyfile, then for each service copies the
  *  WinSW wrapper to <id>.exe beside its <id>.xml and (re)installs + starts it,
  *  and finally opens the firewall. Pure (returns the script text). */
-export function buildInstallScriptWin(cfg: ServerConfig, staging: string): string {
+export function buildInstallScriptWin(
+  cfg: ServerConfig,
+  staging: string,
+  ollamaRuntimeSrc?: string,
+): string {
   const p = serverPaths(cfg.resourcesPath);
   const lines: string[] = ["$ErrorActionPreference = 'Stop'"];
 
@@ -207,7 +224,17 @@ export function buildInstallScriptWin(cfg: ServerConfig, staging: string): strin
     LOG_DIR,
     WINSW_DIR,
   ];
+  if (ollamaRuntimeSrc) dirs.push(path.join(cfg.dataDir, 'ollama-runtime'));
   lines.push(`New-Item -ItemType Directory -Force -Path ${dirs.map(psQuote).join(',')} | Out-Null`);
+
+  // Copy the fetched Ollama runtime into the shared data dir so the Ollama
+  // service can exec it (it's no longer bundled in the app).
+  if (ollamaRuntimeSrc) {
+    lines.push(
+      `Copy-Item -Recurse -Force -Path ${psQuote(path.join(ollamaRuntimeSrc, '*'))} ` +
+        `-Destination ${psQuote(path.join(cfg.dataDir, 'ollama-runtime'))}`,
+    );
+  }
 
   // Rendered Caddyfile into the data dir.
   lines.push(
@@ -343,7 +370,10 @@ export function isServerInstalled(): boolean {
 }
 
 /** Stage the rendered config to a temp dir and install + start the daemons. */
-export async function installServer(cfg: ServerConfig): Promise<void> {
+export async function installServer(
+  cfg: ServerConfig,
+  opts?: { ollamaRuntimeSrc?: string },
+): Promise<void> {
   // An AppImage runs from an ephemeral squashfs mount (/tmp/.mount_*) that is
   // randomized per launch and unmounted when the app quits — systemd units
   // pointing into it would break as soon as the app closed. The .deb installs
@@ -383,7 +413,9 @@ export async function installServer(cfg: ServerConfig): Promise<void> {
     fs.writeFileSync(path.join(staging, 'Caddyfile'), renderCaddyfile(template, cfg));
 
     await runElevated(
-      IS_WIN ? buildInstallScriptWin(cfg, staging) : buildInstallScript(cfg, staging),
+      IS_WIN
+        ? buildInstallScriptWin(cfg, staging, opts?.ollamaRuntimeSrc)
+        : buildInstallScript(cfg, staging, opts?.ollamaRuntimeSrc),
       'PrivateScribe needs administrator access to install the server background services.',
     );
   } finally {

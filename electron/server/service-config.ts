@@ -88,6 +88,11 @@ export interface ServerConfig {
   ollamaPort: number;
   /** Shared data dir (DB, audio, .env, caddy CA store). */
   dataDir: string;
+  /** Absolute path the Ollama service execs. The runtime is fetched at install
+   *  time into <dataDir>/ollama-runtime (it's no longer bundled), so the install
+   *  flow sets this from the staged runtime's marker (the binary nests
+   *  differently per OS). */
+  ollamaBinaryPath: string;
 }
 
 export function defaultServerConfig(resourcesPath: string): ServerConfig {
@@ -97,6 +102,10 @@ export function defaultServerConfig(resourcesPath: string): ServerConfig {
     backendPort: DEFAULT_PORTS.backend,
     ollamaPort: DEFAULT_PORTS.ollama,
     dataDir: SERVER_DATA_DIR,
+    // Placeholder — the install flow overrides this with the exact path derived
+    // from the staged runtime's marker. Until then it best-effort points at the
+    // post-install location.
+    ollamaBinaryPath: resolveOllamaBinary(path.join(SERVER_DATA_DIR, 'ollama-runtime')),
   };
 }
 
@@ -104,9 +113,8 @@ export function defaultServerConfig(resourcesPath: string): ServerConfig {
 export function serverPaths(resourcesPath: string) {
   return {
     backend: path.join(resourcesPath, 'backend', exe('privatescribe-backend')),
-    // Ollama's binary may be nested (Linux ships bin/ollama) — read the marker
-    // scripts/fetch-ollama.mjs wrote at stage time instead of guessing layout.
-    ollama: resolveOllamaBinary(path.join(resourcesPath, 'ollama-runtime')),
+    // NOTE: the Ollama binary is NOT here — the runtime is fetched at install
+    // time into <dataDir>/ollama-runtime (cfg.ollamaBinaryPath), not bundled.
     caddy: path.join(resourcesPath, 'caddy-runtime', exe('privatescribe-webserver')),
     caddyfileTemplate: path.join(resourcesPath, 'caddy-runtime', 'Caddyfile.template'),
     // WinSW service-wrapper exe (Windows only; staged by fetch-winsw.mjs).
@@ -212,10 +220,9 @@ export function backendPlist(cfg: ServerConfig): string {
 }
 
 export function ollamaPlist(cfg: ServerConfig): string {
-  const p = serverPaths(cfg.resourcesPath);
   return renderPlist({
     label: LABELS.ollama,
-    programArguments: [p.ollama, 'serve'],
+    programArguments: [cfg.ollamaBinaryPath, 'serve'],
     environment: {
       // Ollama hard-errors ("$HOME is not defined") under launchd without HOME.
       HOME: cfg.dataDir,
@@ -323,10 +330,9 @@ export function backendUnit(cfg: ServerConfig): string {
 }
 
 export function ollamaUnit(cfg: ServerConfig): string {
-  const p = serverPaths(cfg.resourcesPath);
   return renderUnit({
     description: 'PrivateScribe Ollama runtime',
-    execStart: [p.ollama, 'serve'],
+    execStart: [cfg.ollamaBinaryPath, 'serve'],
     environment: {
       // Ollama hard-errors ("$HOME is not defined") without HOME.
       HOME: cfg.dataDir,
@@ -444,12 +450,11 @@ export function backendService(cfg: ServerConfig): string {
 }
 
 export function ollamaService(cfg: ServerConfig): string {
-  const p = serverPaths(cfg.resourcesPath);
   return renderWinswConfig({
     id: SERVICE_IDS.ollama,
     displayName: 'PrivateScribe Ollama',
     description: 'PrivateScribe Ollama runtime',
-    command: [p.ollama, 'serve'],
+    command: [cfg.ollamaBinaryPath, 'serve'],
     environment: {
       HOME: cfg.dataDir,
       // Ollama on Windows reads USERPROFILE; LocalSystem's points into
