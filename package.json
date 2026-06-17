@@ -17,8 +17,8 @@
     "build:pyannote": "node scripts/fetch-pyannote.mjs",
     "build:caddy": "node scripts/fetch-caddy.mjs",
     "build:winsw": "node scripts/fetch-winsw.mjs",
-    "dist": "npm run build:frontend && npm run build:electron && npm run build:ollama && npm run build:pyannote && npm run build:caddy && npm run build:winsw && dotenv -e .env.notarize -- electron-builder",
-    "release": "npm run build:frontend && npm run build:electron && npm run build:ollama && npm run build:pyannote && npm run build:caddy && npm run build:winsw && dotenv -e .env.notarize -- electron-builder --publish always"
+    "dist": "npm run build:frontend && npm run build:electron && npm run build:pyannote && npm run build:caddy && npm run build:winsw && dotenv -e .env.notarize -- electron-builder",
+    "release": "npm run build:frontend && npm run build:electron && npm run build:pyannote && npm run build:caddy && npm run build:winsw && dotenv -e .env.notarize -- electron-builder --publish always"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

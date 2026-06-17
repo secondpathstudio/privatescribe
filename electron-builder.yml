@@ -43,14 +43,10 @@ extraResources:
     to: backend
     filter:
       - "**/*"
-  # The bundled Ollama runtime (headless ollama-darwin.tgz, staged by
-  # scripts/fetch-ollama.mjs). Lands at Resources/ollama-runtime/ — Electron
-  # spawns ollama-runtime/ollama on demand when the user opts into the
-  # built-in engine during onboarding (see electron/ollama-process.ts).
-  - from: build-resources/ollama
-    to: ollama-runtime
-    filter:
-      - "**/*"
+  # NOTE: the Ollama runtime is NOT bundled — it's fetched at first run into the
+  # user data dir (see OLLAMA_RUNTIME_FETCH_SPEC.md). Bundling it with CUDA pushed
+  # the Win/Linux installers past GitHub's 2 GiB Release-asset cap; fetching on
+  # first run keeps installers small and app auto-updates tiny.
   # The pyannote speaker-diarization model weights (staged by
   # scripts/fetch-pyannote.mjs). Lands at Resources/pyannote-models/ — the
   # backend loads diarization from here with no HF token or network when

@@ -99,12 +99,9 @@ jobs:
       - name: Build electron main process (tsc)
         run: npm run build:electron
 
-      # Stage runtime + models. PRIVATESCRIBE_PYTHON tells fetch-pyannote which
-      # interpreter to use instead of the dev-only backend/venv path; HF_TOKEN
-      # unlocks the gated diarization repos.
-      - name: Stage bundled Ollama runtime (per-OS archive)
-        run: npm run build:ollama
-
+      # Ollama is no longer bundled — it's fetched at first run into the data dir
+      # (see OLLAMA_RUNTIME_FETCH_SPEC.md), which keeps installers under GitHub's
+      # 2 GiB Release-asset cap. So there is no "Stage Ollama" step here.
       - name: Stage Caddy web server (per-OS archive)
         run: npm run build:caddy
 
@@ -127,14 +124,13 @@ jobs:
         working-directory: backend
         run: pyinstaller --noconfirm --log-level WARN privatescribe-backend.spec
 
-      # Linux is confirmed: --publish always uploads the AppImage/.deb and the
-      # latest-linux.yml auto-update manifest straight to the GitHub Release for
-      # the current version, so electron-updater can serve Linux clients.
+      # --publish never while the runtime-fetch work lands: publishing now would
+      # ship a release whose app can't find an engine until fetch-on-first-run is
+      # complete (OLLAMA_RUNTIME_FETCH_SPEC.md slice 6 re-enables --publish always).
+      # Build the installer and upload it as an artifact for device-testing.
       - name: Package desktop installer (Linux)
         if: runner.os == 'Linux'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux --publish always
+        run: npx electron-builder --linux --publish never
 
       # --publish never: Windows isn't confirmed yet — produce the installer on
       # the runner and upload it as an artifact for download + smoke-test only.
