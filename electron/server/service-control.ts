@@ -356,6 +356,18 @@ export async function installServer(cfg: ServerConfig): Promise<void> {
         'and run server setup from there.',
     );
   }
+  // The Windows portable build self-extracts to a fresh temp dir each launch
+  // (PORTABLE_EXECUTABLE_DIR is set when running from it), so WinSW services
+  // baked to point inside it would break on the next run. The NSIS installer
+  // lands in a stable per-user dir, so server mode requires it.
+  if (IS_WIN && process.env.PORTABLE_EXECUTABLE_DIR) {
+    throw new Error(
+      'Server setup is not available from the portable build: it runs from a ' +
+        'temporary folder that changes each time you open it, so the background ' +
+        'services would lose track of their files. Install PrivateScribe with the ' +
+        'installer (.exe) and run server setup from there.',
+    );
+  }
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'ps-stage-'));
   try {
     const render = IS_WIN
