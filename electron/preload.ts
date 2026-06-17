@@ -29,23 +29,24 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('ollama:get-mode'),
   },
   // Server-mode controls used by the "Become a server" wizard (Phase 9). These
-  // drive the launchd service install/lifecycle (electron/server/*). Present
-  // in every build; only invoked from the server-setup flow.
+  // drive the OS service install/lifecycle — launchd / systemd / WinSW
+  // (electron/server/*). Present in every build; only invoked from the
+  // server-setup flow.
   server: {
-    /** Whether the server daemons are already installed. */
+    /** Whether the server services are already installed. */
     isInstalled: (): Promise<boolean> => ipcRenderer.invoke('server:is-installed'),
-    /** Install + start the server daemons (prompts for admin). `lanPort` is
-     *  the HTTPS port clients connect to. Resolves once launchctl has loaded. */
+    /** Install + start the server services (prompts for admin). `lanPort` is
+     *  the HTTPS port clients connect to. Resolves once they're installed. */
     install: (opts: { lanPort?: number }): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('server:install', opts),
-    /** Stop + remove the server daemons (prompts for admin). */
+    /** Stop + remove the server services (prompts for admin). */
     uninstall: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('server:uninstall'),
-    /** Restart the server daemons (prompts for admin) — e.g. after an update. */
+    /** Restart the server services (prompts for admin) — e.g. after an update. */
     restart: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke('server:restart'),
     /** Relaunch the app into server mode (after install) so it targets the
-     *  daemon for first-run admin creation onward. Does not resolve — the app
+     *  server for first-run admin creation onward. Does not resolve — the app
      *  exits and relaunches. */
     finishSetup: (): Promise<void> => ipcRenderer.invoke('server:finish-setup'),
     /** The pairing info clients need: the LAN URL + port. */

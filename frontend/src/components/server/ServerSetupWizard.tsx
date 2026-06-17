@@ -10,15 +10,15 @@ import NeoButton from "@/components/neo/neo-button";
  * instead of the plain setup form when `window.electron?.server` exists.
  *
  * Server path: configure the LAN port → `window.electron.server.install()`
- * (which prompts for admin and installs the launchd daemons) → show the
+ * (which prompts for admin and installs the OS background services) → show the
  * pairing URL. The caller then creates the super-admin against the running
  * server via `onServerReady`.
  *
  * NOTE (device-run wiring): after install, admin creation and the admin
- * dashboard must talk to the *daemon* backend behind Caddi (https://<mac>:port)
+ * dashboard must talk to the backend service behind Caddy (https://<host>:port)
  * — i.e. API_BASE retargeting + self-signed-cert acceptance in Electron. That
- * runtime piece is built/tested on a Mac (Phase 9 item 5); `onServerReady`
- * receives the pairing URL so the caller can point there.
+ * runtime piece is platform-neutral (Phase 9 item 5); `onServerReady` receives
+ * the pairing URL so the caller can point there.
  */
 
 const DEFAULT_LAN_PORT = 8443;
@@ -102,7 +102,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
         return;
       }
       const info = await server.info();
-      setPairingUrl(info?.pairingUrl ?? `https://<this-mac-ip>:${lanPort}`);
+      setPairingUrl(info?.pairingUrl ?? `https://<this-server-ip>:${lanPort}`);
       setStep("paired");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Installation failed.");
@@ -158,7 +158,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                   />
                   <p className="text-sm text-muted-foreground mt-2">
                     Your team already runs a PrivateScribe server. Connect this
-                    Mac to it; all transcription happens on the server.
+                    computer to it; all transcription happens on the server.
                   </p>
                 </div>
               )}
@@ -188,7 +188,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
                 />
               </div>
               <div className="border-2 border-black bg-yellow-100 p-3 text-sm">
-                <p className="font-black">macOS will ask for your password.</p>
+                <p className="font-black">Your system will ask for administrator permission.</p>
                 <p className="mt-1">
                   Installing the background services needs administrator access.
                   The services keep running after you close this window or log out.
@@ -209,7 +209,7 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
           <CardContent className="text-center py-10">
             <p className="font-black text-lg">Installing server services…</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Approve the macOS administrator prompt to continue.
+              Approve the administrator prompt to continue.
             </p>
           </CardContent>
         )}

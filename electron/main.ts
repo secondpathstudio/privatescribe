@@ -84,14 +84,15 @@ const ICON_PNG = path.join(ASSETS_DIR, 'icon.png'); // used at dev runtime for D
 
 let backend: BackendInfo | null = null;
 let mainWindow: BrowserWindow | null = null;
-// Menu-bar icon shown only in server mode (the control panel). Kept resident so
-// closing the window doesn't lose access to the dashboard.
+// System-tray icon shown only in server mode (the control panel). Kept resident
+// so closing the window doesn't lose access to the dashboard.
 let serverTray: Tray | null = null;
 
 /**
- * Create the menu-bar (Tray) icon for a server box. The server daemons run
- * independently of this app, so the tray is just the control panel: reopen the
- * dashboard, check for updates, or quit the panel (the server keeps serving).
+ * Create the system-tray icon (the menu bar on macOS) for a server box. The
+ * server services run independently of this app, so the tray is just the
+ * control panel: reopen the dashboard, check for updates, or quit the panel
+ * (the server keeps serving).
  */
 function createServerTray(apiBase: string): void {
   if (serverTray) return;
@@ -124,7 +125,7 @@ function createServerTray(apiBase: string): void {
         },
       },
       { type: 'separator' },
-      // Quits the control panel; the launchd daemons keep serving.
+      // Quits the control panel; the background services keep serving.
       { label: 'Quit PrivateScribe', click: () => app.quit() },
     ]),
   );
@@ -425,12 +426,13 @@ function registerClientIpc(): void {
 }
 
 // --- Post-update service restart (Phase 9 item 7) -------------------------
-// The daemons run binaries *inside* the .app bundle. An auto-update replaces
-// the bundle (same path, new binaries), but the already-running daemons keep
-// executing the old code until restarted. The control-panel app only updates
-// when it's launched, so on launch we compare the recorded version to the
-// current one and, if this Mac is a server, kickstart the daemons to pick up
-// the new binaries (one admin prompt, with the operator right there).
+// The services run binaries *inside* the installed app (the .app bundle on
+// macOS, the install dir on Linux/Windows). An auto-update replaces those
+// binaries in place (same path, new code), but the already-running services
+// keep executing the old code until restarted. The control-panel app only
+// updates when it's launched, so on launch we compare the recorded version to
+// the current one and, if this box is a server, restart the services to pick
+// up the new binaries (one admin prompt, with the operator right there).
 
 function serverVersionMarkerPath(): string {
   return path.join(app.getPath('userData'), 'server-version.json');
@@ -458,11 +460,11 @@ async function maybeRestartServerAfterUpdate(): Promise<void> {
   const current = app.getVersion();
   const last = readLastServerVersion();
   if (last && last !== current) {
-    console.log(`[server] app updated ${last} → ${current}; restarting daemons`);
+    console.log(`[server] app updated ${last} → ${current}; restarting services`);
     try {
       await restartServer();
     } catch (err) {
-      // Best-effort: a failed restart shouldn't block launch. The daemons keep
+      // Best-effort: a failed restart shouldn't block launch. The services keep
       // running the old binaries; the operator can restart from the dashboard.
       console.error('[server] post-update daemon restart failed:', err);
     }
@@ -824,7 +826,7 @@ app.whenReady().then(async () => {
   registerServerIpc();
   registerClientIpc();
   registerSecureStoreIpc();
-  // If this Mac is a server and the app was just updated, restart the daemons
+  // If this box is a server and the app was just updated, restart the services
   // so they run the new binaries. No-op for standalone/dev.
   await maybeRestartServerAfterUpdate();
 
@@ -838,12 +840,13 @@ app.whenReady().then(async () => {
     // Developer is expected to have `flask run` going on :5000.
     apiBase = 'http://127.0.0.1:5000';
   } else if (remoteOrigin) {
-    // Server-controller or client mode: the backend is a daemon behind Caddy
+    // Server-controller or client mode: the backend is a service behind Caddy
     // (server) or a remote server (client). Don't spawn a local backend or
     // Ollama — just point at it. The renderer's requests are trusted by the
-    // certificate-error handler (trust-on-first-use). The daemons are managed
-    // by launchd, so we don't block on readiness here; the Login page polls
-    // /api/setup/status and the dashboard reflects live health.
+    // certificate-error handler (trust-on-first-use). The services are managed
+    // by the OS (launchd / systemd / WinSW), so we don't block on readiness
+    // here; the Login page polls /api/setup/status and the dashboard reflects
+    // live health.
     splash = createSplash();
     apiBase = remoteOrigin;
   } else {
@@ -893,7 +896,7 @@ app.whenReady().then(async () => {
   // Main window is painted and shown — retire the splash.
   if (splash && !splash.isDestroyed()) splash.close();
 
-  // Server box: add the menu-bar control panel so the dashboard is reachable
+  // Server box: add the system-tray control panel so the dashboard is reachable
   // even after the window is closed.
   if (appMode.mode === 'server') {
     createServerTray(apiBase);
@@ -966,8 +969,8 @@ app.on('certificate-error', (event, _webContents, url, _error, certificate, call
 });
 
 app.on('window-all-closed', () => {
-  // Server mode: the daemons serve independently and the menu-bar tray is the
-  // control panel — stay resident so the dashboard can be reopened from it.
+  // Server mode: the services serve independently and the system-tray icon is
+  // the control panel — stay resident so the dashboard can be reopened from it.
   if (readAppMode().mode === 'server') return;
   // Standalone/client: nothing useful to keep resident once the window closes,
   // so quit (macOS would normally stay alive). before-quit stops the backend.
