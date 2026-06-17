@@ -26,8 +26,17 @@ export type ElectronServer = {
   uninstall: () => Promise<{ ok: boolean; error?: string }>;
   restart: () => Promise<{ ok: boolean; error?: string }>;
   info: () => Promise<{ lanPort: number; pairingUrl: string } | null>;
-  /** Relaunch into server mode after install (targets the daemon thereafter). */
+  /** Relaunch into server mode after install (targets the server thereafter). */
   finishSetup: () => Promise<void>;
+  /** Subscribe to the one-time engine-download progress during install. Returns
+   *  an unsubscribe function. Optional: absent in older preload builds. */
+  onInstallProgress?: (
+    cb: (p: {
+      phase: "download" | "verify" | "extract";
+      received?: number;
+      total?: number;
+    }) => void,
+  ) => () => void;
 };
 
 /** Client-pairing controls exposed by the Electron preload (desktop app only),

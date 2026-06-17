@@ -61,6 +61,13 @@ contextBridge.exposeInMainWorld('electron', {
     /** The pairing info clients need: the LAN URL + port. */
     info: (): Promise<{ lanPort: number; pairingUrl: string } | null> =>
       ipcRenderer.invoke('server:info'),
+    /** Subscribe to the one-time engine-download progress emitted during
+     *  install ('server:install-progress'). Returns an unsubscribe function. */
+    onInstallProgress: (cb: (p: OllamaFetchProgress) => void): (() => void) => {
+      const listener = (_e: unknown, p: OllamaFetchProgress): void => cb(p);
+      ipcRenderer.on('server:install-progress', listener);
+      return () => ipcRenderer.removeListener('server:install-progress', listener);
+    },
   },
   // Client-pairing controls for the "Connect to a server" wizard (Phase 10).
   // probe() validates a candidate server is reachable and is a PrivateScribe

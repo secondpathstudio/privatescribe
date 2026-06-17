@@ -23,6 +23,8 @@ import NeoButton from "@/components/neo/neo-button";
 
 const DEFAULT_LAN_PORT = 8443;
 
+const fmtGb = (bytes?: number): string => `${((bytes ?? 0) / 1024 ** 3).toFixed(1)} GB`;
+
 type Step = "choose" | "configure" | "installing" | "paired" | "connect";
 
 type Props = {
@@ -38,6 +40,12 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
   const [lanPort, setLanPort] = useState(DEFAULT_LAN_PORT);
   const [pairingUrl, setPairingUrl] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  // One-time engine-download progress during install (server:install-progress).
+  const [installProgress, setInstallProgress] = useState<{
+    phase: "download" | "verify" | "extract";
+    received?: number;
+    total?: number;
+  } | null>(null);
 
   // Client-pairing state ("Connect to a server").
   const [serverUrl, setServerUrl] = useState("");
@@ -93,7 +101,11 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
       return;
     }
     setError(null);
+    setInstallProgress(null);
     setStep("installing");
+    // Stream the one-time engine download into a progress bar. No events fire
+    // once the runtime is already staged, so a re-install goes straight through.
+    const unsubscribe = server.onInstallProgress?.((p) => setInstallProgress(p));
     try {
       const res = await server.install({ lanPort });
       if (!res.ok) {
@@ -107,6 +119,8 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
     } catch (e) {
       setError(e instanceof Error ? e.message : "Installation failed.");
       setStep("configure");
+    } finally {
+      unsubscribe?.();
     }
   };
 
@@ -207,9 +221,36 @@ export default function ServerSetupWizard({ onStandalone, onServerReady }: Props
 
         {step === "installing" && (
           <CardContent className="text-center py-10">
-            <p className="font-black text-lg">Installing server services…</p>
+            {installProgress?.phase === "download" && installProgress.total ? (
+              <>
+                <p className="font-black text-lg">Downloading the AI engine…</p>
+                <div className="mt-3">
+                  <div className="h-4 border-2 border-black bg-white">
+                    <div
+                      className="h-full bg-black transition-all"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            ((installProgress.received ?? 0) / installProgress.total) * 100,
+                          ),
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="mt-1 font-mono text-xs">
+                    {fmtGb(installProgress.received)} / {fmtGb(installProgress.total)} —
+                    one-time, ~1.2 GB
+                  </p>
+                </div>
+              </>
+            ) : (
+              <p className="font-black text-lg">
+                {installProgress ? "Preparing the engine…" : "Installing server services…"}
+              </p>
+            )}
             <p className="text-sm text-muted-foreground mt-2">
-              Approve the administrator prompt to continue.
+              Approve the administrator prompt when it appears.
             </p>
           </CardContent>
         )}
