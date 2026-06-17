@@ -34,16 +34,31 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream, readFileSync } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 
-// Pinned to a known-good Ollama release. Bump deliberately and re-test the
-// packaged build — verify against https://github.com/ollama/ollama/releases.
-const OLLAMA_VERSION = process.env.OLLAMA_VERSION || '0.24.0';
+// The pin lives in electron/ollama-version.ts (the single source of truth that
+// the runtime fetcher imports), so the build script and the runtime download
+// can't drift. Read it by regex rather than importing — this is a plain .mjs.
+function readPinnedOllamaVersion() {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(path.join(here, '..', 'electron', 'ollama-version.ts'), 'utf8');
+    const m = src.match(/OLLAMA_VERSION\s*=\s*['"]([^'"]+)['"]/);
+    if (m && m[1]) return m[1];
+  } catch {
+    /* fall through to the literal fallback below */
+  }
+  return '0.24.0';
+}
+
+// Bump in electron/ollama-version.ts and re-test the packaged build — verify
+// against https://github.com/ollama/ollama/releases.
+const OLLAMA_VERSION = process.env.OLLAMA_VERSION || readPinnedOllamaVersion();
 
 // Resolve the headless runtime asset (binary + GGML/MLX libraries, not the
 // .app) for the host OS/arch. The binary's location WITHIN the archive varies
