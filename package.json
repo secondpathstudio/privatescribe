@@ -1,7 +1,7 @@
 {
   "name": "privatescribe",
   "productName": "PrivateScribe",
-  "version": "1.5.0",
+  "version": "2.0.0",
   "description": "Private local AI scribe — Electron shell",
   "author": "Second Path Studio (https://www.secondpath.dev)",
   "main": "electron/dist/main.js",
