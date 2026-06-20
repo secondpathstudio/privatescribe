@@ -1,11 +1,7 @@
 import { useState } from 'react';
 import NeoHardwareCallout from './neo-hardware-callout';
 import { GithubIcon, DownloadIcon } from 'lucide-react';
-
-// Direct link to the current release's macOS installer. Versioned filename, so
-// bump this when you cut a new release (or point it at /releases/latest).
-const DOWNLOAD_URL =
-  'https://github.com/secondpathstudio/privatescribe/releases/download/v1.0.0/PrivateScribe-1.0.0-arm64.dmg';
+import { PLATFORM_DOWNLOADS, DOWNLOAD_SECTION_ID } from '@/lib/downloads';
 
 type Props = {
   onNotifyClick: () => void;
@@ -130,7 +126,8 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
 
         {/* Get it on your machine — honest dual-path */}
         <div
-          className="mt-24 border-4 border-black p-8 bg-gray-50 max-w-6xl mx-auto"
+          id={DOWNLOAD_SECTION_ID}
+          className="mt-24 border-4 border-black p-8 bg-gray-50 max-w-6xl mx-auto scroll-mt-24"
           style={{ boxShadow: '8px 8px 0px 0px rgba(0,0,0,1)' }}
         >
           <h3 className="text-3xl md:text-4xl font-black mb-2 text-center">GET IT ON YOUR MACHINE</h3>
@@ -156,24 +153,34 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
             <div className="border-4 border-black p-6 bg-white">
               <h4 className="text-xl font-black mb-2 uppercase">For everyone else</h4>
               <p className="text-sm mb-4">
-                Download the Mac app, drag it to your Applications folder, and open it. No terminal, no setup — the transcription and AI both run entirely on your device.
+                Download the app for your platform, open it, and start recording. No terminal, no setup — the transcription and AI both run entirely on your device.
               </p>
-              <a
-                href={DOWNLOAD_URL}
-                className="inline-flex items-center gap-2 border-4 border-black bg-[#fd3777] text-white font-bold uppercase tracking-wider px-4 py-2"
-                style={{ boxShadow: '4px 4px 0px 0px rgba(0,0,0,1)' }}
-              >
-                <DownloadIcon size={18} /> Download for Mac
-              </a>
-              <p className="text-xs text-gray-600 mt-2">Requires Apple Silicon (M1 or later).</p>
-              <p className="text-sm mt-3">
-                Windows &amp; Intel Macs coming soon —{' '}
+              <div className="flex flex-col gap-3">
+                {PLATFORM_DOWNLOADS.map((d) => (
+                  <a
+                    key={d.os}
+                    href={d.url}
+                    className="flex items-center gap-3 border-4 border-black bg-[#fd3777] text-white font-bold px-4 py-3"
+                    style={{ boxShadow: '4px 4px 0px 0px rgba(0,0,0,1)' }}
+                  >
+                    <DownloadIcon size={20} className="shrink-0" />
+                    <span className="flex flex-col leading-tight text-left">
+                      <span className="uppercase tracking-wider">Download for {d.os}</span>
+                      <span className="text-xs font-semibold normal-case opacity-90">
+                        {d.format} · {d.requirement}
+                      </span>
+                    </span>
+                  </a>
+                ))}
+              </div>
+              <p className="text-xs text-gray-600 mt-3">
+                Using an Intel Mac or need another build?{' '}
                 <button
                   type="button"
                   onClick={onNotifyClick}
                   className="underline font-semibold"
                 >
-                  notify me
+                  Get in touch
                 </button>
                 .
               </p>

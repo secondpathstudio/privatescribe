@@ -1,14 +1,17 @@
+import type { MouseEvent } from 'react'
 import { GithubIcon, DownloadIcon } from 'lucide-react'
 import NeoLinkButton from './neo-link-button'
 import NeoAnchorButton from './neo-a-button'
+import { DOWNLOAD_SECTION_ID } from '@/lib/downloads'
 
-// bump this when you cut a new release (or point it at /releases/latest).
-const DOWNLOAD_URL =
-  'https://github.com/secondpathstudio/privatescribe/releases/download/v1.0.0/PrivateScribe-1.0.0-arm64.dmg'
+const NeoHero = () => {
+  const scrollToDownloads = (e: MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault()
+    document
+      .getElementById(DOWNLOAD_SECTION_ID)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
-type Props = {}
-
-const NeoHero = (props: Props) => {
   return (
     <section className="py-20 border-b-4 border-black" style={{
         background: "linear-gradient(to right, #2b0f54, #5d1d91, #fd3777)"
@@ -35,7 +38,13 @@ const NeoHero = (props: Props) => {
                 <NeoLinkButton route="/login" label="Login" backgroundColor='#fd3777' textColor="#ffffff" />
                 }
                 <div className="flex flex-col items-start gap-2">
-                <NeoAnchorButton href={DOWNLOAD_URL} backgroundColor='#fd3777' textColor="#ffffff">
+                <NeoAnchorButton
+                  href={`#${DOWNLOAD_SECTION_ID}`}
+                  newTab={false}
+                  onClick={scrollToDownloads}
+                  backgroundColor='#fd3777'
+                  textColor="#ffffff"
+                >
                   <span className="flex items-center gap-2"><DownloadIcon /> Free Download</span>
                 </NeoAnchorButton>
                 </div>
@@ -44,7 +53,7 @@ const NeoHero = (props: Props) => {
                 </NeoAnchorButton>
               </div>
               <div className="text-sm text-white opacity-50 mt-2">
-                  *Download available for M-series MacOS. Windows version coming soon.
+                  *Free for macOS (Apple Silicon), Windows, and Linux.
               </div>
             </div>
             <div className="relative">

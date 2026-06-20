@@ -7,15 +7,19 @@ type Props = {
     backgroundColor?: string;
     textColor?: string;
     children?: React.ReactNode;
+    onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void;
+    // Defaults to opening in a new tab; set false for in-page anchor links.
+    newTab?: boolean;
 }
 
 const NeoAnchorButton = (props: Props) => {
   return (
-    <a 
+    <a
         href={props.href}
-        rel="noopener noreferrer"
-        target="_blank"
-        className={`cursor-pointer font-bold text-lg py-3 px-6 min-h-16 uppercase tracking-wider bg-white text-black border-4 border-black relative`} 
+        rel={props.newTab === false ? undefined : "noopener noreferrer"}
+        target={props.newTab === false ? undefined : "_blank"}
+        onClick={props.onClick}
+        className={`cursor-pointer font-bold text-lg py-3 px-6 min-h-16 uppercase tracking-wider bg-white text-black border-4 border-black relative`}
         style={{
             boxShadow: "8px 8px 0px 0px #000000",
             transition: "transform 0.1s, box-shadow 0.1s",
