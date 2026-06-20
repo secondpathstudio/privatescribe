@@ -98,3 +98,6 @@ build-resources/pyannote/
 # WinSW service wrapper (Windows server mode), staged by scripts/fetch-winsw.mjs.
 # Not committed — large (~18 MB), Windows-only, reproducible from the pinned release.
 build-resources/winsw/
+
+# Misc Dev files
+dev/
