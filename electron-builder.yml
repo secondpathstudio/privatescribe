@@ -136,6 +136,11 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  # Stable, version-less installer filename so the marketing site's
+  # /releases/latest/download/ link never needs updating (see
+  # frontend/src/lib/downloads.ts). electron-updater reads the actual filename
+  # from latest.yml, so a fixed name is safe for in-place updates.
+  artifactName: PrivateScribe-win-${arch}.exe
   # NOTE: there's no installer-level "publisher" field in electron-builder 26 —
   # the publisher string is set by signtool at signing time. When we add an
   # Authenticode cert, the publisher goes under win.signtoolOptions.publisherName.
@@ -162,7 +167,17 @@ linux:
     - target: deb
       arch: x64
 
+appImage:
+  # Stable, version-less filename — see nsis.artifactName above. AppImage is the
+  # Linux auto-update channel; electron-updater reads the name from
+  # latest-linux.yml, so a fixed name is safe for in-place updates.
+  artifactName: PrivateScribe-linux-${arch}.AppImage
+
 dmg:
+  # Stable, version-less filename — see nsis.artifactName above. The mac
+  # auto-update channel is the separate zip target (left at its default
+  # versioned name), so renaming the dmg doesn't affect in-place updates.
+  artifactName: PrivateScribe-mac-${arch}.dmg
   title: PrivateScribe ${version}
   # Branded install window. background is a multi-rep .tiff (540x380 @1x +
   # 1080x760 @2x); window dimensions are in points and match the @1x art.
