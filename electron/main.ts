@@ -455,6 +455,18 @@ function registerClientIpc(): void {
       });
     }
   });
+
+  // Escape hatch from the connection-loss page: forget the server and switch
+  // back to standalone, then relaunch. Without this a bad server/client mode
+  // strands the app on the retry screen with no way back to the setup chooser
+  // (and a reinstall doesn't help — the mode lives in userData, not the app).
+  // Boot then starts the local backend and the renderer shows the chooser
+  // again. Does not resolve — the app exits and reopens in standalone mode.
+  ipcMain.handle('client:reset-to-standalone', () => {
+    writeAppMode({ mode: 'standalone' });
+    app.relaunch();
+    app.exit(0);
+  });
 }
 
 // --- Post-update service restart (Phase 9 item 7) -------------------------
@@ -622,6 +634,9 @@ function connectionErrorPage(apiBase: string, detail: string): string {
       padding:12px 22px;cursor:pointer;font-size:14px;}
     button:active{transform:translate(2px,2px);box-shadow:3px 3px 0 #000;}
     .status{margin-top:16px;font-size:12px;color:#888;}
+    .alt{margin-top:22px;font-size:13px;color:#555;text-decoration:underline;
+      background:none;border:none;cursor:pointer;padding:0;font-family:inherit;}
+    .alt:hover{color:#000;}
   </style></head><body>
     <h1>Can't reach the server</h1>
     <p>PrivateScribe can't connect to your server right now. It may be turned
@@ -629,9 +644,18 @@ function connectionErrorPage(apiBase: string, detail: string): string {
     <p class="detail">${esc(detail)}</p>
     <button onclick="retry()">Try again</button>
     <div class="status">Checking automatically…</div>
+    <button class="alt" onclick="useThisComputer()">Use this computer instead</button>
     <script>
       var ORIGIN = ${JSON.stringify(apiBase)};
       function retry(){ if (window.electron && window.electron.client) window.electron.client.retry(); }
+      // Escape hatch: drop server/client mode and relaunch standalone, so the
+      // user can recover from a wrong/dead server choice without editing files.
+      function useThisComputer(){
+        if (!(window.electron && window.electron.client && window.electron.client.resetToStandalone)) return;
+        if (window.confirm('Switch this computer to standalone mode?\n\nIt will stop connecting to the server and run PrivateScribe locally on this device. You can connect to a server again later from the setup screen.')) {
+          window.electron.client.resetToStandalone();
+        }
+      }
       // Poll for reachability (no-cors: resolves iff the server answered) and
       // reload the SPA automatically when it comes back.
       setInterval(function(){

@@ -92,6 +92,10 @@ contextBridge.exposeInMainWorld('electron', {
     /** Re-attempt loading the server-hosted SPA (from the connection-loss
      *  retry page). */
     retry: (): Promise<void> => ipcRenderer.invoke('client:retry-connection'),
+    /** Escape hatch from the connection-loss retry page: forget the server,
+     *  switch back to standalone, and relaunch so the setup chooser returns.
+     *  Does not resolve — the app exits and reopens in standalone mode. */
+    resetToStandalone: (): Promise<void> => ipcRenderer.invoke('client:reset-to-standalone'),
   },
   // Encrypted-at-rest token storage (OS keychain via safeStorage). The desktop
   // client uses this instead of plaintext localStorage. `snapshot` is read

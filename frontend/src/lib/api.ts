@@ -56,6 +56,9 @@ export type ElectronClient = {
   connect: (url: string) => Promise<void>;
   /** Re-attempt loading the server-hosted SPA (connection-loss retry page). */
   retry: () => Promise<void>;
+  /** Escape hatch from the connection-loss page: forget the server, switch back
+   *  to standalone, and relaunch so the setup chooser returns (does not resolve). */
+  resetToStandalone: () => Promise<void>;
 };
 
 /** Encrypted-at-rest token storage (OS keychain via Electron safeStorage),
