@@ -157,6 +157,14 @@ def create_app() -> Flask:
 
     with app.app_context():
         db.create_all()
+        # create_all() adds missing *tables* but never new *columns* on a table
+        # that already exists, so a database from an older build is missing
+        # every column added since (e.g. organization_id on the PHI tables,
+        # added in 2.0 — its absence 500s template create/read on an in-place
+        # upgrade). Reconcile additively so an upgrade just works. Idempotent
+        # and a no-op once the schema matches. See app/schema_reconcile.py.
+        from app.schema_reconcile import reconcile_schema
+        reconcile_schema()
         # Pick the search backend for the bound engine (SQLite → FTS5) before
         # touching the index, so the seam is explicit rather than defaulted.
         note_search.select_backend()
