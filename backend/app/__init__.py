@@ -45,6 +45,12 @@ def create_app() -> Flask:
     app = Flask(__name__, instance_path=str(data_dir()))
     app.json = ISODateJSONProvider(app)
 
+    # Operational file logging (PHI-safe) under the data dir, configured first so
+    # boot-time problems are captured. Rotating log + a failing-request hook;
+    # distinct from the hash-chained audit log. See app/logging_config.py.
+    from app.logging_config import configure_logging
+    configure_logging(app)
+
     # Deployment role (standalone | server), resolved from PRIVATESCRIBE_MODE.
     # Stored once here so every later config decision (bind host, CORS, debug)
     # reads one resolved value rather than re-parsing the env. Defaults to the

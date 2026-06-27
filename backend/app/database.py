@@ -39,7 +39,14 @@ def _sqlcipher_engine_config(db_path: Path) -> tuple[str, dict]:
     """
     return (
         f"sqlite:///{db_path}",
-        {"creator": sqlcipher.open_keyed_connection},
+        {
+            "creator": sqlcipher.open_keyed_connection,
+            # Keep bound parameters out of DBAPI exception messages (and any
+            # statement logging). The operational file log (app/logging_config.py)
+            # must stay PHI-free, and SQL parameters are note content, transcripts,
+            # and participant names. echo stays off for the same reason.
+            "hide_parameters": True,
+        },
     )
 
 
