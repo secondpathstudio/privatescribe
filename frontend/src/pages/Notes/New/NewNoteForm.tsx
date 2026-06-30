@@ -9,13 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { CalendarIcon, MessageSquare, Pilcrow, Radio, Users } from 'lucide-react'
-import NeoToggleIconButton from '@/components/neo/neo-toggle-icon-button'
+import { CalendarIcon } from 'lucide-react'
 import ConfidenceText, { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
-import LiveTranscript, { type LiveTranscriptHandle } from '@/components/transcription/LiveTranscript'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
-import Microphone from '@/components/recording/microphone'
+import AudioCapture, { type CaptureOptions } from '@/components/recording/audio-capture'
 import MarkdownEditor from '@/components/md-editor'
 import { BoldItalicUnderlineToggles, headingsPlugin, listsPlugin, ListsToggle, MDXEditorMethods, quotePlugin, toolbarPlugin, UndoRedo } from '@mdxeditor/editor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -209,159 +207,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         }
     });
 
-    // Diarization is a UX choice, not a persisted note field — hold it in
-    // local state so it isn't sent to /api/notes alongside form values.
-    // Defaults off — solo dictation is the common case; users opt in to
-    // pyannote when the recording is a multi-speaker conversation.
-    const [diarize, setDiarize] = React.useState(false);
-    // Per-note dictation-markers toggle. Sent to /api/transcribe as
-    // apply_dictation_markers. Defaults off so the rewrite is opt-in per
-    // recording — even when the admin allows it globally.
-    const [applyDictationMarkers, setApplyDictationMarkers] = React.useState(false);
-    // Live transcript toggle. When on, MediaRecorder emits 2s timeslices and
-    // each one is POSTed to /api/transcribe/live for a rolling preview.
-    // Independent of `diarize` above (which only applies to the final pass).
-    const [liveTranscript, setLiveTranscript] = React.useState(false);
-    // Nested: live speaker labels via pyannote on each tick. Heavy — off by
-    // default; only shown in the toggle row when liveTranscript is on. Note
-    // these toggles are evaluated when startRecording() runs, so flipping
-    // them mid-recording is a no-op for the in-progress session.
-    const [liveDiarize, setLiveDiarize] = React.useState(false);
-    // Append-only buffer of MediaRecorder timeslice chunks. LiveTranscript
-    // owns a cursor into this array; we never mutate or shrink existing
-    // entries so its cursor stays valid.
-    const [liveChunks, setLiveChunks] = React.useState<Blob[]>([]);
-    const liveTranscriptRef = React.useRef<LiveTranscriptHandle | null>(null);
-
-    // File-upload-as-source state. Distinct from the Microphone path so the
-    // user can preview before kicking off transcription.
-    const [uploadedFile, setUploadedFile] = React.useState<File | null>(null);
-    const [uploadedAudioUrl, setUploadedAudioUrl] = React.useState<string | null>(null);
-    const fileInputRef = React.useRef<HTMLInputElement>(null);
-    // Controlled tab so a page-level drop can flip to Upload regardless of
-    // which tab the user was looking at when they dropped.
-    const [activeTab, setActiveTab] = React.useState<'record' | 'upload'>('record');
-    const [dropOverlay, setDropOverlay] = React.useState(false);
-    const [dropError, setDropError] = React.useState<string | null>(null);
-    // Counter rather than a boolean: dragenter/dragleave fire as the cursor
-    // crosses descendant elements, so we increment/decrement to know when the
-    // drag has truly left the window.
-    const dragDepthRef = React.useRef(0);
-    // Refs for state we read inside the window-level drag listeners (which are
-    // bound once on mount, so plain state would be stale).
-    const busyRef = React.useRef(busy);
-    busyRef.current = busy;
-
-    React.useEffect(() => {
-        // Free the object URL when the file changes/unmounts to avoid leaks.
-        return () => {
-            if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
-        };
-    }, [uploadedAudioUrl]);
-
-    // Reset the live-chunk buffer whenever the Microphone is keyed (i.e.
-    // after a save or a reset). The LiveTranscript reads cumulatively from
-    // index 0, so clearing the array is the right boundary marker for a
-    // brand-new session.
-    React.useEffect(() => {
-        setLiveChunks([]);
-    }, [microphoneKey]);
-
-    const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
-        setUploadedFile(file);
-        setUploadedAudioUrl(URL.createObjectURL(file));
-    };
-
-    // Mirrors the file input's accept list. Browsers don't always set a MIME
-    // type for less common audio (e.g. .m4a often shows up as empty), so we
-    // also match by extension as a fallback.
-    const AUDIO_EXTS = ['.m4a', '.mp3', '.wav', '.webm', '.mp4', '.ogg', '.flac', '.aac', '.mov', '.mkv'];
-    const isAudioOrVideoFile = (file: File) => {
-        if (file.type.startsWith('audio/') || file.type.startsWith('video/')) return true;
-        const name = file.name.toLowerCase();
-        return AUDIO_EXTS.some((ext) => name.endsWith(ext));
-    };
-
-    const ingestDroppedFile = (file: File) => {
-        if (!isAudioOrVideoFile(file)) {
-            setDropError(`"${file.name}" doesn't look like an audio or video file.`);
-            return;
-        }
-        if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
-        setUploadedFile(file);
-        setUploadedAudioUrl(URL.createObjectURL(file));
-        setActiveTab('upload');
-        setDropError(null);
-    };
-
-    // Window-level drag handlers so dropping anywhere on the New Note page
-    // sets the upload file. Bound once on mount; reads `busy` through a ref
-    // so an in-flight transcription run can short-circuit drops without
-    // re-binding listeners. Switches to the Upload tab so the user sees the
-    // staged file regardless of which tab they were on when they dropped.
-    React.useEffect(() => {
-        const isFileDrag = (e: DragEvent) =>
-            Array.from(e.dataTransfer?.types ?? []).includes('Files');
-
-        const onDragEnter = (e: DragEvent) => {
-            if (!isFileDrag(e)) return;
-            e.preventDefault();
-            if (busyRef.current) return;
-            dragDepthRef.current += 1;
-            if (dragDepthRef.current === 1) setDropOverlay(true);
-        };
-        const onDragOver = (e: DragEvent) => {
-            if (!isFileDrag(e)) return;
-            // preventDefault is what makes the element a valid drop target;
-            // without it the browser falls back to "open the file" behavior.
-            e.preventDefault();
-        };
-        const onDragLeave = (e: DragEvent) => {
-            if (!isFileDrag(e)) return;
-            dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-            if (dragDepthRef.current === 0) setDropOverlay(false);
-        };
-        const onDrop = (e: DragEvent) => {
-            if (!isFileDrag(e)) return;
-            e.preventDefault();
-            dragDepthRef.current = 0;
-            setDropOverlay(false);
-            if (busyRef.current) {
-                setDropError('A transcription is already in progress — wait for it to finish before uploading another file.');
-                return;
-            }
-            const file = e.dataTransfer?.files?.[0];
-            if (!file) return;
-            ingestDroppedFile(file);
-        };
-
-        window.addEventListener('dragenter', onDragEnter);
-        window.addEventListener('dragover', onDragOver);
-        window.addEventListener('dragleave', onDragLeave);
-        window.addEventListener('drop', onDrop);
-        return () => {
-            window.removeEventListener('dragenter', onDragEnter);
-            window.removeEventListener('dragover', onDragOver);
-            window.removeEventListener('dragleave', onDragLeave);
-            window.removeEventListener('drop', onDrop);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    const handleTranscribeUpload = () => {
-        if (!uploadedFile) return;
-        transcribeRecording(uploadedFile, uploadedFile.name);
-    };
-
-    const clearUploadedFile = () => {
-        if (uploadedAudioUrl) URL.revokeObjectURL(uploadedAudioUrl);
-        setUploadedFile(null);
-        setUploadedAudioUrl(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-    };
+    // Audio-capture settings and state (diarization / dictation / live-transcript
+    // toggles, file upload, page-level drag-and-drop) now live in <AudioCapture>;
+    // it hands a finished recording or chosen file back via onAudio() below.
 
     //update local state for template name + llm model when selected template id changes
     useEffect(() => {
@@ -419,7 +267,12 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const noteTemplate = form.watch('noteTemplate');
     const templateSelected = !!noteTemplate;
 
-    const transcribeRecording = async (blob: Blob, filename: string = 'recording.webm') => {
+    const transcribeRecording = async (
+        blob: Blob,
+        filename: string = 'recording.webm',
+        opts: CaptureOptions = { diarize: false, applyDictationMarkers: false },
+    ) => {
+        const { diarize, applyDictationMarkers } = opts;
         // Belt-and-suspenders: even if the disabled buttons are bypassed, refuse
         // to spend minutes on whisper+diarization without a template to format against.
         if (!form.getValues('noteTemplate')) {
@@ -1053,159 +906,25 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             </fieldset>
         </div>
 
-        {/* Pre-transcription options. The shadows on these buttons extend
-            8px down-right when "off", so pb-3 below keeps them from kissing
-            the Record/Upload tabs underneath. */}
-        <div className="flex flex-row flex-wrap items-end gap-6 mt-4 pb-3">
-            <NeoToggleIconButton
-                icon={Users}
-                label="Speaker Diarization"
-                title="Identify speakers (diarize)"
-                on={diarize}
-                onToggle={setDiarize}
-                disabled={busy}
-            />
-            {/* Hidden when the admin has globally disabled dictation commands. */}
-            {auth.user?.dictationMarkersEnabled && (
-                <NeoToggleIconButton
-                    icon={Pilcrow}
-                    label="Punctuation Commands"
-                    title='Apply dictation commands ("new paragraph", "period", "comma", "new line")'
-                    on={applyDictationMarkers}
-                    onToggle={setApplyDictationMarkers}
-                    disabled={busy}
-                />
-            )}
-            {/* Best-effort rolling preview while recording. The authoritative
-                transcript still comes from /api/transcribe on stop. */}
-            <NeoToggleIconButton
-                icon={Radio}
-                label="Live Transcript"
-                title="Show a rolling transcript while recording (applies on next recording)"
-                on={liveTranscript}
-                onToggle={setLiveTranscript}
-                disabled={busy}
-            />
-            {/* Nested under Live Transcript — diarizing every tick is heavy.
-                Always rendered but disabled until Live Transcript is on, so
-                there's no mount/unmount animation jank. Shown as visually
-                "off" while gated to make the dependency obvious. */}
-            <NeoToggleIconButton
-                icon={MessageSquare}
-                label="Live Speakers"
-                title={
-                    liveTranscript
-                        ? "Run speaker diarization on each live tick (CPU-heavy)"
-                        : "Enable Live Transcript first"
-                }
-                on={liveDiarize && liveTranscript}
-                onToggle={setLiveDiarize}
-                disabled={busy || !liveTranscript}
-                activeColor="#2563eb"
-            />
-        </div>
-
-        {/* Audio source: live recording vs. file upload. The transcribe pipeline
-            is identical for both — they both feed into transcribeRecording(). */}
-        <Tabs
-            value={activeTab}
-            onValueChange={(v) => setActiveTab(v as 'record' | 'upload')}
-            className="w-full mt-4"
-        >
-            <TabsList className="flex w-full">
-                <TabsTrigger className="grow" value="record">Record</TabsTrigger>
-                <TabsTrigger className="grow" value="upload">Upload</TabsTrigger>
-            </TabsList>
-
-            {!templateSelected && (
+        {/* Audio source: the shared capture experience (diarize / dictation /
+            live-transcript toggles + Record/Upload tabs + drag-and-drop). On a
+            finished recording or chosen file it calls back into our transcribe
+            pipeline. Gated on a template being selected. */}
+        <AudioCapture
+            authToken={auth.token}
+            busy={busy}
+            disabled={!templateSelected}
+            disabledNotice={
                 <div className="border-2 border-black bg-yellow-100 p-3 text-sm mt-4">
                     <strong>Pick a template above first.</strong> Recording and uploading are
                     disabled until a template is selected — otherwise the transcript can't be
                     auto-formatted.
                 </div>
-            )}
-
-            <TabsContent value="record">
-                <div className="flex justify-between items-center mt-4">
-                    <Microphone
-                        key={microphoneKey}
-                        onRecordingFinished={(blob) => {
-                            // Fire-and-forget the live session cleanup; the
-                            // real transcribe call below is what matters.
-                            liveTranscriptRef.current?.finalize();
-                            transcribeRecording(blob);
-                        }}
-                        onPartialChunk={
-                            liveTranscript
-                                ? (chunk) => setLiveChunks((prev) => [...prev, chunk])
-                                : undefined
-                        }
-                        liveMode={liveTranscript}
-                        disabled={!templateSelected}
-                    />
-                </div>
-                {liveTranscript && (
-                    <LiveTranscript
-                        ref={liveTranscriptRef}
-                        chunks={liveChunks}
-                        diarize={liveDiarize}
-                        authToken={auth.token}
-                    />
-                )}
-            </TabsContent>
-
-            <TabsContent value="upload">
-                <div className="flex flex-col items-center w-full mt-4 gap-3">
-                    <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.mp4,.ogg,.flac,.aac"
-                        onChange={handleFilePicked}
-                        disabled={busy || !templateSelected}
-                        className="hidden"
-                    />
-                    {!uploadedFile ? (
-                        <NeoButton
-                            type="button"
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={busy || !templateSelected}
-                        >
-                            Choose audio file
-                        </NeoButton>
-                    ) : (
-                        <div className="flex flex-col items-center w-full gap-2">
-                            <div className="text-sm">
-                                <span className="font-semibold">{uploadedFile.name}</span>
-                                {' '}({(uploadedFile.size / (1024 * 1024)).toFixed(1)} MB)
-                            </div>
-                            {uploadedAudioUrl && (
-                                <audio controls src={uploadedAudioUrl} className="w-full" />
-                            )}
-                            <div className="flex gap-2">
-                                <NeoButton
-                                    type="button"
-                                    onClick={handleTranscribeUpload}
-                                    disabled={busy || !templateSelected}
-                                >
-                                    Transcribe this file
-                                </NeoButton>
-                                <NeoButton
-                                    type="button"
-                                    onClick={clearUploadedFile}
-                                    disabled={busy}
-                                >
-                                    Choose a different file
-                                </NeoButton>
-                            </div>
-                        </div>
-                    )}
-                    <p className="text-xs text-gray-600 text-center max-w-md">
-                        Supports common audio formats (mp3, m4a, wav, webm, ogg, flac) and video files
-                        (audio track is extracted). Large files may take a while to transcribe.
-                    </p>
-                </div>
-            </TabsContent>
-        </Tabs>
+            }
+            showDictationToggle={!!auth.user?.dictationMarkersEnabled}
+            resetSignal={microphoneKey}
+            onAudio={(blob, filename, opts) => transcribeRecording(blob, filename, opts)}
+        />
 
         {/* Pipeline progress: spinner + current stage label + elapsed time.
             Stage transitions are driven by the NDJSON stream from /api/transcribe
@@ -1445,7 +1164,6 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     setMarkdown('');
                     mdxEditorRef.current?.setMarkdown('');
                     setMicrophoneKey(microphoneKey + 1);
-                    clearUploadedFile();
                 }}
             >
                 Reset
@@ -1454,33 +1172,6 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         )}
     </form>
 
-    {dropOverlay && (
-        <div className='pointer-events-none fixed inset-0 z-40 flex items-center justify-center bg-[#fd3777]/15 border-[6px] border-dashed border-[#fd3777]'>
-            <div className='border-[3px] border-black bg-white px-8 py-4 shadow-[6px_6px_0_0_#000]'>
-                <p className='text-2xl font-black uppercase tracking-wide text-[#5d1d91]'>
-                    Drop audio/video to upload
-                </p>
-                <p className='text-xs text-gray-700 mt-1'>
-                    File will be staged in the Upload tab — pick a template if you haven't, then hit Transcribe.
-                </p>
-            </div>
-        </div>
-    )}
-
-    {dropError && (
-        <div className='fixed bottom-4 right-4 z-40 max-w-sm border-[2px] border-black bg-red-50 p-3 text-sm text-red-700 shadow-[4px_4px_0_0_#000]'>
-            <div className='flex justify-between gap-3'>
-                <span>{dropError}</span>
-                <button
-                    type='button'
-                    onClick={() => setDropError(null)}
-                    className='font-black'
-                >
-                    ✕
-                </button>
-            </div>
-        </div>
-    )}
 </Form>
 
   )

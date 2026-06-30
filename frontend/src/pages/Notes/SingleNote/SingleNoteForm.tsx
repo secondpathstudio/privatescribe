@@ -20,7 +20,7 @@ import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 import NoteAudioPlayer, { type NoteAudioPlayerHandle } from '@/components/recording/note-audio-player'
-import Microphone from '@/components/recording/microphone'
+import AudioCapture, { type CaptureOptions } from '@/components/recording/audio-capture'
 import DiarizedTranscript, { type SpeakerLabels, type TranscriptSegment, sourceColor, sourceLabel } from '@/components/recording/diarized-transcript'
 import { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
 import EditableConfidenceText from '@/components/transcription/EditableConfidenceText'
@@ -742,10 +742,14 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     // -> re-format the combined transcript -> persist the new markdown ->
     // reload so every layer (transcript, words, audio sources, body) renders
     // from one consistent fetch.
-    const handleAppendRecording = async (blob: Blob) => {
+    const handleAppendRecording = async (
+        blob: Blob,
+        filename: string = 'recording.webm',
+        opts?: CaptureOptions,
+    ) => {
         if (appendBusy) return;
         if (!window.confirm(
-            'Add this recording to the note? It will be transcribed and merged onto ' +
+            'Add this audio to the note? It will be transcribed and merged onto ' +
             'the existing transcript, then the note will be re-formatted from the full ' +
             'combined transcript — replacing the current formatted text.'
         )) {
@@ -768,14 +772,16 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 }
             }
 
-            // 1. Transcribe the new clip. Match the note's diarization mode so
-            //    the merge stays consistent (the backend keeps the note's mode).
+            // 1. Transcribe the new clip. Capture options come from
+            //    <AudioCapture>; they default to the note's existing diarization
+            //    mode so the merge stays consistent unless the user changed it.
             setAppendStage('Transcribing…');
-            const diarize = segments != null;
+            const diarize = opts?.diarize ?? (segments != null);
+            const applyDictationMarkers = opts?.applyDictationMarkers ?? !!auth.user?.dictationMarkersEnabled;
             const fd = new FormData();
-            fd.append('file', blob, 'recording.webm');
+            fd.append('file', blob, filename);
             fd.append('diarize', diarize ? 'true' : 'false');
-            fd.append('apply_dictation_markers', auth.user?.dictationMarkersEnabled ? 'true' : 'false');
+            fd.append('apply_dictation_markers', applyDictationMarkers ? 'true' : 'false');
             const participantCount = Array.isArray(note?.participants) ? note.participants.length : 0;
             if (diarize && participantCount > 0) fd.append('max_speakers', String(participantCount));
 
@@ -1506,27 +1512,34 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                         type="button"
                         onClick={() => { setMicrophoneKey((k) => k + 1); setShowAddRecording(true); }}
                     >
-                        Add recording
+                        Add recording or upload
                     </NeoButton>
                 ) : (
                     <div className='flex flex-col gap-3'>
                         <p className='text-sm text-muted-foreground'>
-                            Record more audio to append to this note. The new transcript is
-                            merged onto the existing one and the note is re-formatted from the
-                            full combined transcript — <strong>replacing the current formatted
-                            text</strong>. This is only possible until the note is approved,
-                            finalized, or signed.
+                            Record more audio or upload an audio file to append to this note. The
+                            new transcript is merged onto the existing one and the note is
+                            re-formatted from the full combined transcript — <strong>replacing the
+                            current formatted text</strong>. This is only possible until the note
+                            is approved, finalized, or signed.
                         </p>
                         {appendBusy ? (
                             <div className='flex items-center gap-3 text-sm font-semibold'>
-                                <RefreshCcw className='animate-spin' size={16} />
+                                {/* RefreshCcw's arrows point counter-clockwise, so spin it
+                                    that way too. animate-spin goes clockwise; the inline
+                                    animation-direction reliably overrides the shorthand it emits. */}
+                                <RefreshCcw className='animate-spin' style={{ animationDirection: 'reverse' }} size={16} />
                                 {appendStage ?? 'Working…'}
                             </div>
                         ) : (
                             <>
-                                <Microphone
-                                    key={microphoneKey}
-                                    onRecordingFinished={handleAppendRecording}
+                                <AudioCapture
+                                    authToken={auth.token}
+                                    busy={appendBusy}
+                                    showDictationToggle={!!auth.user?.dictationMarkersEnabled}
+                                    defaultDiarize={segments != null}
+                                    resetSignal={microphoneKey}
+                                    onAudio={handleAppendRecording}
                                 />
                                 <div>
                                     <NeoButton
