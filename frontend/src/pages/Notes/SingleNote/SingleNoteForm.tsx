@@ -20,7 +20,8 @@ import NeoButton from '@/components/neo/neo-button'
 import { useNavigate } from 'react-router'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
 import NoteAudioPlayer, { type NoteAudioPlayerHandle } from '@/components/recording/note-audio-player'
-import DiarizedTranscript, { type SpeakerLabels, type TranscriptSegment } from '@/components/recording/diarized-transcript'
+import Microphone from '@/components/recording/microphone'
+import DiarizedTranscript, { type SpeakerLabels, type TranscriptSegment, sourceColor, sourceLabel } from '@/components/recording/diarized-transcript'
 import { type WordInfo, countLowConfidence } from '@/components/transcription/ConfidenceText'
 import EditableConfidenceText from '@/components/transcription/EditableConfidenceText'
 
@@ -40,6 +41,22 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const [showRetranscribe, setShowRetranscribe] = React.useState(false);
     const [retranscribeTemplateId, setRetranscribeTemplateId] = React.useState('');
     const [retranscribing, setRetranscribing] = React.useState(false);
+    // "Add recording" (append) state. Lets the user record more audio onto a
+    // still-open draft; the new transcript is merged onto the existing one and
+    // the note is re-formatted. Gated by the admin appendRecordingEnabled flag.
+    const [showAddRecording, setShowAddRecording] = React.useState(false);
+    const [appendBusy, setAppendBusy] = React.useState(false);
+    const [appendStage, setAppendStage] = React.useState<string | null>(null);
+    // Bumped to force a fresh <Microphone> (resets its internal blob) between
+    // recordings or after an error.
+    const [microphoneKey, setMicrophoneKey] = React.useState(0);
+    // Which source recording the primary audio player currently has loaded.
+    // Defaults to the original; switches when the user clicks a transcript
+    // turn from another recording, or a clip chip.
+    const audioFiles: any[] = Array.isArray(note?.audioFiles) ? note.audioFiles : [];
+    const [activeAudioFileId, setActiveAudioFileId] = React.useState<string | null>(
+        audioFiles[0]?.id ?? null,
+    );
     const [siblingsExpanded, setSiblingsExpanded] = React.useState(false);
     // Approval state. Mirrored locally so the UI re-renders without a full
     // page reload after the user clicks Approve. The note prop reflects the
@@ -650,6 +667,211 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         }
     };
 
+    // Re-format the merged transcript through the note's own template and
+    // return the resulting markdown. Branches on template type the same way
+    // the new-note flow does; both endpoints stream NDJSON ending in a
+    // `complete` event carrying the full markdown. Falls back to the raw
+    // transcript (so the recording isn't lost) when Ollama is unavailable.
+    const formatMergedTranscript = async (
+        rawNote: string,
+        labels: SpeakerLabels,
+    ): Promise<string> => {
+        const templateId = note?.noteTemplate || undefined;
+        const noteDetails = {
+            note_date: note?.noteDate,
+            author_id: note?.authorId,
+            template_id: templateId,
+            participants: note?.participants,
+        };
+        const url = noteTemplateIsStructured
+            ? `${API_BASE}/api/notes/run-structured`
+            : `${API_BASE}/api/getMarkdown`;
+        const body = noteTemplateIsStructured
+            ? { raw_note: rawNote, template_id: templateId, speaker_labels: labels, note_details: noteDetails }
+            : { raw_note: rawNote, speaker_labels: labels, note_details: noteDetails };
+
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth.token}` },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok || !res.body) {
+            const err = await res.json().catch(() => ({}));
+            if (res.status === 503) flagOllamaDown();
+            // Model missing / Ollama down: keep the combined transcript as the
+            // body so nothing is lost; the user can format by hand.
+            if (res.status === 422 || res.status === 503) {
+                toast.error(
+                    err.message || err.error ||
+                    'AI formatting unavailable — saving the combined transcript so you can format it manually.',
+                );
+                return rawNote;
+            }
+            throw new Error(err.error || `Formatting failed (${res.status})`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = '';
+        let accumulated = '';
+        let finalMarkdown: string | null = null;
+        let streamError: string | null = null;
+        const handle = (line: string) => {
+            if (!line.trim()) return;
+            let evt: any;
+            try { evt = JSON.parse(line); } catch { return; }
+            if (evt.stage === 'chunk' && typeof evt.delta === 'string') accumulated += evt.delta;
+            else if (evt.stage === 'complete' && typeof evt.markdown === 'string') finalMarkdown = evt.markdown;
+            else if (evt.stage === 'error') streamError = evt.message || 'AI formatting failed mid-stream.';
+        };
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop() ?? '';
+            for (const line of lines) handle(line);
+        }
+        if (buf.trim()) handle(buf);
+        if (streamError) { flagOllamaDown(); throw new Error(streamError); }
+        return finalMarkdown ?? accumulated ?? rawNote;
+    };
+
+    // Record more audio onto this draft note. Pipeline: transcribe the new
+    // clip -> POST /append-recording (merges raw/segments/words + links audio)
+    // -> re-format the combined transcript -> persist the new markdown ->
+    // reload so every layer (transcript, words, audio sources, body) renders
+    // from one consistent fetch.
+    const handleAppendRecording = async (blob: Blob) => {
+        if (appendBusy) return;
+        if (!window.confirm(
+            'Add this recording to the note? It will be transcribed and merged onto ' +
+            'the existing transcript, then the note will be re-formatted from the full ' +
+            'combined transcript — replacing the current formatted text.'
+        )) {
+            setMicrophoneKey((k) => k + 1); // reset the recorder for a retry
+            return;
+        }
+
+        setAppendBusy(true);
+        try {
+            // Save any pending edits first so the reload below doesn't drop them.
+            if (formState.isDirty) {
+                const saveRes = await fetch(`${API_BASE}/api/notes/${note.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth.token}` },
+                    body: JSON.stringify(form.getValues()),
+                });
+                if (!saveRes.ok) {
+                    const err = await saveRes.json().catch(() => ({}));
+                    throw new Error(err.error || `Save failed (${saveRes.status})`);
+                }
+            }
+
+            // 1. Transcribe the new clip. Match the note's diarization mode so
+            //    the merge stays consistent (the backend keeps the note's mode).
+            setAppendStage('Transcribing…');
+            const diarize = segments != null;
+            const fd = new FormData();
+            fd.append('file', blob, 'recording.webm');
+            fd.append('diarize', diarize ? 'true' : 'false');
+            fd.append('apply_dictation_markers', auth.user?.dictationMarkersEnabled ? 'true' : 'false');
+            const participantCount = Array.isArray(note?.participants) ? note.participants.length : 0;
+            if (diarize && participantCount > 0) fd.append('max_speakers', String(participantCount));
+
+            const tr = await fetch(`${API_BASE}/api/transcribe`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${auth.token}` },
+                body: fd,
+            });
+            if (tr.status === 413) {
+                const e = await tr.json().catch(() => ({}));
+                throw new Error(e.message || 'That recording is too large to upload.');
+            }
+            if (!tr.ok || !tr.body) {
+                const e = await tr.json().catch(() => ({}));
+                throw new Error(e.error || `Transcription failed (${tr.status})`);
+            }
+
+            const treader = tr.body.getReader();
+            const tdec = new TextDecoder();
+            let tbuf = '';
+            let finalEvt: any = null;
+            const consume = (line: string) => {
+                if (!line.trim()) return;
+                let evt: any;
+                try { evt = JSON.parse(line); } catch { return; }
+                if (evt.stage === 'decoding') setAppendStage('Decoding…');
+                else if (evt.stage === 'transcribing') setAppendStage('Transcribing…');
+                else if (evt.stage === 'diarizing') setAppendStage('Identifying speakers…');
+                else finalEvt = evt; // 'complete' or 'error'
+            };
+            while (true) {
+                const { done, value } = await treader.read();
+                if (done) break;
+                tbuf += tdec.decode(value, { stream: true });
+                const lines = tbuf.split('\n');
+                tbuf = lines.pop() ?? '';
+                for (const line of lines) consume(line);
+            }
+            if (tbuf.trim()) consume(tbuf);
+            if (!finalEvt) throw new Error('Transcription ended without a result.');
+            // diarization_unavailable still carries a usable flat transcript.
+            if (finalEvt.stage === 'error' && finalEvt.error !== 'diarization_unavailable') {
+                throw new Error(finalEvt.message || finalEvt.error || 'Transcription failed.');
+            }
+            const addRaw: string = finalEvt.raw_note ?? '';
+            if (!addRaw.trim()) throw new Error('No speech was detected in that recording.');
+
+            // 2. Merge onto the note.
+            setAppendStage('Merging…');
+            const apRes = await fetch(`${API_BASE}/api/notes/${note.id}/append-recording`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth.token}` },
+                body: JSON.stringify({
+                    rawNote: addRaw,
+                    noteContentSegments: finalEvt.segments ?? null,
+                    noteContentWords: finalEvt.words ?? null,
+                    audioFileId: finalEvt.audio_file_id ?? null,
+                }),
+            });
+            const apData = await apRes.json().catch(() => ({}));
+            if (!apRes.ok) throw new Error(apData.error || `Append failed (${apRes.status})`);
+
+            // 3. Re-format the full combined transcript with the note's template.
+            setAppendStage('Re-formatting…');
+            const mergedRaw: string = apData.noteContentRaw ?? '';
+            const finalMarkdown = await formatMergedTranscript(
+                mergedRaw, apData.speakerLabels ?? speakerLabels,
+            );
+
+            // 4. Persist the new markdown (+ merged raw) onto the note.
+            setAppendStage('Saving…');
+            const putRes = await fetch(`${API_BASE}/api/notes/${note.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${auth.token}` },
+                body: JSON.stringify({
+                    ...form.getValues(),
+                    noteContentRaw: mergedRaw,
+                    noteContentMarkdown: finalMarkdown,
+                }),
+            });
+            if (!putRes.ok) {
+                const e = await putRes.json().catch(() => ({}));
+                throw new Error(e.error || `Save failed (${putRes.status})`);
+            }
+
+            // 5. Reload for a single consistent view of the merged note.
+            toast.success('Recording added.');
+            window.location.reload();
+        } catch (e: any) {
+            toast.error(`Could not add recording: ${e.message}`);
+            setMicrophoneKey((k) => k + 1);
+            setAppendBusy(false);
+            setAppendStage(null);
+        }
+    };
+
     const handleDeleteNotePermanently = async (noteId: string) => {
         if (confirm('Are you sure you want to delete this note permanently? This action cannot be undone.')) {
             try {
@@ -684,6 +906,70 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const availableRetranscribeTemplates = templates.filter(
         (t: any) => !t.isDeleted && !usedTemplateIds.has(t.id)
     );
+
+    // The note's own (locked) template — used to re-format the combined
+    // transcript after an append through the matching endpoint.
+    const noteTemplate = templates.find((t: any) => t.id === note?.noteTemplate);
+    const noteTemplateIsStructured = noteTemplate?.templateType === 'structured';
+    // "Add recording" is available only while the note is a fully open draft:
+    // admin flag on, status draft, not yet approved, not trashed. Mirrors the
+    // backend's append-recording guard.
+    const canAppendRecording =
+        !!auth.user?.appendRecordingEnabled &&
+        status === 'draft' &&
+        approvedAt === null &&
+        !note?.isDeleted;
+
+    // Per-source timeline offset: a segment's stored start is on the merged
+    // (cumulative) timeline, so its time *within its own clip* is start minus
+    // the end of everything recorded before that source. Mirrors the offset
+    // the backend applied at merge (services/transcript_append).
+    const sourceOffsets = React.useMemo(() => {
+        const map: Record<number, number> = {};
+        const segs = segments ?? [];
+        const sources = Array.from(new Set(segs.map((s) => s.source ?? 0)));
+        for (const src of sources) {
+            let priorEnd = 0;
+            for (const seg of segs) {
+                if ((seg.source ?? 0) < src) priorEnd = Math.max(priorEnd, seg.end ?? 0);
+            }
+            map[src] = priorEnd;
+        }
+        return map;
+    }, [segments]);
+
+    // Load the clip a transcript turn came from (by its audioFileId) and seek
+    // to the within-clip time. An untagged/original turn resolves to the first
+    // recording. No-op when the turn's recording has no stored clip.
+    const handleTranscriptSeek = (segment: TranscriptSegment) => {
+        const fid = segment.audioFileId ?? null;
+        const clip = fid ? audioFiles.find((af) => af.id === fid) : audioFiles[0];
+        if (!clip) return;
+        const within = Math.max(0, segment.start - (sourceOffsets[segment.source ?? 0] ?? 0));
+        setActiveAudioFileId(clip.id);
+        audioPlayerRef.current?.seek(within, clip.id);
+    };
+
+    // A turn is seekable when its recording has a stored clip — resolved by id,
+    // not by position (untagged/original turns use the first recording).
+    const isSegmentSeekable = (segment: TranscriptSegment) => {
+        const fid = segment.audioFileId ?? null;
+        return fid ? audioFiles.some((af) => af.id === fid) : audioFiles.length > 0;
+    };
+
+    // Label + color for a turn's recording, taken from the clip's position in
+    // the ordered audioFiles list so the transcript dividers match the clip
+    // chips. A turn whose clip wasn't stored falls back to a muted ordinal.
+    const describeSource = (segment: TranscriptSegment) => {
+        const fid = segment.audioFileId ?? null;
+        const idx = fid
+            ? audioFiles.findIndex((af) => af.id === fid)
+            : ((segment.source ?? 0) === 0 ? 0 : -1);
+        if (idx >= 0) return { label: sourceLabel(idx), color: sourceColor(idx) };
+        return { label: sourceLabel(segment.source ?? 0), color: '#9ca3af' };
+    };
+
+    const activeClip = audioFiles.find((af) => af.id === activeAudioFileId);
 
   return (
     <Form {...form}>
@@ -858,13 +1144,47 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             transcript. Only present for notes that came from a recording —
             text-only notes have hasAudio=false. */}
         {note?.hasAudio && (
-            <div className="mt-4">
+            <div className="mt-4 flex flex-col gap-2">
+                {/* One player for the whole note. For a multi-recording note it
+                    switches between source clips — clicking a transcript turn
+                    loads that turn's recording and seeks into it, and the chips
+                    below select a clip manually. */}
                 <NoteAudioPlayer
                     ref={audioPlayerRef}
                     noteId={note.id}
-                    filename={note.audioOriginalFilename}
-                    sizeBytes={note.audioSizeBytes}
+                    fileId={activeAudioFileId}
+                    filename={activeClip?.originalFilename ?? note.audioOriginalFilename}
+                    sizeBytes={activeClip?.sizeBytes ?? note.audioSizeBytes}
                 />
+                {audioFiles.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                            Source recordings:
+                        </span>
+                        {audioFiles.map((af: any, i: number) => {
+                            const active = activeAudioFileId === af.id;
+                            return (
+                                <button
+                                    key={af.id}
+                                    type="button"
+                                    onClick={() => setActiveAudioFileId(af.id)}
+                                    className={
+                                        'text-xs font-bold uppercase tracking-wider px-2 py-0.5 border-2 transition-colors ' +
+                                        (active ? 'text-white' : 'bg-white hover:bg-gray-50')
+                                    }
+                                    style={{
+                                        borderColor: sourceColor(i),
+                                        backgroundColor: active ? sourceColor(i) : undefined,
+                                        color: active ? '#ffffff' : sourceColor(i),
+                                    }}
+                                    title={`Play ${sourceLabel(i)}`}
+                                >
+                                    {sourceLabel(i)}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         )}
 
@@ -928,7 +1248,9 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                             onAssign={assignSpeaker}
                             onSegmentsChange={handleSegmentsChange}
                             saving={savingSegments}
-                            onSeek={note?.hasAudio ? (s) => audioPlayerRef.current?.seek(s) : undefined}
+                            onSeek={note?.hasAudio ? handleTranscriptSeek : undefined}
+                            isSegmentSeekable={isSegmentSeekable}
+                            describeSource={describeSource}
                         />
                     </div>
                 ) : (
@@ -1169,6 +1491,54 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                             );
                         })}
                     </ul>
+                )}
+            </div>
+        )}
+
+        {/* Add another recording to this draft. The new transcript is merged
+            onto the existing one and the note is re-formatted. Only shown
+            while the note is a fully open draft and the admin has enabled the
+            feature. */}
+        {canAppendRecording && (
+            <div className='mt-8 pt-4 border-t'>
+                {!showAddRecording ? (
+                    <NeoButton
+                        type="button"
+                        onClick={() => { setMicrophoneKey((k) => k + 1); setShowAddRecording(true); }}
+                    >
+                        Add recording
+                    </NeoButton>
+                ) : (
+                    <div className='flex flex-col gap-3'>
+                        <p className='text-sm text-muted-foreground'>
+                            Record more audio to append to this note. The new transcript is
+                            merged onto the existing one and the note is re-formatted from the
+                            full combined transcript — <strong>replacing the current formatted
+                            text</strong>. This is only possible until the note is approved,
+                            finalized, or signed.
+                        </p>
+                        {appendBusy ? (
+                            <div className='flex items-center gap-3 text-sm font-semibold'>
+                                <RefreshCcw className='animate-spin' size={16} />
+                                {appendStage ?? 'Working…'}
+                            </div>
+                        ) : (
+                            <>
+                                <Microphone
+                                    key={microphoneKey}
+                                    onRecordingFinished={handleAppendRecording}
+                                />
+                                <div>
+                                    <NeoButton
+                                        type='button'
+                                        onClick={() => setShowAddRecording(false)}
+                                    >
+                                        Cancel
+                                    </NeoButton>
+                                </div>
+                            </>
+                        )}
+                    </div>
                 )}
             </div>
         )}

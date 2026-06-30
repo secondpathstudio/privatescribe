@@ -10,6 +10,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 from app.extensions import db
 from app.models import AudioFile, Note, NoteAddendum, Participant, Template, User
 from app.services import audio_retention, audio_storage, note_export, note_search
+from app.services import transcript_append
 from app.services import settings as settings_service
 from app.services.audit import diff_fields, log_action
 from app.services.diarization import relabel_speakers, segments_to_text
@@ -185,15 +186,24 @@ def create_note():
             participants.append(participant)
 
     incoming_words = data.get('noteContentWords')
+    # Tag the diarized turns with the clip they came from so a later append (or
+    # the audio player) can seek the right recording by id. Single-recording
+    # notes at creation all point at the one audio file.
+    incoming_segments = data.get('noteContentSegments')
+    if isinstance(incoming_segments, list) and audio_file_id:
+        incoming_segments = [
+            {**s, "audioFileId": audio_file_id} if isinstance(s, dict) else s
+            for s in incoming_segments
+        ]
     new_note = Note(
         note_content_raw=data['noteContentRaw'],
         note_content_markdown=data['noteContentMarkdown'],
-        note_content_segments=data.get('noteContentSegments'),
+        note_content_segments=incoming_segments,
         # Usually None at creation — speakers are typically named later, once
         # the diarized transcript is reviewed — but accepted here for clients
         # that label inline before the first save.
         speaker_labels=_clean_speaker_labels(
-            data.get('speakerLabels'), data.get('noteContentSegments'), current_user
+            data.get('speakerLabels'), incoming_segments, current_user
         ),
         # Per-word Whisper probabilities flow in from the new-note flow's
         # transcription stream. Optional — older clients and pasted-text
@@ -296,13 +306,12 @@ def get_note(id):
 
     # Audio metadata so the frontend can render the player conditionally and
     # show file info without a separate round-trip. The actual bytes come
-    # from GET /api/notes/<id>/audio.
-    audio_row = None
-    if note.transcript_group_id:
-        audio_row = AudioFile.query.filter_by(
-            author_id=current_user,
-            transcript_group_id=note.transcript_group_id,
-        ).first()
+    # from GET /api/notes/<id>/audio. A note's transcript group may hold
+    # several recordings (the original plus any appended ones); the top-level
+    # audio* fields describe the primary (original) recording for backward
+    # compatibility, while audioFiles lists every source recording in order.
+    group_audio = _ordered_group_audio(current_user, note.transcript_group_id)
+    audio_row = group_audio[0] if group_audio else None
 
     return jsonify({
         "id": note.id,
@@ -328,11 +337,40 @@ def get_note(id):
         "audioMimeType": audio_row.mime_type if audio_row else None,
         "audioOriginalFilename": audio_row.original_filename if audio_row else None,
         "audioSizeBytes": audio_row.size_bytes if audio_row else None,
+        "audioFiles": [_audio_file_payload(r) for r in group_audio],
         "participants": participants,
         "version": note.version,
         "isDeleted": note.is_deleted,
         "isDeletedTimestamp": note.is_deleted_timestamp,
     })
+
+
+def _ordered_group_audio(author_id, transcript_group_id):
+    """All audio rows for a transcript group, oldest first.
+
+    A group used to hold exactly one recording; with append-recording a group
+    can hold several (one per appended clip). Ordering by created_at keeps the
+    original recording first, which is what the single-file callers treat as
+    the note's primary audio.
+    """
+    if not transcript_group_id:
+        return []
+    return (
+        AudioFile.query
+        .filter_by(author_id=author_id, transcript_group_id=transcript_group_id)
+        .order_by(AudioFile.created_at.asc())
+        .all()
+    )
+
+
+def _audio_file_payload(row) -> dict:
+    return {
+        "id": row.id,
+        "originalFilename": row.original_filename,
+        "mimeType": row.mime_type,
+        "sizeBytes": row.size_bytes,
+        "createdAt": row.created_at,
+    }
 
 
 @bp.route('/<string:id>/siblings', methods=['GET'])
@@ -374,9 +412,11 @@ def get_note_audio(id):
     """Stream the decrypted source audio for a note.
 
     The audio is associated with the note's transcript_group_id, so all
-    notes that share a recording resolve to the same file. 404 if the
-    note has no group, no audio row exists for the group, or the on-disk
-    file is missing.
+    notes that share a recording resolve to the same file(s). A group may
+    hold several recordings (the original plus appended ones); the optional
+    `?fileId=` query param streams a specific source recording, defaulting to
+    the original (oldest). 404 if the note has no group, no matching audio row
+    exists, or the on-disk file is missing.
     """
     current_user = get_jwt_identity()
     note = Note.query.filter_by(id=id, author_id=current_user).first()
@@ -385,10 +425,12 @@ def get_note_audio(id):
     if not note.transcript_group_id:
         return jsonify({"error": "Note has no audio"}), 404
 
-    audio_row = AudioFile.query.filter_by(
-        author_id=current_user,
-        transcript_group_id=note.transcript_group_id,
-    ).first()
+    group_audio = _ordered_group_audio(current_user, note.transcript_group_id)
+    requested_id = request.args.get('fileId')
+    if requested_id:
+        audio_row = next((r for r in group_audio if r.id == requested_id), None)
+    else:
+        audio_row = group_audio[0] if group_audio else None
     if not audio_row or not audio_storage.file_exists(audio_row.stored_filename):
         return jsonify({"error": "Audio file not found"}), 404
 
@@ -690,12 +732,27 @@ def update_note_segments(id):
             start, end = 0.0, 0.0
         if end < start:
             end = start
-        cleaned.append({
+        entry = {
             "speaker": speaker.strip(),
             "start": start,
             "end": end,
             "text": text.strip(),
-        })
+        }
+        # Preserve the recording-source tag (which appended clip a turn came
+        # from) across edits — the editor sends it back on each turn. Without
+        # this the per-recording grouping would vanish on the first edit.
+        src = seg.get('source')
+        if src is not None:
+            try:
+                entry["source"] = int(src)
+            except (TypeError, ValueError):
+                pass
+        # Preserve the clip link (which recording this turn came from) so the
+        # per-recording seek keeps working after an edit.
+        afid = seg.get('audioFileId')
+        if afid is not None:
+            entry["audioFileId"] = str(afid)
+        cleaned.append(entry)
 
     if not cleaned:
         return jsonify({
@@ -738,6 +795,137 @@ def update_note_segments(id):
         db.session.rollback()
         logger.error(f"Error updating note segments: {e}")
         return jsonify({"error": "Failed to update transcript"}), 500
+
+
+@bp.route('/<string:id>/append-recording', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def append_recording(id):
+    """Merge a newly transcribed recording onto an existing draft note.
+
+    The note must still be a fully editable draft — status 'draft' and not yet
+    approved (approving, finalizing, or signing all lock the transcript). The
+    client first runs the new clip through POST /api/transcribe, then posts the
+    result here; the raw text, diarized segments, and per-word confidence are
+    merged onto what the note already holds (see services/transcript_append:
+    incoming timestamps are offset onto the existing timeline and new diarized
+    speakers are renumbered so they don't collide). The new recording's
+    encrypted audio is linked as an additional source for the note's
+    transcript group.
+
+    The formatted markdown is intentionally left untouched here — the client
+    re-runs the template over the merged transcript and saves the fresh
+    markdown via PUT /api/notes/<id>.
+
+    Body: {"rawNote": str, "noteContentSegments": [...]|null,
+           "noteContentWords": [...]|null, "audioFileId": str|null}.
+    """
+    if not settings_service.get_append_recording_enabled():
+        return jsonify({
+            "error": "Appending recordings is disabled by the administrator.",
+        }), 403
+
+    current_user = get_jwt_identity()
+    note = Note.query.filter_by(
+        id=id, author_id=current_user, is_deleted=False
+    ).first()
+    if not note:
+        return jsonify({"error": "Note not found"}), 404
+
+    # Appending is allowed only while the note is a fully open draft. Any
+    # approval (which also fires on sign) locks the transcript, and a finalized
+    # note isn't an open draft — mirrors the raw-transcript lock in update_note.
+    if note.status != 'draft' or note.approved_at is not None:
+        return jsonify({
+            "error": "This note is no longer an open draft, so recordings can't be appended.",
+        }), 409
+
+    data = request.get_json(silent=True) or {}
+    add_raw = data.get('rawNote')
+    if not isinstance(add_raw, str) or not add_raw.strip():
+        return jsonify({"error": "rawNote is required"}), 400
+    add_segments = data.get('noteContentSegments')
+    if add_segments is not None and not isinstance(add_segments, list):
+        return jsonify({"error": "noteContentSegments must be an array or null"}), 400
+    add_words = data.get('noteContentWords')
+    if add_words is not None and not isinstance(add_words, list):
+        return jsonify({"error": "noteContentWords must be an array or null"}), 400
+
+    # Validate the audio link up front (before mutating the note) so a bad id
+    # fails cleanly. A transcript group may now hold several recordings, so a
+    # second audio row is expected — we only refuse audio bound elsewhere.
+    audio_file_id = data.get('audioFileId')
+    audio_row = None
+    if audio_file_id:
+        audio_row = AudioFile.query.filter_by(
+            id=audio_file_id, author_id=current_user
+        ).first()
+        if not audio_row:
+            return jsonify({"error": "audioFileId not found"}), 400
+        if (audio_row.transcript_group_id is not None
+                and audio_row.transcript_group_id != note.transcript_group_id):
+            return jsonify({"error": "audioFileId already linked to a different note"}), 409
+
+    merged = transcript_append.merge_recording(
+        base_raw=note.note_content_raw,
+        base_segments=note.note_content_segments,
+        base_words=note.note_content_words,
+        add_raw=add_raw,
+        add_segments=add_segments,
+        add_words=add_words,
+        # Link the appended turns to this recording's clip by id (None when
+        # audio storage is off — those turns just stay unseekable).
+        add_audio_file_id=(audio_row.id if audio_row is not None else None),
+    )
+    note.note_content_raw = merged['raw']
+    note.note_content_segments = merged['segments']
+    note.note_content_words = merged['words']
+    # The appended recording's speakers arrive renumbered and unlabeled; the
+    # note's existing labels stay valid (we never renumber existing speakers).
+    # Re-clean against the merged segments to drop anything now stale.
+    note.speaker_labels = _clean_speaker_labels(
+        note.speaker_labels, merged['segments'], current_user
+    )
+
+    linked_audio_id = None
+    if audio_row is not None:
+        # A pasted/text-only note may not have a group yet — mint one so the
+        # recording has something to attach to.
+        if not note.transcript_group_id:
+            note.transcript_group_id = str(uuid.uuid4())
+        if audio_row.transcript_group_id is None:
+            audio_row.transcript_group_id = note.transcript_group_id
+            audio_row.finalized_at = datetime.utcnow()
+        linked_audio_id = audio_row.id
+
+    note.updated_at = datetime.utcnow()
+    note.version = note.version + 1
+
+    log_action(
+        'note.append_recording',
+        user_id=current_user,
+        resource_type='note',
+        resource_id=note.id,
+        extra={
+            'audio_file_id': linked_audio_id,
+            'diarized': bool(merged['segments']),
+            'new_version': note.version,
+        },
+    )
+    db.session.commit()
+
+    group_audio = _ordered_group_audio(current_user, note.transcript_group_id)
+    return jsonify({
+        "id": note.id,
+        "noteContentRaw": note.note_content_raw,
+        "noteContentSegments": note.note_content_segments,
+        "noteContentWords": note.note_content_words,
+        "speakerLabels": note.speaker_labels,
+        "version": note.version,
+        "updatedAt": note.updated_at,
+        "hasAudio": bool(group_audio),
+        "audioFiles": [_audio_file_payload(r) for r in group_audio],
+    })
 
 
 def _relabel_markdown_speakers(note: Note) -> None:

@@ -47,6 +47,7 @@ def _user_payload(user, kiosk: bool = False) -> dict:
         "logoutOnClose": settings_service.get_logout_on_close(),
         "exportsEnabled": settings_service.get_exports_enabled(),
         "dictationMarkersEnabled": settings_service.get_dictation_markers_enabled(),
+        "appendRecordingEnabled": settings_service.get_append_recording_enabled(),
         "idleTimeoutMinutes": settings_service.get_session_idle_timeout_minutes(),
         # True when this session was issued passwordlessly by no-login mode.
         # The frontend shows the elevation modal before any admin route.

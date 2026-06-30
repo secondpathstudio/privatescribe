@@ -1,11 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 
 export type TranscriptSegment = {
   speaker: string;
   start: number;
   end: number;
   text: string;
+  /**
+   * Which source recording this turn came from: 0 = the original recording,
+   * 1 = the first appended one, and so on. Undefined on single-recording
+   * notes. Used only for display/ordering (dividers + timeline offset) — never
+   * to locate a clip. Set by the append merge; preserved across edits.
+   */
+  source?: number;
+  /**
+   * The id of the audio clip this turn came from — the real link used to load
+   * and seek the right recording. Undefined/null when no audio was stored for
+   * this turn's recording (then the turn is simply unseekable).
+   */
+  audioFileId?: string | null;
 };
+
+/** Colors for the per-recording left border + label, cycled by source index. */
+const SOURCE_COLORS = ['#2b0f54', '#fd3777', '#1d4ed8', '#16a34a', '#b45309'];
+/** Color for a source-recording index. Exported so the audio clip chips match. */
+export const sourceColor = (n: number) => SOURCE_COLORS[n % SOURCE_COLORS.length];
+/** Label matching the "Source recordings" audio list (0 -> Original). */
+export const sourceLabel = (n: number) => (n === 0 ? 'Original' : `Recording ${n + 1}`);
 
 /**
  * Manual speaker->identity map, layered over the raw diarization output.
@@ -26,11 +46,23 @@ export type LabelParticipant = {
 type Props = {
   segments: TranscriptSegment[];
   /**
-   * Called when a timestamp chip is clicked. Receives the segment's start
-   * time in seconds. If omitted, chips render but are disabled — useful in
-   * pre-save contexts where no audio player exists yet.
+   * Called when a timestamp chip is clicked. Receives the whole turn so the
+   * parent can load that turn's clip (by audioFileId) and seek within it. If
+   * omitted, chips render but are disabled — useful in pre-save contexts with
+   * no audio yet.
    */
-  onSeek?: (seconds: number) => void;
+  onSeek?: (segment: TranscriptSegment) => void;
+  /**
+   * Whether a turn can be seeked (its recording has a stored clip). Defaults
+   * to "yes" when omitted. The parent decides using audioFileId, not position.
+   */
+  isSegmentSeekable?: (segment: TranscriptSegment) => boolean;
+  /**
+   * Per-turn recording label + color for the source dividers/tint, resolved by
+   * the parent from audioFileId so they match the audio clip chips exactly.
+   * Falls back to the local source-ordinal styling when omitted.
+   */
+  describeSource?: (segment: TranscriptSegment) => { label: string; color: string };
   className?: string;
   /** Current speaker->identity assignments. Absent speakers show as "Speaker N". */
   speakerLabels?: SpeakerLabels;
@@ -177,7 +209,17 @@ const DiarizedTranscript = ({
   onAssign,
   onSegmentsChange,
   saving = false,
+  isSegmentSeekable,
+  describeSource,
 }: Props) => {
+  // Per-turn label + color for the recording dividers/tint. Prefer the
+  // parent's audioFileId-based resolver (matches the clip chips); otherwise
+  // fall back to the local source ordinal.
+  const describe = (s: TranscriptSegment) =>
+    describeSource?.(s) ?? {
+      label: sourceLabel(s.source ?? 0),
+      color: sourceColor(s.source ?? 0),
+    };
   const seekable = typeof onSeek === 'function';
   const showPanel = editable && typeof onAssign === 'function';
   const editing = editable && typeof onSegmentsChange === 'function';
@@ -193,6 +235,13 @@ const DiarizedTranscript = ({
   }, [segments]);
 
   const resolve = (raw: string) => speakerLabels?.[raw]?.name ?? raw;
+
+  // True when the transcript spans more than one source recording (i.e. audio
+  // was appended). Drives the per-recording dividers + tinting below.
+  const multiSource = useMemo(
+    () => new Set(segments.map((s) => s.source ?? 0)).size > 1,
+    [segments],
+  );
 
   // One <div> ref per rendered turn, so a speaker chip click can scroll the
   // matching turn into view; one <textarea> ref per turn, for auto-grow and
@@ -386,9 +435,29 @@ const DiarizedTranscript = ({
             )}
           </div>
         )}
-        {segments.map((s, i) => (
+        {segments.map((s, i) => {
+          const src = s.source ?? 0;
+          // Header before the first turn of each source-recording run.
+          const showDivider =
+            multiSource && (i === 0 || src !== (segments[i - 1].source ?? 0));
+          const { label: srcLabel, color: srcColor } = describe(s);
+          // Seekable when audio exists and this turn's recording has a clip
+          // (decided by the parent from audioFileId). Clicking loads it + seeks.
+          const segSeekable = seekable && (isSegmentSeekable?.(s) ?? true);
+          return (
+          <Fragment key={i}>
+          {showDivider && (
+            <div className="flex items-center gap-2 mt-3 first:mt-0 mb-1 select-none">
+              <span
+                className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 border-2 border-black text-white"
+                style={{ backgroundColor: srcColor }}
+              >
+                {srcLabel}
+              </span>
+              <span className="h-0.5 flex-1" style={{ backgroundColor: srcColor }} />
+            </div>
+          )}
           <div
-            key={i}
             ref={(el) => {
               turnRefs.current[i] = el;
             }}
@@ -398,14 +467,23 @@ const DiarizedTranscript = ({
                 ? ' bg-[#fff3a0] outline outline-2 outline-[#fd3777]'
                 : '')
             }
+            style={
+              multiSource
+                ? { borderLeft: `4px solid ${srcColor}`, paddingLeft: 8 }
+                : undefined
+            }
           >
             <div className="flex items-baseline gap-2 mb-1 flex-wrap">
               <button
                 type="button"
-                onClick={() => onSeek?.(s.start)}
-                disabled={!seekable}
+                onClick={() => onSeek?.(s)}
+                disabled={!segSeekable}
                 className="font-mono text-xs px-2 py-0.5 border border-black bg-[#fd3777] text-white hover:bg-[#2b0f54] disabled:opacity-50 disabled:cursor-default transition-colors"
-                title={seekable ? 'Jump to this moment in the audio' : undefined}
+                title={
+                  segSeekable
+                    ? `Jump to this moment${multiSource ? ` in ${srcLabel}` : ''}`
+                    : `No stored audio for ${srcLabel}`
+                }
               >
                 {formatTimestamp(s.start)}
               </button>
@@ -447,7 +525,9 @@ const DiarizedTranscript = ({
               <div className="text-sm pl-1 leading-snug">{s.text}</div>
             )}
           </div>
-        ))}
+          </Fragment>
+          );
+        })}
       </div>
     </div>
   );

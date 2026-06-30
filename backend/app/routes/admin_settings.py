@@ -75,6 +75,10 @@ def get_settings():
         # ("new paragraph", "new section", "new line") by rewriting them as
         # formatting before the LLM pass. Off = literal phrase is preserved.
         "dictation_markers_enabled": settings_service.get_dictation_markers_enabled(),
+        # When true, a user may record additional audio onto a still-editable
+        # draft note (not yet approved/finalized/signed) and have the new
+        # transcript merged onto the existing one.
+        "append_recording_enabled": settings_service.get_append_recording_enabled(),
         # Admin-wide vocabulary list + abbreviation map. Each user's
         # effective values at transcribe time merge these with their own
         # overlays (see services/vocabulary.py).
@@ -743,6 +747,42 @@ def update_dictation_markers_enabled():
 
     return jsonify({
         "dictation_markers_enabled": settings_service.get_dictation_markers_enabled(),
+    })
+
+
+@bp.route('/append-recording-enabled', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def update_append_recording_enabled():
+    """Toggle whether users can append additional recordings to a draft note.
+
+    Body: {"value": bool}. When true, a note that is still a fully editable
+    draft (status 'draft' and not yet approved) exposes an "add recording"
+    action; the new transcript is merged onto the existing one and the note is
+    re-formatted. Locks once the note is approved, finalized, or signed.
+    Takes effect immediately — the next append request reads the fresh value.
+    """
+    data = request.get_json(silent=True) or {}
+    value = data.get('value')
+    if not isinstance(value, bool):
+        return jsonify({"error": "value must be a boolean"}), 400
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_append_recording_enabled()
+    settings_service.set_value(
+        settings_service.APPEND_RECORDING_ENABLED, value, updated_by=current_user
+    )
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.APPEND_RECORDING_ENABLED,
+        extra={'old': previous, 'new': value},
+    )
+    db.session.commit()
+
+    return jsonify({
+        "append_recording_enabled": settings_service.get_append_recording_enabled(),
     })
 
 

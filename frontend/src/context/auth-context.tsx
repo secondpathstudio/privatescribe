@@ -41,6 +41,10 @@ interface User {
   // false, the per-note toggle in the new-note flow is hidden and the
   // backend ignores any apply_dictation_markers form field.
   dictationMarkersEnabled?: boolean;
+  // Cached copy of the admin-toggleable "Append Recordings" setting. When
+  // false, the "add recording" control on a draft note is hidden and the
+  // backend 403s the append-recording endpoint.
+  appendRecordingEnabled?: boolean;
   // Admin-configured idle timeout in minutes (0 = disabled). The IdleLogout
   // component signs the user out after this long with no user input.
   idleTimeoutMinutes?: number;

@@ -44,6 +44,7 @@ import PasswordPolicySection from './pages/Admin/sections/PasswordPolicy.tsx'
 import NoLoginSection from './pages/Admin/sections/NoLogin.tsx'
 import ExportsSection from './pages/Admin/sections/Exports.tsx'
 import DictationMarkersSection from './pages/Admin/sections/DictationMarkers.tsx'
+import AppendRecordingSection from './pages/Admin/sections/AppendRecording.tsx'
 import TranscriptionSection from './pages/Admin/sections/Transcription.tsx'
 import AuditLogPage from './pages/Admin/AuditLog.tsx'
 import Og from './pages/Og/Og.tsx'
@@ -110,6 +111,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="no-login" element={<NoLoginSection />} />
             <Route path="exports" element={<ExportsSection />} />
             <Route path="dictation-markers" element={<DictationMarkersSection />} />
+            <Route path="append-recording" element={<AppendRecordingSection />} />
             <Route path="vocabulary" element={<TranscriptionSection />} />
           </Route>
           <Route path="/roadmap" element={<Roadmap />} />

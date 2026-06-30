@@ -20,6 +20,7 @@ LOGOUT_ON_CLOSE = "logout_on_close"
 TWO_FACTOR_REQUIRED = "two_factor_required"
 EXPORTS_ENABLED = "exports_enabled"
 DICTATION_MARKERS_ENABLED = "dictation_markers_enabled"
+APPEND_RECORDING_ENABLED = "append_recording_enabled"
 VOCABULARY_TERMS = "vocabulary_terms"
 ABBREVIATIONS = "abbreviations"
 WHISPER_MODEL = "whisper_model"
@@ -119,6 +120,13 @@ DEFAULT_EXPORTS_ENABLED = True
 # spoken dictation commands ("new paragraph", "new section", "new line").
 # See services/dictation_markers.py.
 DEFAULT_DICTATION_MARKERS_ENABLED = True
+
+# When True, a user can record additional audio onto a note that is still a
+# fully editable draft (status 'draft' and not yet approved) and have the new
+# transcript merged onto the existing one. Locks once the note is approved,
+# finalized, or signed. Off by default — admins opt in. See
+# services/transcript_append.py and POST /api/notes/<id>/append-recording.
+DEFAULT_APPEND_RECORDING_ENABLED = False
 
 # Admin-wide defaults for vocabulary and abbreviations. Both are empty by
 # default — the feature only kicks in when an admin or user actually
@@ -328,6 +336,10 @@ def get_exports_enabled() -> bool:
 
 def get_dictation_markers_enabled() -> bool:
     return get_bool(DICTATION_MARKERS_ENABLED, DEFAULT_DICTATION_MARKERS_ENABLED)
+
+
+def get_append_recording_enabled() -> bool:
+    return get_bool(APPEND_RECORDING_ENABLED, DEFAULT_APPEND_RECORDING_ENABLED)
 
 
 def get_onboarding_completed() -> bool:
