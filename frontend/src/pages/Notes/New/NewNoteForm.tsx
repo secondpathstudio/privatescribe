@@ -21,6 +21,15 @@ import { useAuth } from '../../../context/auth-context'
 import { useNavigate } from 'react-router'
 import NeoButton from '@/components/neo/neo-button'
 import ParticipantSelector, { Participant, NewParticipant } from '@/components/participant-selector'
+import {
+    adoptRecordingSession,
+    assembleRecording,
+    completeActiveRecordingSession,
+    discardRecording,
+    listRecoverableRecordings,
+    RecordingKeyMismatch,
+    type RecoverableRecording,
+} from '@/lib/recording-store'
 
 type Props = {
     templates: any[],
@@ -223,6 +232,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 //note created
                 //redirect to new note
                 console.log('Note created:', data);
+                // The recording made it into a persisted note — drop its
+                // crash-durability buffer (no-op for uploads/text-only notes).
+                void completeActiveRecordingSession();
                 navigate(`/notes/${data.id}`);
             }
         } catch (error) {
@@ -316,6 +328,42 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const templateSelected = !!noteTemplate;
     // Recording is gated on a template AND (when verifiable) an installed model.
     const recordingDisabled = !templateSelected || modelBlocksRecording;
+
+    // Crash-recovered recordings: encrypted chunk buffers from sessions that
+    // never made it into a saved note (crash, reload, idle logout on an old
+    // version). Offered once on mount; Transcribe feeds them through the same
+    // pipeline as an uploaded file.
+    const [recoveredSessions, setRecoveredSessions] = React.useState<RecoverableRecording[]>([]);
+    useEffect(() => {
+        listRecoverableRecordings().then(setRecoveredSessions).catch(() => undefined);
+    }, []);
+
+    const handleRecoverTranscribe = async (rec: RecoverableRecording) => {
+        try {
+            const blob = await assembleRecording(rec.id);
+            // Track it as the active session so a successful note save deletes
+            // the buffer, exactly like a live recording.
+            adoptRecordingSession(rec.id);
+            setRecoveredSessions((prev) => prev.filter((r) => r.id !== rec.id));
+            transcribeRecording(blob, 'recovered-recording.webm');
+        } catch (err) {
+            if (err instanceof RecordingKeyMismatch) {
+                toast.error(
+                    'This recording was buffered under a previous encryption key ' +
+                    '(the backup key was rotated since) and can no longer be decrypted.'
+                );
+            } else {
+                console.error('Recovered recording assembly failed:', err);
+                toast.error('Could not reassemble the recovered recording.');
+            }
+        }
+    };
+
+    const handleRecoverDiscard = async (rec: RecoverableRecording) => {
+        if (!window.confirm('Discard this recovered recording? The audio will be permanently deleted.')) return;
+        await discardRecording(rec.id);
+        setRecoveredSessions((prev) => prev.filter((r) => r.id !== rec.id));
+    };
 
     const transcribeRecording = async (
         blob: Blob,
@@ -1015,6 +1063,41 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     />
             </fieldset>
         </div>
+
+        {/* Crash-recovered recordings: unsaved encrypted audio buffers from a
+            previous session. Transcribe runs them through the normal pipeline
+            (template/model gating applies); Discard deletes them for good. */}
+        {recoveredSessions.length > 0 && (
+            <div className="border-2 border-black bg-amber-100 p-3 text-sm mt-4">
+                <strong>Recovered {recoveredSessions.length === 1 ? 'an unsaved recording' : `${recoveredSessions.length} unsaved recordings`}.</strong>{' '}
+                The app closed before {recoveredSessions.length === 1 ? 'this recording' : 'these recordings'} could be saved as a note.
+                {!templateSelected && ' Select a template above to transcribe.'}
+                <ul className="mt-2 space-y-2">
+                    {recoveredSessions.map((rec) => (
+                        <li key={rec.id} className="flex flex-wrap items-center gap-3">
+                            <span>
+                                {new Date(rec.startedAt).toLocaleString()}
+                                {' '}(~{Math.max(1, Math.round(rec.approxSeconds / 60))} min)
+                            </span>
+                            <NeoButton
+                                type="button"
+                                onClick={() => handleRecoverTranscribe(rec)}
+                                disabled={busy || recordingDisabled}
+                            >
+                                Transcribe
+                            </NeoButton>
+                            <NeoButton
+                                type="button"
+                                onClick={() => handleRecoverDiscard(rec)}
+                                disabled={busy}
+                            >
+                                Discard
+                            </NeoButton>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        )}
 
         {/* Audio source: the shared capture experience (diarize / dictation /
             live-transcript toggles + Record/Upload tabs + drag-and-drop). On a

@@ -41,6 +41,7 @@ HEADER_LEN = 4 + 1 + 8  # magic + version + nonce_prefix
 CHUNK_SIZE = 64 * 1024  # plaintext bytes per chunk
 TAG_LEN = 16
 HKDF_INFO = b"privatescribe-audio-v1"
+HKDF_RECORDING_CHUNK_INFO = b"privatescribe-recording-chunks-v1:"
 
 _state: dict[str, Path | None] = {"dir": None}
 
@@ -76,6 +77,26 @@ def _derive_key() -> bytes:
     via /api/admin/rotate-backup-key is reflected immediately.
     """
     return _derive_audio_key(sqlcipher.current_key())
+
+
+def derive_recording_chunk_key(user_id: str) -> bytes:
+    """Per-user AES-256 key for the client-side encrypted recording buffer.
+
+    The frontend persists in-progress recording chunks to IndexedDB (crash
+    durability) encrypted with this key, so patient audio never sits in
+    plaintext in the browser/Electron profile. Deterministic (HKDF from the
+    SQLCipher master, salted with the user id) so a recovered session can
+    re-fetch the same key after a restart. Like the audio key above, a master
+    rotation changes it — orphaned client-side chunks from before a rotation
+    become unrecoverable, which the client detects via the key fingerprint.
+    """
+    master = bytes.fromhex(sqlcipher.current_key())
+    return HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=HKDF_RECORDING_CHUNK_INFO + user_id.encode("utf-8"),
+    ).derive(master)
 
 
 def _path_for(stored_filename: str) -> Path:

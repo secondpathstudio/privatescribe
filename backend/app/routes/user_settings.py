@@ -6,12 +6,16 @@ the merge of the admin row and the user row (see services/vocabulary.py).
 The GET response includes the admin defaults read-only so the user can see
 what they're adding to.
 """
+import base64
+import hashlib
+
 from flask import Blueprint, jsonify, request
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
 from app.models import User
+from app.services import audio_storage
 from app.services import vocabulary
 from app.services import settings as settings_service
 from app.services.audit import log_action
@@ -112,3 +116,39 @@ def update_abbreviations():
     )
     db.session.commit()
     return jsonify({"abbreviations": cleaned})
+
+
+@bp.route('/recording-key', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def get_recording_key():
+    """Per-user key for the client-side encrypted recording buffer.
+
+    The frontend persists in-progress recording chunks to IndexedDB for crash
+    durability, AES-GCM-encrypted with this key so patient audio never touches
+    disk in plaintext. The key is derived (HKDF) from the SQLCipher master and
+    scoped to the requesting user — it protects only that user's own buffered
+    audio and grants nothing beyond what their session already reads via audio
+    playback. The fingerprint lets the client detect a master-key rotation:
+    chunks buffered under the old key are then unrecoverable, and the client
+    surfaces that instead of failing on garbage decrypts.
+    """
+    user, err = _current_user_or_404()
+    if err:
+        return err
+    key = audio_storage.derive_recording_chunk_key(user.id)
+    fingerprint = hashlib.sha256(key).hexdigest()[:16]
+    # Audited per issuance (once per recording start / recovery attempt, not
+    # per chunk) so key material handout leaves a trail like the backup-key
+    # export does.
+    log_action(
+        'security.recording_key_issued',
+        user_id=user.id,
+        resource_type='user',
+        resource_id=user.id,
+    )
+    db.session.commit()
+    return jsonify({
+        "key": base64.b64encode(key).decode("ascii"),
+        "fingerprint": fingerprint,
+    })

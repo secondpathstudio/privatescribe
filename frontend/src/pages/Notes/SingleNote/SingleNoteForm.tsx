@@ -1,5 +1,6 @@
 import { API_BASE } from "@/lib/api";
 import { flagOllamaDown } from "@/lib/ollama";
+import { completeActiveRecordingSession } from "@/lib/recording-store";
 import { toast } from "sonner";
 import React, { FormEvent, ReactEventHandler, useEffect } from 'react'
 import { useForm, useFormState } from 'react-hook-form'
@@ -868,6 +869,10 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             }
 
             // 5. Reload for a single consistent view of the merged note.
+            // Await the crash-durability buffer cleanup first — the reload
+            // below would otherwise cut the IndexedDB delete short and leave
+            // this (already-saved) recording showing up as recoverable.
+            await completeActiveRecordingSession();
             toast.success('Recording added.');
             window.location.reload();
         } catch (e: any) {

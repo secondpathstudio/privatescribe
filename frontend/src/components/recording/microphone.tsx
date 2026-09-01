@@ -11,6 +11,11 @@ import {
   type AudioSourceMode,
 } from "@/lib/audio-capture";
 import { useSessionHold } from "@/lib/session-hold";
+import {
+  beginRecordingSession,
+  markRecordingPendingSave,
+  storeRecordingChunk,
+} from "@/lib/recording-store";
 
 // Sentinel select value for the system-audio source (vs. a real mic deviceId).
 const SYSTEM_AUDIO_VALUE = "__system_audio__";
@@ -129,6 +134,9 @@ const SYSTEM_AUDIO_VALUE = "__system_audio__";
     mediaRecorderRef.current.ondataavailable = (event) => {
       if (event.data.size > 0) {
         audioChunksRef.current.push(event.data);
+        // Crash durability: every chunk is encrypted and buffered to
+        // IndexedDB as it arrives, so a crash mid-consult loses ~2s at most.
+        storeRecordingChunk(event.data);
         if (liveMode) onPartialChunk?.(event.data);
       }
     };
@@ -137,6 +145,9 @@ const SYSTEM_AUDIO_VALUE = "__system_audio__";
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' }); // Can also use 'audio/wav'
       setAudioBlob(audioBlob);
       console.log(audioBlob)
+      // Stopped but not yet saved as a note — keep the buffered chunks
+      // recovery-eligible until the note save deletes them.
+      markRecordingPendingSave();
       onRecordingFinished(audioBlob);
       isRecordingRef.current = false;
       audioContext.close();
@@ -145,10 +156,16 @@ const SYSTEM_AUDIO_VALUE = "__system_audio__";
       captureCleanupRef.current = null;
     };
 
-    // 2s timeslice in liveMode so each chunk is small enough for the live
-    // transcribe loop. Without a timeslice MediaRecorder buffers everything
-    // until stop().
-    mediaRecorderRef.current.start(liveMode ? 2000 : undefined);
+    // Open the encrypted crash-durability buffer for this recording. Fire and
+    // forget — chunk writes wait on it internally, and if it can't start
+    // (key fetch failed, IndexedDB unavailable) recording continues unbuffered.
+    beginRecordingSession();
+    // Always record with a 2s timeslice: without one, MediaRecorder buffers
+    // the entire consult in memory until stop() and nothing can be persisted
+    // for crash recovery. liveMode additionally forwards each chunk to the
+    // live-transcript loop. The chunks concatenate into the same webm a
+    // single-shot recording would produce.
+    mediaRecorderRef.current.start(2000);
     setIsRecording(true);
   };
 

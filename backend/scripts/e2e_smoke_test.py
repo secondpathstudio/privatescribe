@@ -193,7 +193,10 @@ def main():
     print("\n[6] Model-selection override + raw-save safety net")
     _model_selection_and_raw_save(app, client, auth, uid, tmpl_id)
 
-    print("\n[7] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
+    print("\n[7] Recording-chunk key (encrypted client-side crash buffer)")
+    _recording_chunk_key(client, auth)
+
+    print("\n[8] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
     _schema_drift_regression(app, client, auth, uid)
 
     return _summary_exit()
@@ -433,6 +436,40 @@ def _model_selection_and_raw_save(app, client, auth, uid, simple_tmpl_id):
     g = _json(client.get(f"/api/notes/{rawsave_id}", headers=auth))
     check("raw-only note preserves the transcript body",
           g.get("noteContentRaw") == raw, f"raw={g.get('noteContentRaw')!r}")
+
+
+def _recording_chunk_key(client, auth):
+    """Guard the contract behind the frontend's encrypted crash-durability
+    buffer: /api/user/recording-key must hand out a stable, per-user AES-256
+    key (HKDF from the SQLCipher master) plus a fingerprint the client uses to
+    detect master-key rotation. Stability matters — recovery after a crash
+    re-fetches the key and must get the same bytes back."""
+    import base64
+
+    r = client.get("/api/user/recording-key", headers=auth)
+    body = _json(r)
+    check("GET /api/user/recording-key returns 200",
+          r.status_code == 200, f"status={r.status_code} body={body}")
+
+    key_b64 = body.get("key") or ""
+    fp = body.get("fingerprint") or ""
+    try:
+        raw = base64.b64decode(key_b64, validate=True)
+    except Exception:
+        raw = b""
+    check("key decodes to 32 bytes (AES-256)", len(raw) == 32, f"len={len(raw)}")
+    check("fingerprint is 16 lowercase hex chars",
+          len(fp) == 16 and all(c in "0123456789abcdef" for c in fp), f"fp={fp!r}")
+
+    r2 = client.get("/api/user/recording-key", headers=auth)
+    b2 = _json(r2)
+    check("key + fingerprint are stable across calls",
+          b2.get("key") == key_b64 and b2.get("fingerprint") == fp,
+          "key material changed between two calls for the same user")
+
+    r3 = client.get("/api/user/recording-key")
+    check("unauthenticated request is rejected",
+          r3.status_code in (401, 422), f"status={r3.status_code}")
 
 
 def _schema_drift_regression(app, client, auth, uid):
