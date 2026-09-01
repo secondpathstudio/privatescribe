@@ -377,7 +377,12 @@ def get_markdown():
         return jsonify({"error": "Template not found"}), 404
 
     note_details['author_id'] = current_user
-    model_name = template.llm_model or settings_service.get_llm_model()
+    # Per-note model override (from the create-note model picker) wins over the
+    # template's saved model, which in turn falls back to the app-wide default.
+    # Whatever this resolves to is validated by the is_model_installed preflight
+    # below, so a bogus/uninstalled override surfaces the same clear 422.
+    requested_model = (request_data.get('model') or '').strip()
+    model_name = requested_model or template.llm_model or settings_service.get_llm_model()
 
     # Pre-flight: distinguish "Ollama unreachable" (503) from "model not
     # installed" (422). Doing this before the stream opens lets clients
@@ -502,7 +507,10 @@ def run_structured():
     if not template.structured:
         return jsonify({"error": "Template has no structured payload"}), 400
 
-    model_name = template.llm_model or settings_service.get_llm_model()
+    # Per-note model override (create-note picker) > template model > app default.
+    # Validated by the is_model_installed preflight just below.
+    requested_model = (body.get('model') or '').strip()
+    model_name = requested_model or template.llm_model or settings_service.get_llm_model()
 
     # Preflight model availability so the operator sees the same clear error
     # the single-call /api/getMarkdown surfaces, rather than failing mid-stream.

@@ -87,25 +87,43 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         order: string[];
     } | null>(null);
     const [currentParticipants, setCurrentParticipants] = React.useState<Participant[]>([]);
-    const [installedModels, setInstalledModels] = React.useState<string[] | null>(null);
+    // Installed Ollama models (name + size) for the per-note model picker, plus
+    // the app-wide default the server reports. ollamaReachable: null = still
+    // loading, true/false = whether the daemon answered.
+    const [modelList, setModelList] = React.useState<{ name: string; parameter_size?: string }[]>([]);
+    const [defaultModel, setDefaultModel] = React.useState<string | null>(null);
+    const [ollamaReachable, setOllamaReachable] = React.useState<boolean | null>(null);
+    // The model that will actually format this note. Defaults to the selected
+    // template's saved model (or the app-wide default) and can be overridden
+    // per note via the picker; sent to the backend on format.
+    const [selectedModel, setSelectedModel] = React.useState<string | null>(null);
     const navigate = useNavigate();
 
-    // Load installed models once so we can flag templates whose LLM is missing
-    // before the user spends time recording. null = still loading; empty array
-    // = Ollama reachable but no models; we treat unreachable the same as empty
-    // since the actual /api/getMarkdown call will surface a 503 either way.
+    // Load installed models once so the picker can default to the template's
+    // model and we can block recording before the user wastes time on a model
+    // that isn't installed.
     useEffect(() => {
         const fetchModels = async () => {
             try {
                 const response = await fetch(`${API_BASE}/api/ollama/models`, {
                     headers: { 'Authorization': `Bearer ${auth.token}` },
                 });
-                const data = await response.json();
-                const names = (data.models || []).map((m: any) => m.name);
-                setInstalledModels(names);
+                const data = await response.json().catch(() => ({}));
+                // A 503 still carries the server's configured default; keep it so
+                // the picker shows what *would* be used once Ollama is back.
+                setDefaultModel(data.default || null);
+                if (!response.ok) {
+                    setModelList([]);
+                    setOllamaReachable(false);
+                    return;
+                }
+                setModelList(data.models || []);
+                setOllamaReachable(true);
             } catch (err) {
                 console.log('Error fetching installed models', err);
-                setInstalledModels([]);
+                setModelList([]);
+                setDefaultModel(null);
+                setOllamaReachable(false);
             }
         };
         fetchModels();
@@ -128,10 +146,32 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         return () => clearInterval(id);
     }, [isActive]);
 
-    const modelMissing =
-        !!selectedTemplateLlmModel &&
-        installedModels !== null &&
-        !installedModels.includes(selectedTemplateLlmModel);
+    const installedNames = React.useMemo(() => modelList.map((m) => m.name), [modelList]);
+    const haveInstalledModels = installedNames.length > 0;
+
+    // Default the per-note model to the template's saved model (or the app-wide
+    // default). Re-runs when the template changes — so switching templates
+    // resets the picker to that template's model — or when the model list loads.
+    useEffect(() => {
+        setSelectedModel(selectedTemplateLlmModel || defaultModel || null);
+    }, [selectedTemplateLlmModel, defaultModel]);
+
+    // True only when the chosen model is confirmed installed.
+    const modelAvailable =
+        ollamaReachable === true && !!selectedModel && installedNames.includes(selectedModel);
+
+    // Hard-block recording when we KNOW the model isn't available: Ollama is up
+    // and has models, but the chosen one isn't among them — a fixable mismatch
+    // (pick another). When Ollama is down or has no models at all there's
+    // nothing to pick, so we don't block — we warn and still allow raw capture.
+    const modelBlocksRecording =
+        ollamaReachable === true &&
+        haveInstalledModels &&
+        !installedNames.includes(selectedModel || '');
+
+    // Non-blocking "can't auto-format" state: Ollama down, or up with no models.
+    const cannotFormat =
+        ollamaReachable === false || (ollamaReachable === true && !haveInstalledModels);
 
     const handleAddNewNote = async (e: FormEvent, form: any) => {
         e.preventDefault();
@@ -147,8 +187,16 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         // setWhisperWords call returned, so closing over the state value
         // captures the empty initial array.
         const currentWords = whisperWordsRef.current;
+        // Never lose a recording: if formatting produced no markdown (model
+        // missing, Ollama down, cancelled, or a mid-stream error), persist the
+        // raw transcript as the note body so the recording is always saveable.
+        const markdownToSave =
+            (formValues.noteContentMarkdown || '').trim().length > 0
+                ? formValues.noteContentMarkdown
+                : (formValues.noteContentRaw || '');
         const payload = {
             ...formValues,
+            noteContentMarkdown: markdownToSave,
             noteContentWords: currentWords.length ? currentWords : null,
         };
         console.log(
@@ -266,6 +314,8 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     // formatting step that there's nothing to format against.
     const noteTemplate = form.watch('noteTemplate');
     const templateSelected = !!noteTemplate;
+    // Recording is gated on a template AND (when verifiable) an installed model.
+    const recordingDisabled = !templateSelected || modelBlocksRecording;
 
     const transcribeRecording = async (
         blob: Blob,
@@ -277,6 +327,12 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         // to spend minutes on whisper+diarization without a template to format against.
         if (!form.getValues('noteTemplate')) {
             toast.error('Please select a template before recording or uploading audio.');
+            return;
+        }
+        // Belt-and-suspenders: even if the disabled buttons are bypassed, refuse
+        // to record against a model we know isn't installed.
+        if (modelBlocksRecording) {
+            toast.error(`The model "${selectedModel}" isn't installed. Pick an installed model before recording.`);
             return;
         }
 
@@ -445,6 +501,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 body: JSON.stringify({
                     raw_note: rawNote,
                     template_id: form.getValues('noteTemplate'),
+                    // Per-note model override; backend falls back to the
+                    // template/app default when empty.
+                    model: selectedModel || undefined,
                     note_details: {
                         note_date: form.getValues('noteDate'),
                         author_id: form.getValues('authorId'),
@@ -459,9 +518,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 const errBody = await res.json().catch(() => ({}));
                 if (res.status === 503) flagOllamaDown();
                 if (res.status === 422 && errBody.error === 'model_not_installed') {
-                    form.setValue('noteContentMarkdown', rawNote);
-                    mdxEditorRef.current?.setMarkdown(rawNote);
-                    setMarkdown(rawNote);
+                    fallBackToRawTranscript(rawNote);
                     toast.error(errBody.message || `Model '${errBody.model}' isn't installed.`);
                     return;
                 }
@@ -553,11 +610,15 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             }
 
             if (errorMessage) {
+                // Keep the recording: drop the raw transcript into the editor
+                // so the user can save it manually instead of losing it.
+                fallBackToRawTranscript(rawNote);
                 toast.error(`Structured run failed: ${errorMessage}`);
                 return;
             }
             if (finalMarkdown === null) {
-                toast.error('Structured run ended without a final markdown payload.');
+                fallBackToRawTranscript(rawNote);
+                toast.error('Structured run ended without a final markdown payload. Showing the raw transcript so you can edit and save it.');
                 return;
             }
 
@@ -571,7 +632,10 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 throw e;
             }
             console.error('Structured formatting failed:', e);
-            toast.error(`Formatting failed: ${e.message}`);
+            // Keep the recording: fall back to the raw transcript so it can be
+            // saved manually rather than lost.
+            fallBackToRawTranscript(rawNote);
+            toast.error(`Formatting failed: ${e.message}. Showing the raw transcript so you can edit and save it.`);
         }
     };
 
@@ -618,6 +682,9 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 signal: controller.signal,
                 body: JSON.stringify({
                     raw_note: rawNote,
+                    // Per-note model override; backend falls back to the
+                    // template/app default when empty.
+                    model: selectedModel || undefined,
                     note_details: {
                         note_date: form.getValues('noteDate'),
                         author_id: form.getValues('authorId'),
@@ -729,7 +796,10 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 toast('Formatting cancelled. Showing the raw transcript so you can edit and save it manually.');
             } else {
                 console.error('Failed to get markdown:', error);
-                toast.error(`Formatting failed: ${error.message}`);
+                // Keep the recording: fall back to the raw transcript so it can
+                // be saved manually rather than lost.
+                fallBackToRawTranscript(rawNote);
+                toast.error(`Formatting failed: ${error.message}. Showing the raw transcript so you can edit and save it.`);
             }
         } finally {
             formattingAbortRef.current = null;
@@ -873,14 +943,54 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     )}
                 />
             </fieldset>
-            {modelMissing && (
-                <div className="border-2 border-black bg-yellow-100 p-3 text-sm">
-                    <strong>Heads up:</strong> this template is set to use the
-                    <code className="mx-1 px-1 bg-white border border-black">{selectedTemplateLlmModel}</code>
-                    model, which isn't installed in Ollama. Recording will still work, but the
-                    transcript won't be auto-formatted — an admin needs to pull the model from
-                    the Admin → Models page before this template can format notes.
-                </div>
+            {templateSelected && (
+                <fieldset className="flex flex-col gap-1">
+                    <FormLabel>
+                        AI Model{' '}
+                        <span className="text-xs text-muted-foreground font-normal">
+                            (defaults to the template's model)
+                        </span>
+                    </FormLabel>
+                    <Select
+                        // Show the chosen model only when it's actually installed;
+                        // otherwise fall to the placeholder so the user is prompted
+                        // to pick a real one.
+                        value={modelAvailable ? (selectedModel as string) : ''}
+                        onValueChange={(v) => setSelectedModel(v)}
+                        disabled={ollamaReachable !== true || !haveInstalledModels}
+                    >
+                        <SelectTrigger className="z-10 bg-white">
+                            <SelectValue
+                                placeholder={
+                                    ollamaReachable === null
+                                        ? 'Loading models…'
+                                        : ollamaReachable === false
+                                          ? 'Ollama offline — formatting unavailable'
+                                          : !haveInstalledModels
+                                            ? 'No models installed'
+                                            : 'Select an installed model'
+                                }
+                            />
+                        </SelectTrigger>
+                        <SelectContent className="z-10 bg-white">
+                            {modelList.map((m) => (
+                                <SelectItem key={m.name} value={m.name} className="hover:bg-[#fd3777]">
+                                    {m.name}
+                                    {m.parameter_size ? ` (${m.parameter_size})` : ''}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    {cannotFormat && (
+                        <div className="border-2 border-black bg-yellow-100 p-3 text-sm mt-1">
+                            <strong>Heads up:</strong>{' '}
+                            {ollamaReachable === false
+                                ? "Ollama is offline, so notes can't be auto-formatted right now."
+                                : "No AI models are installed, so notes can't be auto-formatted yet."}{' '}
+                            You can still record — your transcript is saved raw and can be formatted later.
+                        </div>
+                    )}
+                </fieldset>
             )}
             <fieldset className="flex flex-col gap-2">
                 <FormField
@@ -913,13 +1023,23 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         <AudioCapture
             authToken={auth.token}
             busy={busy}
-            disabled={!templateSelected}
+            disabled={recordingDisabled}
             disabledNotice={
-                <div className="border-2 border-black bg-yellow-100 p-3 text-sm mt-4">
-                    <strong>Pick a template above first.</strong> Recording and uploading are
-                    disabled until a template is selected — otherwise the transcript can't be
-                    auto-formatted.
-                </div>
+                modelBlocksRecording ? (
+                    <div className="border-2 border-black bg-red-100 p-3 text-sm mt-4">
+                        <strong>Recording disabled.</strong> The model
+                        <code className="mx-1 px-1 bg-white border border-black">{selectedModel}</code>
+                        {selectedTemplateLlmModel === selectedModel ? 'set on this template ' : ''}
+                        isn't installed in Ollama. Pick an installed model above to enable recording,
+                        or pull it from the Admin → Models page.
+                    </div>
+                ) : (
+                    <div className="border-2 border-black bg-yellow-100 p-3 text-sm mt-4">
+                        <strong>Pick a template above first.</strong> Recording and uploading are
+                        disabled until a template is selected — otherwise the transcript can't be
+                        auto-formatted.
+                    </div>
+                )
             }
             showDictationToggle={!!auth.user?.dictationMarkersEnabled}
             resetSignal={microphoneKey}
@@ -1149,7 +1269,11 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 <p className="text-primary">Saving note...</p>
             </div>
         )}
-        {!savingNote && form.getValues("noteContentRaw") && form.getValues("noteContentMarkdown") && (
+        {/* Show Save as soon as there's a transcript and the pipeline is idle —
+            even if AI formatting failed, was cancelled, or no model was
+            available. handleAddNewNote falls back to saving the raw transcript
+            as the body, so a recording is never stranded unsaveable. */}
+        {!savingNote && !busy && form.getValues("noteContentRaw") && (
         <div className='flex justify-center items-center gap-4 mt-4'>
             <NeoButton 
                 type="submit"

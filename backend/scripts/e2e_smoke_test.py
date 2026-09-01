@@ -190,7 +190,10 @@ def main():
     print("\n[5] Append recording to a draft note")
     _append_recording_flow(app, client, auth, uid)
 
-    print("\n[6] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
+    print("\n[6] Model-selection override + raw-save safety net")
+    _model_selection_and_raw_save(app, client, auth, uid, tmpl_id)
+
+    print("\n[7] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
     _schema_drift_regression(app, client, auth, uid)
 
     return _summary_exit()
@@ -310,6 +313,126 @@ def _append_recording_flow(app, client, auth, uid):
                     json={"rawNote": "should be blocked"})
     check("append while feature disabled → 403",
           r.status_code == 403, f"status={r.status_code} body={_json(r)}")
+
+
+def _model_selection_and_raw_save(app, client, auth, uid, simple_tmpl_id):
+    """Guard the create-note model picker's backend contract + the 'never lose a
+    recording' safety net — both Ollama-free.
+
+    The picker sends a per-note `model` that must win over the template's saved
+    model, which in turn falls back to the app-wide default. We monkeypatch
+    is_model_installed to (a) capture whichever model the route resolved and
+    (b) simulate Ollama-unreachable, which lets us assert the override > template
+    > default priority AND the 503 raw-note echo the frontend fallback relies on,
+    with no live daemon. Finally we prove a note with empty markdown (formatting
+    failed / no model) still persists, so a captured transcript is never stranded.
+    """
+    from app.services import settings as settings_service
+    import app.services.ollama_client as oc
+
+    raw = "Patient reports a persistent cough."
+    details = {"note_date": datetime.utcnow().isoformat(), "participants": []}
+
+    # A template with a distinctive saved model, so "template model" is
+    # distinguishable from "app default" below.
+    tmpl_model = "phi3:mini"
+    probe_id = _json(client.post("/api/templates", headers=auth, json={
+        "name": "E2E Model Probe", "content": "x {{y}}",
+        "llmModel": tmpl_model, "version": 1, "authorId": uid,
+    })).get("id")
+
+    # A template with NO saved model → resolution must fall to the app default.
+    nomodel_id = _json(client.post("/api/templates", headers=auth, json={
+        "name": "E2E No-Model", "content": "x {{y}}", "version": 1, "authorId": uid,
+    })).get("id")
+
+    # A structured template to prove the override reaches that route too.
+    struct_id = _json(client.post("/api/templates", headers=auth, json={
+        "name": "E2E Structured Model", "templateType": "structured",
+        "llmModel": tmpl_model,
+        "structured": {"strictness": 50, "sections": [{
+            "id": "s1", "title": "S", "fields": [{
+                "id": "f1", "type": "paragraph", "label": "HPI",
+                "variableKey": "hpi", "required": False,
+                "autoFill": True, "showInSummary": True,
+            }]}]},
+    })).get("id")
+
+    with app.app_context():
+        default_model = settings_service.get_llm_model()
+    check("app default model is distinct from the probe template's model",
+          default_model and default_model != tmpl_model,
+          f"default={default_model} tmpl={tmpl_model}")
+
+    captured = {}
+    orig = oc.is_model_installed
+
+    def _spy(model_name):
+        captured["model"] = model_name
+        raise RuntimeError("simulated Ollama unreachable")
+
+    oc.is_model_installed = _spy
+    try:
+        # (a) Per-note override wins over the template's saved model, and the
+        #     503 fallback echoes the raw transcript for the client to save.
+        captured.clear()
+        r = client.post("/api/getMarkdown", headers=auth, json={
+            "raw_note": raw, "model": "llama3.2:1b",
+            "note_details": {**details, "template_id": probe_id},
+        })
+        body = _json(r)
+        check("getMarkdown: per-note model override wins over the template model",
+              captured.get("model") == "llama3.2:1b", f"resolved={captured.get('model')}")
+        check("getMarkdown: 503 echoes raw_note so the recording can still be saved",
+              r.status_code == 503 and body.get("raw_note") == raw,
+              f"status={r.status_code} body={body}")
+
+        # (b) No override → the template's saved model.
+        captured.clear()
+        client.post("/api/getMarkdown", headers=auth, json={
+            "raw_note": raw, "note_details": {**details, "template_id": probe_id},
+        })
+        check("getMarkdown: falls back to the template's saved model when no override",
+              captured.get("model") == tmpl_model, f"resolved={captured.get('model')}")
+
+        # (c) No override + template has no model → the app-wide default.
+        captured.clear()
+        client.post("/api/getMarkdown", headers=auth, json={
+            "raw_note": raw, "note_details": {**details, "template_id": nomodel_id},
+        })
+        check("getMarkdown: falls back to the app default when the template has no model",
+              captured.get("model") == default_model,
+              f"resolved={captured.get('model')} default={default_model}")
+
+        # (d) The override reaches the structured route too.
+        captured.clear()
+        r = client.post("/api/notes/run-structured", headers=auth, json={
+            "raw_note": raw, "template_id": struct_id, "model": "llama3.2:1b",
+            "note_details": {**details, "template_id": struct_id},
+        })
+        check("run-structured: per-note model override wins over the template model",
+              captured.get("model") == "llama3.2:1b" and r.status_code == 503,
+              f"resolved={captured.get('model')} status={r.status_code}")
+    finally:
+        oc.is_model_installed = orig
+
+    # (e) Raw-save safety net: a note with empty markdown (formatting failed,
+    #     no model, or Ollama down) must still persist so the recording isn't
+    #     lost. This is the backend guard behind the frontend fallback.
+    r = client.post("/api/notes", headers=auth, json={
+        "noteContentRaw": raw,
+        "noteContentMarkdown": "",
+        "authorName": "E2E Admin",
+        "noteDate": datetime.utcnow().isoformat(),
+        "noteTemplate": simple_tmpl_id,
+    })
+    body = _json(r)
+    rawsave_id = body.get("id")
+    check("POST /api/notes: a raw-only note (empty markdown) still saves → 201",
+          r.status_code == 201 and bool(rawsave_id), f"status={r.status_code} body={body}")
+    g = _json(client.get(f"/api/notes/{rawsave_id}", headers=auth))
+    check("raw-only note preserves the transcript body",
+          g.get("noteContentRaw") == raw, f"raw={g.get('noteContentRaw')!r}")
 
 
 def _schema_drift_regression(app, client, auth, uid):
