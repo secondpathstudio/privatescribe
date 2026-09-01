@@ -47,7 +47,7 @@ from app.services.diarization import (
     merge_segments,
 )
 from app.services.ffmpeg import get_ffmpeg
-from app.services.whisper import transcribe_path
+from app.services import stt
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +387,7 @@ def transcribe_live():
 
         try:
             try:
-                _text, segs, _words = transcribe_path(wav_path)
+                _text, segs, _words = stt.get_engine().transcribe(wav_path)
             except Exception as e:
                 logger.error(f"Live transcribe failure: {type(e).__name__}: {e}")
                 return jsonify({"error": "transcription_failed", "message": str(e)}), 500

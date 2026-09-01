@@ -142,7 +142,7 @@ def _process_transcription(app, job_id):
     from app.models import AudioFile, Job, Note, Template, User
     from app.services import audio_storage, diarization, dictation_markers, ollama_client
     from app.services import settings as settings_service
-    from app.services import vocabulary, whisper
+    from app.services import stt, vocabulary, whisper
 
     with app.app_context():
         job = db.session.get(Job, job_id)
@@ -186,7 +186,7 @@ def _process_transcription(app, job_id):
                 last_pct = 0
                 job.stage = "transcribing"
                 db.session.commit()
-                for kind, payload in whisper.transcribe_path_streaming(
+                for kind, payload in stt.get_engine().transcribe_streaming(
                     audio_path,
                     initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
                     batched=True,

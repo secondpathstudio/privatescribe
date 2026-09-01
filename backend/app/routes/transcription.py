@@ -22,7 +22,8 @@ from app.services.diarization import (
     relabel_speakers,
     segments_to_text,
 )
-from app.services.whisper import prepare_wav, transcribe_path_streaming
+from app.services import stt
+from app.services.whisper import prepare_wav
 
 logger = logging.getLogger(__name__)
 
@@ -171,12 +172,12 @@ def transcribe():
             raw_text: str = ""
             whisper_segments: list = []
             whisper_words: list = []
-            for kind, payload in transcribe_path_streaming(
+            for kind, payload in stt.get_engine().transcribe_streaming(
                 audio_path,
                 initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
                 # Whole-file upload — use the batched pipeline for the ~2-4x
-                # speedup. (Live ticks call transcribe_path, which stays
-                # sequential.)
+                # speedup. (Live ticks use the engine's blocking transcribe,
+                # which stays sequential.)
                 batched=True,
             ):
                 if kind == "progress":
