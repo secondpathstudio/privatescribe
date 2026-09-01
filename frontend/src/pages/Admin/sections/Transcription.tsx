@@ -2,15 +2,17 @@ import SectionHeader from "./SectionHeader";
 import VocabularyEditor from "@/components/transcription/VocabularyEditor";
 import AbbreviationsEditor from "@/components/transcription/AbbreviationsEditor";
 import WhisperModelCard from "@/components/admin/WhisperModelCard";
+import SttEngineCard from "@/components/admin/SttEngineCard";
 
 export default function TranscriptionSection() {
   return (
     <>
       <SectionHeader
-        title="Transcription model"
-        description="The Whisper speech-to-text model used for all recordings. Switching downloads the weights up front so the app keeps running offline afterward."
+        title="Transcription engine"
+        description="Which speech-to-text engine turns recordings into text, and which Whisper model size it uses. Switching downloads any weights up front so the app keeps running offline afterward."
       />
       <div className="space-y-6 mb-8">
+        <SttEngineCard />
         <WhisperModelCard />
       </div>
 
