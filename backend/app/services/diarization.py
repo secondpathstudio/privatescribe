@@ -118,6 +118,30 @@ def _local_pipeline_config(models_dir: Path) -> Path:
     return out
 
 
+def _download_hub_models(token: str) -> Path:
+    """Download the pipeline + sub-model repos and return a directory shaped
+    exactly like the bundled staging dir, so the fallback rejoins the bundled
+    code path (_local_pipeline_config → local file loads).
+
+    Needed because huggingface_hub 1.x (pulled in by transformers for the
+    MedASR engine) removed the `use_auth_token` kwarg that pyannote 3.x still
+    passes on its own hub path — so we fetch the files ourselves with the
+    modern `token=` API and never let pyannote touch the hub. Downloads are
+    incremental: snapshot_download reuses already-fetched files, so this is a
+    no-op after the first run.
+    """
+    from huggingface_hub import snapshot_download
+
+    root = data_dir() / "pyannote-hub"
+    for subdir, repo in (
+        (_PIPELINE_SUBDIR, "pyannote/speaker-diarization-3.1"),
+        (_SEGMENTATION_SUBDIR, "pyannote/segmentation-3.0"),
+        (_EMBEDDING_SUBDIR, "pyannote/wespeaker-voxceleb-resnet34-LM"),
+    ):
+        snapshot_download(repo, token=token, local_dir=str(root / subdir))
+    return root
+
+
 def available_devices() -> list[str]:
     """Return the concrete devices this machine can run pyannote on, in
     preferred order. Always includes 'cpu'. 'mps' / 'cuda' appear only if
@@ -208,11 +232,11 @@ def get_pipeline():
 
         # Prefer the bundled weights — no token, no network. Fall back to a
         # HuggingFace download (gated, needs HF_TOKEN) only when nothing is
-        # staged.
+        # staged. Either way the pipeline is loaded from LOCAL files: pyannote
+        # 3.x's own hub path passes the `use_auth_token` kwarg that
+        # huggingface_hub 1.x removed, so it must never fetch for itself.
         models_dir = bundled_models_dir()
         if models_dir is not None:
-            checkpoint = _local_pipeline_config(models_dir)
-            token = None
             logger.info(f"Loading bundled diarization pipeline from {models_dir}")
         else:
             token = os.getenv("HF_TOKEN")
@@ -223,13 +247,20 @@ def get_pipeline():
                     "build:pyannote`, or add HF_TOKEN=hf_... to backend/.env and accept the "
                     "user conditions for `pyannote/speaker-diarization-3.1` on huggingface.co."
                 )
-            checkpoint = "pyannote/speaker-diarization-3.1"
+            try:
+                models_dir = _download_hub_models(token)
+            except Exception as e:
+                raise DiarizationUnavailable(
+                    f"Could not download pyannote models: {type(e).__name__}: {e}. "
+                    "Verify HF_TOKEN is valid and that you've accepted the user "
+                    "conditions for pyannote/speaker-diarization-3.1, "
+                    "pyannote/segmentation-3.0, and "
+                    "pyannote/wespeaker-voxceleb-resnet34-LM on huggingface.co."
+                ) from e
+        checkpoint = _local_pipeline_config(models_dir)
 
         try:
-            pipeline = Pipeline.from_pretrained(
-                checkpoint,
-                use_auth_token=token,
-            )
+            pipeline = Pipeline.from_pretrained(checkpoint)
         except ModuleNotFoundError as e:
             # pyannote pulls in some transitive deps lazily (matplotlib via pyannote.metrics,
             # for example). Surface this distinctly from auth/network failures.
@@ -238,14 +269,13 @@ def get_pipeline():
                 "Run `pip install -r requirements.txt` to install it."
             ) from e
         except Exception as e:
-            hint = (
-                "Verify HF_TOKEN is valid and that you've accepted the model's user conditions."
-                if token
-                else "The bundled pyannote model files may be missing or corrupt; re-stage "
-                "them with `npm run build:pyannote`."
-            )
+            # Loading is always from local files now (bundled or freshly
+            # downloaded above), so a failure here means missing/corrupt files.
             raise DiarizationUnavailable(
-                f"Could not load pyannote pipeline: {type(e).__name__}: {e}. {hint}"
+                f"Could not load pyannote pipeline: {type(e).__name__}: {e}. "
+                "The local pyannote model files may be missing or corrupt; re-stage "
+                "them with `npm run build:pyannote` or delete the data dir's "
+                "pyannote-hub folder to re-download."
             ) from e
 
         # Move pipeline onto the configured device. If MPS is configured but

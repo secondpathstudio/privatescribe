@@ -11,6 +11,7 @@ engine.capabilities, not on names (see base.py).
 """
 from app.services import settings as settings_service
 from app.services.stt.base import EngineCapabilities, TranscriptionEngine
+from app.services.stt.medasr_engine import MedASREngine
 from app.services.stt.whisper_engine import WhisperEngine
 
 __all__ = [
@@ -26,7 +27,7 @@ _ENGINES: dict[str, TranscriptionEngine] = {
     engine.name: engine
     for engine in (
         WhisperEngine(),
-        # MedASREngine(),  # next: medical-dictation engine (Google MedASR)
+        MedASREngine(),
     )
 }
 
