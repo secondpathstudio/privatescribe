@@ -5,6 +5,7 @@ import NeoButton from '@/components/neo/neo-button';
 import NeoToggleIconButton from '@/components/neo/neo-toggle-icon-button';
 import Microphone from '@/components/recording/microphone';
 import LiveTranscript, { type LiveTranscriptHandle } from '@/components/transcription/LiveTranscript';
+import { useSessionHold } from '@/lib/session-hold';
 
 /** Capture settings the parent needs to build its /api/transcribe request. */
 export type CaptureOptions = {
@@ -73,6 +74,12 @@ const AudioCapture = ({
     const [applyDictationMarkers, setApplyDictationMarkers] = React.useState(defaultApplyDictationMarkers);
     const [liveTranscript, setLiveTranscript] = React.useState(false);
     const [liveDiarize, setLiveDiarize] = React.useState(false);
+
+    // Transcribing + formatting a long consult can itself outlast the idle
+    // timeout (Whisper on a 90-min file). Hold the session open while the
+    // parent's pipeline runs so the final save doesn't hit a 401. The
+    // recording itself is covered by <Microphone>'s own hold.
+    useSessionHold(busy);
 
     // Append-only buffer of MediaRecorder timeslice chunks. LiveTranscript owns
     // a cursor into this array; we never mutate or shrink existing entries so

@@ -10,6 +10,7 @@ import {
   systemAudioSupported,
   type AudioSourceMode,
 } from "@/lib/audio-capture";
+import { useSessionHold } from "@/lib/session-hold";
 
 // Sentinel select value for the system-audio source (vs. a real mic deviceId).
 const SYSTEM_AUDIO_VALUE = "__system_audio__";
@@ -39,6 +40,11 @@ const SYSTEM_AUDIO_VALUE = "__system_audio__";
   const audioChunksRef = useRef<Blob[]>([]);
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A consult can outlast the idle timeout with zero input/API activity —
+  // hold the session open for the whole recording (paused included) so
+  // neither the idle timer nor the server signs the user out mid-consult.
+  useSessionHold(isRecording);
 
   // Audio source selection. `sourceMode` is mic vs. system audio; `micDeviceId`
   // is the chosen microphone (empty = default); `includeMic` mixes the mic in

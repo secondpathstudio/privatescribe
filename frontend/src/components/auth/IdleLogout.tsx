@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/context/auth-context";
+import { isSessionHeld } from "@/lib/session-hold";
 
 // Browser events that count as the user still being present.
 const ACTIVITY_EVENTS = [
@@ -24,6 +25,12 @@ const REARM_THROTTLE_MS = 5000;
  * it. The backend enforces the same timeout independently on every request —
  * this is the proactive UX half, so the user lands back on the login screen
  * at the timeout instead of discovering it on their next click.
+ *
+ * A session hold (an active recording, or a running transcription pipeline —
+ * see lib/session-hold.ts) counts as activity even though it produces no
+ * input events: logging out mid-recording unmounts the recorder and destroys
+ * the not-yet-uploaded audio. While a hold is open the timer re-arms instead
+ * of firing.
  */
 export default function IdleLogout() {
   const auth = useAuth();
@@ -45,7 +52,14 @@ export default function IdleLogout() {
 
     const arm = () => {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-      timerRef.current = window.setTimeout(() => logoutRef.current(), timeoutMs);
+      timerRef.current = window.setTimeout(() => {
+        // Mid-recording / mid-pipeline is not idle — defer, don't log out.
+        if (isSessionHeld()) {
+          arm();
+          return;
+        }
+        logoutRef.current();
+      }, timeoutMs);
     };
 
     const onActivity = () => {
