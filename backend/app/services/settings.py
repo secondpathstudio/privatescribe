@@ -24,6 +24,7 @@ APPEND_RECORDING_ENABLED = "append_recording_enabled"
 VOCABULARY_TERMS = "vocabulary_terms"
 ABBREVIATIONS = "abbreviations"
 WHISPER_MODEL = "whisper_model"
+STT_ENGINE = "stt_engine"
 AUDIO_STORAGE_ENABLED = "audio_storage_enabled"
 AUDIO_RETENTION_DAYS = "audio_retention_days"
 ORPHANED_AUDIO_PURGE = "orphaned_audio_purge"
@@ -52,6 +53,12 @@ DEFAULT_DIARIZATION_DEVICE = "auto"
 # The admin can switch to a larger model from the Transcription settings
 # page (which downloads the weights first — see services/whisper_manager).
 DEFAULT_WHISPER_MODEL = "base"
+
+# Which speech-to-text engine transcribes (see services/stt/). "whisper"
+# matches pre-feature behavior, so an unset row changes nothing. Values are
+# registry keys from stt.available_engines(); stt.get_engine() falls back to
+# this default on an unknown value rather than failing a transcription.
+DEFAULT_STT_ENGINE = "whisper"
 
 # Ollama model tag used to fill templates that don't pin their own llm_model.
 # Mirrors ollama_client.DEFAULT_OLLAMA_MODEL; the onboarding wizard writes the
@@ -281,6 +288,10 @@ def get_diarization_device() -> str:
 
 def get_whisper_model() -> str:
     return get_str(WHISPER_MODEL, DEFAULT_WHISPER_MODEL)
+
+
+def get_stt_engine() -> str:
+    return get_str(STT_ENGINE, DEFAULT_STT_ENGINE)
 
 
 def get_llm_model() -> str:
