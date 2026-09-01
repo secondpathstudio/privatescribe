@@ -5,6 +5,8 @@ the backend after changing a limit.
 """
 import json
 import logging
+import os
+from datetime import datetime, timezone
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from flask_cors import cross_origin
@@ -15,7 +17,7 @@ from app.extensions import db
 from app.models import User
 from app.security.auth import require_admin
 from app.services import audio_retention, diarization, settings as settings_service
-from app.services import ollama_client, whisper, whisper_manager
+from app.services import medasr_manager, ollama_client, stt, whisper, whisper_manager
 from app.services.audit import log_action
 
 logger = logging.getLogger(__name__)
@@ -1066,3 +1068,177 @@ def whisper_install():
         }) + "\n"
 
     return Response(generate(), mimetype="application/x-ndjson")
+
+
+@bp.route('/stt/engines', methods=['GET'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def stt_engines():
+    """Speech-to-text engine catalog for the Transcription settings UI.
+
+      engines      — per-engine name + capability flags (the UI shows what a
+                     switch gains/loses instead of hardcoding engine trivia)
+      active       — the engine /api/transcribe resolves right now
+      medasr       — install/license state driving the option-C flow:
+                     the admin follows termsUrl, acknowledges, installs
+                     (approxSizeMb download), then may activate
+    """
+    acceptance = settings_service.get_medasr_license_acceptance()
+    return jsonify({
+        "engines": [
+            {"name": name, "capabilities": vars(stt.get_engine(name).capabilities)}
+            for name in stt.available_engines()
+        ],
+        "active": settings_service.get_stt_engine(),
+        "medasr": {
+            "installed": medasr_manager.is_installed(),
+            "licenseAccepted": acceptance is not None,
+            "acceptance": acceptance,
+            "termsUrl": medasr_manager.TERMS_URL,
+            "approxSizeMb": medasr_manager.APPROX_SIZE_MB,
+        },
+    })
+
+
+@bp.route('/stt/medasr/accept-license', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def stt_medasr_accept_license():
+    """Record that this admin has read and accepted Google's HAI-DEF terms.
+
+    Body: {"accepted": true} — the UI sends this only after the admin has
+    followed the terms link and ticked the acknowledgement. Recorded once
+    (who/when/which terms) in the `medasr_license_accepted` setting and
+    audit-logged; installing or activating MedASR is refused without it.
+    """
+    data = request.get_json(silent=True) or {}
+    if data.get('accepted') is not True:
+        return jsonify({"error": "accepted must be true"}), 400
+
+    existing = settings_service.get_medasr_license_acceptance()
+    if existing is not None:
+        return jsonify({"acceptance": existing})
+
+    current_user = get_jwt_identity()
+    user = db.session.get(User, current_user)
+    acceptance = {
+        "acceptedBy": current_user,
+        "acceptedByEmail": user.email if user else None,
+        "acceptedAt": datetime.now(timezone.utc).isoformat(),
+        "termsUrl": medasr_manager.TERMS_URL,
+    }
+    settings_service.set_value(
+        settings_service.MEDASR_LICENSE_ACCEPTED, acceptance, updated_by=current_user
+    )
+    log_action(
+        'admin.medasr_license_accepted',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.MEDASR_LICENSE_ACCEPTED,
+        extra={'termsUrl': medasr_manager.TERMS_URL},
+    )
+    db.session.commit()
+    return jsonify({"acceptance": acceptance})
+
+
+@bp.route('/stt/medasr/install', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def stt_medasr_install():
+    """Download and install the MedASR weights — streamed as NDJSON.
+
+    Mirrors /whisper/install's event shapes so the UI reuses its progress
+    component, with one deliberate difference: success does NOT activate
+    the engine. Switching engines changes app behavior (no confidence
+    highlighting, no speaker alignment), so activation is a separate,
+    explicit PUT /stt/engine.
+    """
+    if settings_service.get_medasr_license_acceptance() is None:
+        return jsonify({
+            "error": "The Google Health AI Developer Foundations terms must be "
+                     "accepted before MedASR can be installed.",
+        }), 409
+
+    current_user = get_jwt_identity()
+
+    @stream_with_context
+    def generate():
+        succeeded = False
+        try:
+            for event in medasr_manager.download_stream():
+                if event.get("status") == "success":
+                    succeeded = True
+                    break
+                if event.get("status") == "error":
+                    yield json.dumps({**event, "done": True}) + "\n"
+                    return
+                yield json.dumps(event) + "\n"
+        except Exception as e:
+            logger.error(f"MedASR install failure: {type(e).__name__}: {e}")
+            yield json.dumps({
+                "status": "error",
+                "message": f"{type(e).__name__}: {e}",
+                "done": True,
+            }) + "\n"
+            return
+
+        if not succeeded:
+            yield json.dumps({
+                "status": "error",
+                "message": "Download ended without completing.",
+                "done": True,
+            }) + "\n"
+            return
+
+        log_action(
+            'admin.medasr_installed',
+            user_id=current_user,
+            resource_type='setting',
+            resource_id=settings_service.STT_ENGINE,
+        )
+        db.session.commit()
+        yield json.dumps({"status": "installed", "model": "medasr", "done": True}) + "\n"
+
+    return Response(generate(), mimetype="application/x-ndjson")
+
+
+@bp.route('/stt/engine', methods=['PUT'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@require_admin
+def stt_set_engine():
+    """Switch the active speech-to-text engine. Body: {"engine": "medasr"}.
+
+    MedASR additionally requires the license acceptance and an installed
+    copy of the weights (or a staged MEDASR_MODELS_DIR / dev HF fallback is
+    NOT accepted here — activation through the API demands the deliberate
+    install so a selected engine can never start a surprise download
+    mid-transcription).
+    """
+    data = request.get_json(silent=True) or {}
+    engine = (data.get('engine') or '').strip()
+    if engine not in stt.available_engines():
+        return jsonify({"error": f"engine must be one of {stt.available_engines()}"}), 400
+
+    if engine == "medasr":
+        if settings_service.get_medasr_license_acceptance() is None:
+            return jsonify({
+                "error": "Accept the Google Health AI Developer Foundations "
+                         "terms before activating MedASR.",
+            }), 409
+        if not medasr_manager.is_installed() and not os.getenv("MEDASR_MODELS_DIR"):
+            return jsonify({"error": "Install the MedASR model before activating it."}), 409
+
+    current_user = get_jwt_identity()
+    previous = settings_service.get_stt_engine()
+    settings_service.set_value(
+        settings_service.STT_ENGINE, engine, updated_by=current_user
+    )
+    log_action(
+        'admin.settings_update',
+        user_id=current_user,
+        resource_type='setting',
+        resource_id=settings_service.STT_ENGINE,
+        extra={'old': previous, 'new': engine},
+    )
+    db.session.commit()
+    return jsonify({"engine": engine})

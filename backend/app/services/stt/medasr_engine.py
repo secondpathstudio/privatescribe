@@ -22,9 +22,12 @@ Quirks handled here, per the adapter contract:
 - long-form chunking runs at 30s chunks / 5s stride — the pipeline default
   (20/2) produced garbled text at section-header boundaries in testing.
 
-The model is gated on Hugging Face: downloading weights requires an
-HF_TOKEN whose account accepted the model license (same env var pyannote
-diarization uses; huggingface_hub picks it up automatically). Once cached,
+Weights resolve in three steps (mirroring diarization's bundled-first
+policy): a staged directory via MEDASR_MODELS_DIR, then the app-managed
+install that the admin download flow produces (services/medasr_manager.py
+— the normal end-user path, self-hosted and token-free), then the gated
+Hugging Face repo as a dev fallback (needs an HF_TOKEN whose account
+accepted the model license and that can read gated repos). Once local,
 loading is offline like every other model in the app.
 
 transformers is imported lazily on first use so installs without the
@@ -32,8 +35,10 @@ dependency still boot — selecting this engine then fails with a clear
 error at transcription time instead of taking the whole backend down.
 English-only model; the ``language`` argument is accepted and ignored.
 """
+import os
 import re
 import threading
+from pathlib import Path
 from typing import Iterator
 
 from app.services.stt.base import EngineCapabilities, TranscriptionEngine
@@ -55,6 +60,18 @@ _inference_lock = threading.Lock()
 _SPECIAL_TOKENS = re.compile(r"</?s>|<pad>|<unk>")
 
 
+def _resolve_checkpoint() -> str:
+    """Where to load weights from — see the module docstring for the order."""
+    env = os.getenv("MEDASR_MODELS_DIR")
+    if env and (Path(env) / "config.json").is_file():
+        return env
+    from app.services import medasr_manager
+
+    if medasr_manager.is_installed():
+        return str(medasr_manager.install_dir())
+    return MODEL_ID
+
+
 def _get_pipeline():
     global _pipeline
     if _pipeline is None:
@@ -69,7 +86,9 @@ def _get_pipeline():
                         "engine back to Whisper."
                     ) from e
                 _pipeline = pipeline(
-                    "automatic-speech-recognition", model=MODEL_ID, device="cpu"
+                    "automatic-speech-recognition",
+                    model=_resolve_checkpoint(),
+                    device="cpu",
                 )
     return _pipeline
 

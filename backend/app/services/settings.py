@@ -25,6 +25,7 @@ VOCABULARY_TERMS = "vocabulary_terms"
 ABBREVIATIONS = "abbreviations"
 WHISPER_MODEL = "whisper_model"
 STT_ENGINE = "stt_engine"
+MEDASR_LICENSE_ACCEPTED = "medasr_license_accepted"
 AUDIO_STORAGE_ENABLED = "audio_storage_enabled"
 AUDIO_RETENTION_DAYS = "audio_retention_days"
 ORPHANED_AUDIO_PURGE = "orphaned_audio_purge"
@@ -292,6 +293,22 @@ def get_whisper_model() -> str:
 
 def get_stt_engine() -> str:
     return get_str(STT_ENGINE, DEFAULT_STT_ENGINE)
+
+
+def get_medasr_license_acceptance() -> Optional[dict]:
+    """The recorded MedASR terms acceptance ({acceptedBy, acceptedByEmail,
+    acceptedAt, termsUrl}), or None if no admin has accepted yet. Required
+    before the MedASR weights may be downloaded or the engine activated —
+    the HAI-DEF license obliges us to pass Google's terms through to the
+    operator (see services/medasr_manager.py)."""
+    raw = _get_raw(MEDASR_LICENSE_ACCEPTED)
+    if raw is None:
+        return None
+    try:
+        value = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
 
 
 def get_llm_model() -> str:
