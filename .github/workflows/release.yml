@@ -35,7 +35,12 @@ jobs:
     strategy:
       fail-fast: false # see both OSes' results, not just the first failure
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Linux builds on the oldest still-supported Ubuntu LTS, NOT
+        # ubuntu-latest: PyInstaller bundles the runner's libpython, which is
+        # linked against the runner's glibc. Built on 24.04 (glibc 2.39) the
+        # backend dies at launch on older distros with "GLIBC_2.38 not found".
+        # glibc is backward- but not forward-compatible, so build on the oldest.
+        os: [ubuntu-22.04, windows-latest]
     runs-on: ${{ matrix.os }}
     defaults:
       run:

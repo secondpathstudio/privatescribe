@@ -171,7 +171,15 @@ appImage:
   # Stable, version-less filename — see nsis.artifactName above. AppImage is the
   # Linux auto-update channel; electron-updater reads the name from
   # latest-linux.yml, so a fixed name is safe for in-place updates.
-  artifactName: PrivateScribe-linux-${arch}.AppImage
+  # No "linux" token: the AppImage catalog lint flags it as redundant (every
+  # AppImage is Linux). Renders as PrivateScribe-x86_64.AppImage.
+  artifactName: PrivateScribe-${arch}.AppImage
+
+# AppImage toolset 1.0.2 ships the new static type2 runtime, so the AppImage no
+# longer needs libfuse2 on the host (absent by default on Ubuntu 22.04+). The
+# legacy 0.0.0 toolset's runtime is what the AppImage catalog test flagged.
+toolsets:
+  appimage: "1.0.2"
 
 dmg:
   # Stable, version-less filename — see nsis.artifactName above. The mac

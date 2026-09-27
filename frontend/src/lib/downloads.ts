@@ -7,7 +7,7 @@
 // target sets a stable `artifactName` in electron-builder.yml:
 //   dmg      → PrivateScribe-mac-arm64.dmg
 //   nsis     → PrivateScribe-win-x64.exe
-//   appImage → PrivateScribe-linux-x86_64.AppImage   (AppImage arch token is x86_64, not x64)
+//   appImage → PrivateScribe-x86_64.AppImage      (AppImage arch token is x86_64, not x64)
 // As long as the newest published release includes those assets, the buttons
 // resolve to the latest build. (First stable-named release: v2.0.2.)
 
@@ -50,6 +50,6 @@ export const PLATFORM_DOWNLOADS: PlatformDownload[] = [
     requirement: '64-bit, glibc-based distros',
     // NOTE: electron-builder renders ${arch} as 'x86_64' for the AppImage
     // target (AppImage convention), not 'x64' like the Windows nsis target.
-    url: latestAsset('PrivateScribe-linux-x86_64.AppImage'),
+    url: latestAsset('PrivateScribe-x86_64.AppImage'),
   },
 ];
