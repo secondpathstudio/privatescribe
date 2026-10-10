@@ -17,7 +17,6 @@ Guard rails:
   - **read-only.** Break-glass never edits — signed-note integrity is untouched.
 """
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
 
 from app.models import Note, User
@@ -44,7 +43,6 @@ def _read_justification():
 
 
 @bp.route("/users/<string:user_id>/notes", methods=["POST"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def break_glass_list_notes(user_id):
     """List another user's notes (metadata only) to locate the right record.
@@ -92,7 +90,6 @@ def break_glass_list_notes(user_id):
 
 
 @bp.route("/notes/<string:note_id>", methods=["POST"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def break_glass_read_note(note_id):
     """Read one note in full via emergency access.
