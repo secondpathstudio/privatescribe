@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
@@ -78,7 +77,6 @@ bp = Blueprint("notes", __name__, url_prefix="/api/notes")
 
 
 @bp.route('', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_note():
     data = request.get_json(silent=True) or {}
@@ -274,7 +272,6 @@ def create_note():
 
 
 @bp.route('/<string:id>', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_note(id):
     current_user = get_jwt_identity()
@@ -374,7 +371,6 @@ def _audio_file_payload(row) -> dict:
 
 
 @bp.route('/<string:id>/siblings', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_note_siblings(id):
     current_user = get_jwt_identity()
@@ -406,7 +402,6 @@ def get_note_siblings(id):
 
 
 @bp.route('/<string:id>/audio', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_note_audio(id):
     """Stream the decrypted source audio for a note.
@@ -469,7 +464,6 @@ def get_note_audio(id):
 
 
 @bp.route('/<string:id>', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_note(id):
     current_user = get_jwt_identity()
@@ -627,7 +621,6 @@ def update_note(id):
 
 
 @bp.route('/<string:id>/speakers', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_note_speakers(id):
     """Assign identities to the diarized speakers of a note.
@@ -675,7 +668,6 @@ def update_note_speakers(id):
 
 
 @bp.route('/<string:id>/segments', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_note_segments(id):
     """Replace the full diarized transcript with an edited segment list.
@@ -798,7 +790,6 @@ def update_note_segments(id):
 
 
 @bp.route('/<string:id>/append-recording', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def append_recording(id):
     """Merge a newly transcribed recording onto an existing draft note.
@@ -946,7 +937,6 @@ def _relabel_markdown_speakers(note: Note) -> None:
 
 
 @bp.route('/<string:id>/approve', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def approve_note(id):
     """Lock the raw transcript. After this, the raw text is immutable —
@@ -1000,7 +990,6 @@ def _status_payload(note: Note) -> dict:
 
 
 @bp.route('/<string:id>/status', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_note_status(id):
     """Transition a note's workflow status.
@@ -1066,7 +1055,6 @@ def _addendum_payload(addendum: NoteAddendum) -> dict:
 
 
 @bp.route('/<string:id>/addenda', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_addendum(id):
     """Append an addendum to a signed note.
@@ -1119,7 +1107,6 @@ def create_addendum(id):
 
 
 @bp.route('/<string:id>/delete', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_note_as_deleted(id):
     current_user = get_jwt_identity()
@@ -1155,7 +1142,6 @@ def mark_note_as_deleted(id):
 
 
 @bp.route('/<string:id>/delete-permanently', methods=['DELETE'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def delete_note(id):
     current_user = get_jwt_identity()
@@ -1202,7 +1188,6 @@ def delete_note(id):
 
 
 @bp.route('/<string:id>/restore', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_note_as_restored(id):
     current_user = get_jwt_identity()
@@ -1236,7 +1221,6 @@ def _safe_filename_stem(s: str, fallback: str) -> str:
 
 
 @bp.route('/<string:id>/export/<string:fmt>', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def export_note(id, fmt):
     """Download a note as PDF or DOCX.
@@ -1295,7 +1279,6 @@ def export_note(id, fmt):
 
 
 @bp.route('/search', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def search_notes():
     """Full-text search over the caller's notes.
@@ -1393,7 +1376,6 @@ def search_notes():
 
 
 @bp.route('/user/<string:user_id>', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_notes_for_user(user_id):
     current_user = get_jwt_identity()
