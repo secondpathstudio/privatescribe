@@ -8,7 +8,6 @@ the tenant wall on top in server mode.
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
@@ -49,7 +48,6 @@ def _serialize_detail(job: Job) -> dict:
 
 
 @bp.route('/transcribe', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def upload_and_enqueue():
     """Store an uploaded audio file and queue it for transcription.
@@ -118,7 +116,6 @@ def upload_and_enqueue():
 
 
 @bp.route('', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def list_jobs():
     """The caller's recent jobs, newest first. Optional ?status= filter."""
@@ -132,7 +129,6 @@ def list_jobs():
 
 
 @bp.route('/<string:job_id>', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_job(job_id):
     current_user = get_jwt_identity()
@@ -143,7 +139,6 @@ def get_job(job_id):
 
 
 @bp.route('/<string:job_id>/approve', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def approve_job(job_id):
     """Approve a reviewed transcript and resume formatting. Optional body
@@ -180,7 +175,6 @@ def approve_job(job_id):
 
 
 @bp.route('/<string:job_id>/cancel', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def cancel_job(job_id):
     """Cancel a still-queued job. A running job can't be interrupted mid-decode;
