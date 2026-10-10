@@ -2,7 +2,6 @@ import json
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
@@ -118,7 +117,6 @@ def _serialize_template(t: Template) -> dict:
 
 
 @bp.route('', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_template():
     data = request.get_json(silent=True) or {}
@@ -195,7 +193,6 @@ def create_template():
 
 
 @bp.route('/user/<string:user_id>', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_templates_for_user(user_id):
     current_user = get_jwt_identity()
@@ -226,7 +223,6 @@ def get_templates_for_user(user_id):
 
 
 @bp.route('/all', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_super_admin
 def list_all_templates():
     """Every template across all organizations (super-admin / central IT).
@@ -269,7 +265,6 @@ def list_all_templates():
 
 
 @bp.route('/<string:id>', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_template(id):
     current_user = get_jwt_identity()
@@ -294,7 +289,6 @@ def get_template(id):
 
 
 @bp.route('/<string:id>', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_template(id):
     current_user = get_jwt_identity()
@@ -381,7 +375,6 @@ def update_template(id):
 
 
 @bp.route('/<string:id>/roles', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def set_template_roles(id):
     """Share a template with a set of roles (replace semantics). Admin-only,
@@ -415,7 +408,6 @@ def set_template_roles(id):
 
 
 @bp.route('/<string:id>/delete', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_template_as_deleted(id):
     current_user = get_jwt_identity()
@@ -450,7 +442,6 @@ def mark_template_as_deleted(id):
 
 
 @bp.route('/<string:id>/delete-permanently', methods=['DELETE'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def delete_template(id):
     """Hard-delete a template. Notes that referenced it keep their already-
@@ -487,7 +478,6 @@ def delete_template(id):
 
 
 @bp.route('/<string:id>/restore', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def mark_template_as_restored(id):
     current_user = get_jwt_identity()
