@@ -10,7 +10,6 @@ import base64
 import hashlib
 
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
@@ -31,7 +30,6 @@ def _current_user_or_404():
 
 
 @bp.route('/vocabulary', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_vocabulary():
     user, err = _current_user_or_404()
@@ -44,7 +42,6 @@ def get_vocabulary():
 
 
 @bp.route('/vocabulary', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_vocabulary():
     """Body: {"terms": [str, ...]}. Replaces the user's list entirely."""
@@ -72,7 +69,6 @@ def update_vocabulary():
 
 
 @bp.route('/abbreviations', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_abbreviations():
     user, err = _current_user_or_404()
@@ -85,7 +81,6 @@ def get_abbreviations():
 
 
 @bp.route('/abbreviations', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def update_abbreviations():
     """Body: {"abbreviations": {short: long, ...}}. Replaces the user's
@@ -119,7 +114,6 @@ def update_abbreviations():
 
 
 @bp.route('/recording-key', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_recording_key():
     """Per-user key for the client-side encrypted recording buffer.
