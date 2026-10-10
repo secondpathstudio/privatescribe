@@ -3,7 +3,6 @@ import logging
 import os
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db, limiter
@@ -270,7 +269,6 @@ def transcribe():
 
 
 @bp.route('/api/ollama/models', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def list_ollama_models():
     """Return the models installed in the local Ollama server.
@@ -308,7 +306,6 @@ def list_ollama_models():
 
 
 @bp.route('/api/ollama/health', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 def ollama_health():
     """Unauthenticated probe used by the Electron shell at app boot.
 
