@@ -9,7 +9,6 @@ import os
 from datetime import datetime, timezone
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
 from werkzeug.security import check_password_hash
 
@@ -26,7 +25,6 @@ bp = Blueprint("admin_settings", __name__, url_prefix="/api/admin/settings")
 
 
 @bp.route('', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def get_settings():
     return jsonify({
@@ -120,7 +118,6 @@ def get_settings():
 
 
 @bp.route('/upload-limit-mb', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_upload_limit():
     data = request.get_json(silent=True) or {}
@@ -160,7 +157,6 @@ def update_upload_limit():
 
 
 @bp.route('/trash-retention', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_trash_retention():
     """Set the trash-retention window and the auto-purge toggle.
@@ -224,7 +220,6 @@ def update_trash_retention():
 
 
 @bp.route('/audit-retention', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_audit_retention():
     """Set the audit-log retention window and the auto-purge toggle.
@@ -295,7 +290,6 @@ def update_audit_retention():
 
 
 @bp.route('/audio-storage', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_audio_storage():
     """Set audio-storage behavior, and optionally purge stored audio.
@@ -391,7 +385,6 @@ def update_audio_storage():
 
 
 @bp.route('/logout-on-close', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_logout_on_close():
     """Toggle whether the Electron shell drops auth on app close.
@@ -420,7 +413,6 @@ def update_logout_on_close():
 
 
 @bp.route('/session-idle-timeout', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_session_idle_timeout():
     """Set the idle session timeout in minutes. 0 disables it.
@@ -464,7 +456,6 @@ def update_session_idle_timeout():
 
 
 @bp.route('/account-lockout', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_account_lockout():
     """Set the account-lockout threshold and lock duration.
@@ -542,7 +533,6 @@ def update_account_lockout():
 
 
 @bp.route('/no-login-mode', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_no_login_mode():
     """Turn no-login (kiosk) mode on or off. Requires the admin's password.
@@ -623,7 +613,6 @@ def update_no_login_mode():
 
 
 @bp.route('/two-factor-required', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_two_factor_required():
     """Toggle whether 2FA is required for all users.
@@ -654,7 +643,6 @@ def update_two_factor_required():
 
 
 @bp.route('/password-policy', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_password_policy():
     """Set the password-strength policy for all credential-creation paths.
@@ -689,7 +677,6 @@ def update_password_policy():
 
 
 @bp.route('/exports-enabled', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_exports_enabled():
     """Toggle whether users can download notes as PDF / DOCX.
@@ -718,7 +705,6 @@ def update_exports_enabled():
 
 
 @bp.route('/dictation-markers-enabled', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_dictation_markers_enabled():
     """Toggle whether spoken dictation commands rewrite the transcript.
@@ -753,7 +739,6 @@ def update_dictation_markers_enabled():
 
 
 @bp.route('/append-recording-enabled', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_append_recording_enabled():
     """Toggle whether users can append additional recordings to a draft note.
@@ -789,7 +774,6 @@ def update_append_recording_enabled():
 
 
 @bp.route('/vocabulary', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def get_admin_vocabulary():
     """Mirrors the user-side GET shape ({"terms": [...]}) so the shared
@@ -798,7 +782,6 @@ def get_admin_vocabulary():
 
 
 @bp.route('/vocabulary', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_admin_vocabulary():
     """Body: {"terms": [str, ...]}. Replaces the admin-wide list entirely."""
@@ -824,7 +807,6 @@ def update_admin_vocabulary():
 
 
 @bp.route('/abbreviations', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def get_admin_abbreviations():
     """Mirrors the user-side GET shape ({"abbreviations": {...}})."""
@@ -832,7 +814,6 @@ def get_admin_abbreviations():
 
 
 @bp.route('/abbreviations', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_admin_abbreviations():
     """Body: {"abbreviations": {short: long, ...}}. Replaces entirely."""
@@ -864,7 +845,6 @@ def update_admin_abbreviations():
 
 
 @bp.route('/diarization-device', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_diarization_device():
     """Set which torch device pyannote runs on.
@@ -924,7 +904,6 @@ def update_diarization_device():
 
 
 @bp.route('/llm-model', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_llm_model():
     """Set the active default LLM model — what templates without their own
@@ -966,7 +945,6 @@ def update_llm_model():
 
 
 @bp.route('/whisper/models', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def whisper_models():
     """Return the Whisper model catalog for the Transcription settings UI.
@@ -987,7 +965,6 @@ def whisper_models():
 
 
 @bp.route('/whisper/install', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def whisper_install():
     """Download a Whisper model, then activate it — streamed as NDJSON.
@@ -1071,7 +1048,6 @@ def whisper_install():
 
 
 @bp.route('/stt/engines', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def stt_engines():
     """Speech-to-text engine catalog for the Transcription settings UI.
@@ -1101,7 +1077,6 @@ def stt_engines():
 
 
 @bp.route('/stt/medasr/accept-license', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def stt_medasr_accept_license():
     """Record that this admin has read and accepted Google's HAI-DEF terms.
@@ -1142,7 +1117,6 @@ def stt_medasr_accept_license():
 
 
 @bp.route('/stt/medasr/install', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def stt_medasr_install():
     """Download and install the MedASR weights — streamed as NDJSON.
@@ -1203,7 +1177,6 @@ def stt_medasr_install():
 
 
 @bp.route('/stt/engine', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def stt_set_engine():
     """Switch the active speech-to-text engine. Body: {"engine": "medasr"}.
