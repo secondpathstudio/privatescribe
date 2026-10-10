@@ -3,7 +3,6 @@ template sharing. See models/role.py. Assigning roles to users lives in
 routes/users.py alongside the rest of admin user management.
 """
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
 
 from app.extensions import db
@@ -25,7 +24,6 @@ def _serialize_role(role: Role) -> dict:
 
 
 @bp.route("", methods=["GET"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def list_roles():
     roles = Role.query.order_by(Role.name).all()
@@ -33,7 +31,6 @@ def list_roles():
 
 
 @bp.route("", methods=["POST"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def create_role():
     data = request.get_json(silent=True) or {}
@@ -60,7 +57,6 @@ def create_role():
 
 
 @bp.route("/<string:role_id>", methods=["DELETE"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def delete_role(role_id):
     """Delete a role. The user_roles / template_roles join rows are removed
