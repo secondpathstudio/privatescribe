@@ -1,5 +1,4 @@
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -43,7 +42,6 @@ def _validate_new_password(value) -> str | None:
 
 
 @bp.route('/api/getAllUsers', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def get_all_users():
     # Org-admins see only their own organization's users; super-admins see all.
@@ -80,7 +78,6 @@ def get_all_users():
 
 
 @bp.route('/api/admin/users', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def admin_create_user():
     data = request.get_json(silent=True) or {}
@@ -157,7 +154,6 @@ def admin_create_user():
 
 
 @bp.route('/api/me/change-password', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 @limiter.limit("10 per minute")
 def change_own_password():
@@ -202,7 +198,6 @@ def change_own_password():
 
 
 @bp.route('/api/admin/users/<string:user_id>/reset-password', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 @limiter.limit("10 per minute")
 def admin_reset_password(user_id):
@@ -263,7 +258,6 @@ def admin_reset_password(user_id):
 
 
 @bp.route('/api/admin/users/<string:user_id>/reset-2fa', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 @limiter.limit("10 per minute")
 def admin_reset_2fa(user_id):
@@ -316,7 +310,6 @@ def admin_reset_2fa(user_id):
 
 
 @bp.route('/api/admin/users/<string:user_id>/unlock', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 @limiter.limit("10 per minute")
 def admin_unlock_account(user_id):
@@ -367,7 +360,6 @@ def admin_unlock_account(user_id):
 
 
 @bp.route('/api/admin/users/<string:user_id>/deactivate', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 @limiter.limit("10 per minute")
 def admin_deactivate_user(user_id):
@@ -445,7 +437,6 @@ def admin_deactivate_user(user_id):
 
 
 @bp.route('/api/admin/users/<string:user_id>/activate', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 @limiter.limit("10 per minute")
 def admin_activate_user(user_id):
@@ -490,7 +481,6 @@ def admin_activate_user(user_id):
 
 
 @bp.route('/api/admin/users/<string:user_id>/roles', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def admin_set_user_roles(user_id):
     """Replace a user's role assignments with the given set of role ids.
@@ -531,7 +521,6 @@ _USER_PHI_MODELS = (Note, Template, Participant, AudioFile, NoteAddendum)
 
 
 @bp.route('/api/admin/users/<string:user_id>/organization', methods=['PUT'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_super_admin
 def admin_set_user_organization(user_id):
     """Move a user to a different organization (department). Super-admin only —
