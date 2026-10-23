@@ -153,7 +153,7 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
             <div className="border-4 border-black p-6 bg-white">
               <h4 className="text-xl font-black mb-2 uppercase">For everyone else</h4>
               <p className="text-sm mb-4">
-                Download the app for your platform, open it, and start recording. No terminal, no setup — the transcription and AI both run entirely on your device.
+                Download the app for your platform and follow an intuitive setup wizard to get started in minutes.
               </p>
               <div className="flex flex-col gap-3">
                 {PLATFORM_DOWNLOADS.map((d) => (
