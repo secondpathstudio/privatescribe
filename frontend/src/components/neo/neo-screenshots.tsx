@@ -138,7 +138,7 @@ const NeoScreenshots = ({ onNotifyClick }: Props) => {
             <div className="border-4 border-black p-6 bg-white">
               <h4 className="text-xl font-black mb-2 uppercase">For developers</h4>
               <p className="text-sm mb-4">
-                Clone the repo and run it locally. Full source under MIT license, no telemetry, fork it if you want to.
+                Clone the repo and run it locally. Full source under MIT license. 
               </p>
               <a
                 href="https://github.com/secondpathstudio/privatescribe"
