@@ -9,7 +9,6 @@ panel; this endpoint covers what the app itself knows.
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify
-from flask_cors import cross_origin
 
 from app.models import Organization, Session, User
 from app.security.auth import require_super_admin
@@ -33,7 +32,6 @@ def _active_session_count() -> int:
 
 
 @bp.route("/status", methods=["GET"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_super_admin
 def server_status():
     return jsonify({

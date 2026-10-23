@@ -6,7 +6,6 @@ singular endpoints; a super-admin (central IT) lists and creates orgs via the
 plural endpoints. First-run setup (routes/setup.py) creates the first org.
 """
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity
 
 from app.extensions import db
@@ -24,7 +23,6 @@ def _serialize(org):
 
 
 @bp.route("", methods=["GET"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def get_organization():
     """The acting admin's own organization (None for an org-less super-admin)."""
@@ -33,7 +31,6 @@ def get_organization():
 
 
 @bp.route("", methods=["PUT"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def update_organization():
     """Rename the acting admin's own organization.
@@ -88,7 +85,6 @@ def update_organization():
 
 
 @bp.route("/list", methods=["GET"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_super_admin
 def list_organizations():
     """All organizations with their user counts (super-admin / central IT)."""
@@ -99,7 +95,6 @@ def list_organizations():
 
 
 @bp.route("/create", methods=["POST"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_super_admin
 def create_organization():
     """Create a new organization/department (super-admin / central IT)."""

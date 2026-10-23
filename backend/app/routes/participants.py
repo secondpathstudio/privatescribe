@@ -2,7 +2,6 @@ import logging
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
@@ -15,7 +14,6 @@ bp = Blueprint("participants", __name__, url_prefix="/api/participants")
 
 
 @bp.route('', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def create_participant():
     data = request.get_json(silent=True) or {}
@@ -59,7 +57,6 @@ def create_participant():
 
 
 @bp.route('/<string:user_id>', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def get_participants_for_user(user_id):
     current_user = get_jwt_identity()

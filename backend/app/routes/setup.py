@@ -6,7 +6,6 @@ inert. Lets a packaged build bootstrap itself without shipping the Flask
 CLI to end users.
 """
 from flask import Blueprint, current_app, jsonify, request
-from flask_cors import cross_origin
 from werkzeug.security import generate_password_hash
 
 from app.deployment import SERVER
@@ -30,7 +29,6 @@ def _needs_setup() -> bool:
 
 
 @bp.route('/api/setup/status', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 def setup_status():
     """Unauthenticated probe so the login screen can flip to setup mode.
 
@@ -46,7 +44,6 @@ def setup_status():
 
 
 @bp.route('/api/setup/create-admin', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @limiter.limit("5 per minute")
 def setup_create_admin():
     if not _needs_setup():

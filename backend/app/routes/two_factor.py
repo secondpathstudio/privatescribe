@@ -6,7 +6,6 @@ self-service for an already-authenticated user (enroll, verify, disable,
 regenerate recovery codes, status) lives here.
 """
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from werkzeug.security import check_password_hash
 
@@ -20,7 +19,6 @@ bp = Blueprint("two_factor", __name__, url_prefix="/api/2fa")
 
 
 @bp.route('/status', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def status():
     user = User.query.get(get_jwt_identity())
@@ -34,7 +32,6 @@ def status():
 
 
 @bp.route('/enroll', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 @limiter.limit("10 per minute")
 def enroll():
@@ -62,7 +59,6 @@ def enroll():
 
 
 @bp.route('/verify', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 @limiter.limit("10 per minute")
 def verify():
@@ -99,7 +95,6 @@ def verify():
 
 
 @bp.route('/disable', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 @limiter.limit("10 per minute")
 def disable():
@@ -148,7 +143,6 @@ def disable():
 
 
 @bp.route('/recovery-codes/regenerate', methods=['POST'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 @limiter.limit("10 per minute")
 def regenerate_recovery_codes():

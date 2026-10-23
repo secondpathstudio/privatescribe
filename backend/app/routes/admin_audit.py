@@ -5,7 +5,6 @@ import json
 from datetime import datetime
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
-from flask_cors import cross_origin
 from sqlalchemy import desc
 
 from flask_jwt_extended import get_jwt_identity
@@ -129,7 +128,6 @@ def _serialize_entry(r: AuditLog) -> dict:
 
 
 @bp.route('', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def list_audit_log():
     """Return audit log rows, newest first, with optional filters.
@@ -254,7 +252,6 @@ def _stream_json(query):
 
 
 @bp.route('/export', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def export_audit_log():
     """Stream the full filtered audit log as a CSV or JSON download.
@@ -311,7 +308,6 @@ def export_audit_log():
 
 
 @bp.route('/actions', methods=['GET'])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def list_distinct_actions():
     """Return the distinct action names present in the log.

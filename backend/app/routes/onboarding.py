@@ -6,7 +6,6 @@ onboarding complete. `onboarding_completed` is a global SystemSetting the
 frontend reads to decide whether to route a fresh admin into the wizard.
 """
 from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 from app.extensions import db
@@ -20,7 +19,6 @@ bp = Blueprint("onboarding", __name__, url_prefix="/api/onboarding")
 
 
 @bp.route("/status", methods=["GET"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def onboarding_status():
     """Whether first-run onboarding has been completed (a global flag)."""
@@ -28,7 +26,6 @@ def onboarding_status():
 
 
 @bp.route("/catalog", methods=["GET"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def onboarding_catalog():
     """Use-case catalog so the wizard can show what each option includes."""
@@ -36,7 +33,6 @@ def onboarding_catalog():
 
 
 @bp.route("/complete", methods=["POST"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @require_admin
 def onboarding_complete():
     """Finish onboarding: seed the picked starter templates, set the flag.
@@ -79,7 +75,6 @@ def onboarding_complete():
 
 
 @bp.route("/user-complete", methods=["POST"])
-@cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def onboarding_user_complete():
     """Mark the current user as having finished onboarding.
