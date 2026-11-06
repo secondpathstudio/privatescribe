@@ -1,8 +1,11 @@
 import json
 import logging
 import os
+import queue
+import threading
+import time
 
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from flask_cors import cross_origin
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
@@ -17,6 +20,7 @@ from app.services.audit import log_action
 from app.services.strictness import effective_strictness, level_for
 from app.services.diarization import (
     DiarizationUnavailable,
+    ProgressAbort,
     diarize_path,
     merge_segments,
     relabel_speakers,
@@ -38,6 +42,66 @@ _AUDIO_UPLOAD_MIMES = {
     'video/webm',  # MediaRecorder default
     'video/mp4',   # m4a-in-mp4 containers
 }
+
+
+# Diarization progress is forwarded at most this often (or on a >=1% move),
+# so a long file's thousands of embedding batches don't flood the stream.
+_DIARIZE_EVENT_MIN_SEC = 2.0
+_DIARIZE_EVENT_MIN_STEP = 0.01
+
+
+def _diarize_streaming(audio_path: str, max_speakers: int | None):
+    """Run diarize_path on a helper thread, yielding its progress as it goes.
+
+    pyannote is one blocking call, so the stream used to go silent for the
+    whole of diarization — on a long CPU run, indistinguishable from a hang.
+    Here its progress hook feeds a queue the request generator drains.
+
+    Yields ``("progress", fraction, label)`` events, then exactly one
+    ``("result", turns)``; re-raises whatever diarization raised. If the
+    consumer stops early (client disconnected → generator closed), the next
+    progress callback raises ProgressAbort, so diarization stops instead of
+    burning CPU for a response nobody will read.
+    """
+    events: queue.Queue = queue.Queue()
+    abort = threading.Event()
+    app = current_app._get_current_object()
+
+    def on_progress(frac: float, label: str) -> None:
+        if abort.is_set():
+            raise ProgressAbort("client disconnected")
+        events.put(("progress", frac, label))
+
+    def run() -> None:
+        try:
+            with app.app_context():
+                turns = diarize_path(audio_path, max_speakers=max_speakers, progress=on_progress)
+            events.put(("result", turns, None))
+        except BaseException as e:  # hand every outcome back to the consumer
+            events.put(("error", e, None))
+
+    worker = threading.Thread(target=run, daemon=True, name="diarize-stream")
+    worker.start()
+    last_frac, last_t = -1.0, 0.0
+    try:
+        while True:
+            kind, payload, label = events.get()
+            if kind == "result":
+                yield "result", payload, None
+                return
+            if kind == "error":
+                raise payload
+            now = time.monotonic()
+            if payload - last_frac >= _DIARIZE_EVENT_MIN_STEP or now - last_t >= _DIARIZE_EVENT_MIN_SEC:
+                last_frac, last_t = payload, now
+                yield "progress", payload, label
+    finally:
+        # Normal exit: no-op. Early close (GeneratorExit): stop diarization at
+        # its next progress step. Either way the WAV is only unlinked by the
+        # caller after this returns — wait briefly so an aborting run isn't
+        # still reading a deleted file.
+        abort.set()
+        worker.join(timeout=10)
 
 
 def _truthy(value: str | None) -> bool:
@@ -64,6 +128,7 @@ def transcribe():
       {"stage": "transcribing"}                           # Whisper
       {"stage": "transcribing", "progress": 0.0..1.0}     # per-segment progress
       {"stage": "diarizing"}                              # only if diarize=true
+      {"stage": "diarizing", "progress": 0.0..1.0, "detail": "embeddings 340/1200"}
       {"stage": "complete", "raw_note": "...", "segments": [...] | null}
       {"stage": "error", "error": "...", "message": "...", "raw_note"?: "..."}
 
@@ -226,7 +291,16 @@ def transcribe():
 
             yield json.dumps({"stage": "diarizing"}) + "\n"
             try:
-                turns = diarize_path(audio_path, max_speakers=max_speakers)
+                turns = []
+                for kind, payload, label in _diarize_streaming(audio_path, max_speakers):
+                    if kind == "progress":
+                        yield json.dumps({
+                            "stage": "diarizing",
+                            "progress": round(payload, 4),
+                            "detail": label,
+                        }) + "\n"
+                    else:
+                        turns = payload
             except DiarizationUnavailable as e:
                 # Same contract as the old 422: client falls back to the raw
                 # transcript and surfaces the message. We also include the

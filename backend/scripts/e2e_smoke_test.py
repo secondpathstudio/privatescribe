@@ -220,6 +220,9 @@ def main():
     print("\n[11] Cancel + retry (incl. canceling a running job)")
     _cancel_and_retry(app, client, auth, uid)
 
+    print("\n[11a] Direct upload streams diarization progress (+ stops on disconnect)")
+    _stream_diarization_progress(client, auth)
+
     if _ARGS.long_audio:
         print(f"\n[11b] Real-engine long recording: {_ARGS.long_audio}")
         _real_long_audio(client, auth, _ARGS.long_audio)
@@ -679,6 +682,93 @@ def _cancel_and_retry(app, client, auth, uid):
         for i in (orphan_id, raced_id):
             db.session.delete(db.session.get(Job, i))
         db.session.commit()
+
+
+def _stream_diarization_progress(client, auth):
+    """/api/transcribe used to go silent for all of diarization — on a long CPU
+    run, indistinguishable from a hang. It now streams pyannote's progress,
+    keeps the diarization_unavailable fallback, and stops diarizing when the
+    client goes away."""
+    import threading
+    import time
+    import app.routes.transcription as tr
+    from app.services import diarization, stt
+
+    path = _make_long_audio(2)
+    probe = _DurationProbeEngine()
+    real_engine, real_diarize = stt.get_engine, tr.diarize_path
+    stt.get_engine = lambda name=None: probe
+
+    def post():
+        f = open(path, "rb")
+        return client.post("/api/transcribe", headers=auth, data={
+            "file": (f, "two-speakers.m4a", "audio/mp4"), "diarize": "true",
+        }, content_type="multipart/form-data", buffered=False)
+
+    try:
+        # (a) Progress events, in order, then a diarized complete event.
+        def fake_diarize(p, num_speakers=None, max_speakers=None, progress=None):
+            hook = diarization._progress_hook(progress)
+            hook("segmentation", object(), file={})
+            for i in range(0, 41):
+                hook("embeddings", None, file={}, total=40, completed=i)
+            hook("discrete_diarization", object(), file={})
+            return [{"start": 0.0, "end": 60.0, "speaker": "SPEAKER_00"},
+                    {"start": 60.0, "end": 120.0, "speaker": "SPEAKER_01"}]
+
+        tr.diarize_path = fake_diarize
+        r = post()
+        events = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+        diar = [e for e in events if e.get("stage") == "diarizing" and "progress" in e]
+        fr = [e["progress"] for e in diar]
+        check("diarizing stage streams progress events", len(diar) >= 3, f"n={len(diar)}")
+        check("diarization progress is monotonic and reaches 100%",
+              fr == sorted(fr) and fr[-1] == 1.0, fr)
+        check("progress events carry a step detail (e.g. 'embeddings 20/40')",
+              any("embeddings" in (e.get("detail") or "") for e in diar), [e.get("detail") for e in diar])
+        check("throttled — not one event per pyannote batch", len(diar) < 43, f"n={len(diar)}")
+        final = events[-1] if events else {}
+        check("still ends in a diarized complete event",
+              final.get("stage") == "complete" and len({s.get("speaker") for s in final.get("segments") or []}) == 2,
+              {k: final.get(k) for k in ("stage", "error", "message")})
+
+        # (b) Fallback contract unchanged when diarization is unavailable.
+        def unavailable(*a, **k):
+            raise diarization.DiarizationUnavailable("no pipeline")
+        tr.diarize_path = unavailable
+        events = [json.loads(l) for l in post().get_data(as_text=True).splitlines() if l.strip()]
+        final = events[-1] if events else {}
+        check("diarization_unavailable still falls back with the raw transcript",
+              final.get("error") == "diarization_unavailable" and "minute 1" in (final.get("raw_note") or ""),
+              {k: final.get(k) for k in ("stage", "error")})
+
+        # (c) Client disconnects mid-diarization → diarization is told to stop.
+        aborted = threading.Event()
+
+        def slow_diarize(p, num_speakers=None, max_speakers=None, progress=None):
+            hook = diarization._progress_hook(progress)
+            try:
+                for i in range(0, 600):
+                    hook("embeddings", None, file={}, total=600, completed=i)
+                    time.sleep(0.02)
+            except diarization.ProgressAbort:
+                aborted.set()
+                raise
+            return []
+
+        tr.diarize_path = slow_diarize
+        r = post()
+        saw_progress = False
+        for chunk in r.response:
+            line = chunk.decode() if isinstance(chunk, bytes) else chunk
+            if '"diarizing"' in line and '"progress"' in line:
+                saw_progress = True
+                break
+        r.close()  # what the server does when the client goes away
+        check("disconnect mid-diarization stops pyannote (ProgressAbort raised)",
+              saw_progress and aborted.wait(10), f"saw_progress={saw_progress} aborted={aborted.is_set()}")
+    finally:
+        stt.get_engine, tr.diarize_path = real_engine, real_diarize
 
 
 def _real_long_audio(client, auth, path):

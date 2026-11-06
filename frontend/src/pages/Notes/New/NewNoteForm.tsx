@@ -36,6 +36,11 @@ type Props = {
     savedParticipants?: Participant[]
 }
 
+// Warn when /api/transcribe has sent nothing for this long. Matches the Upload
+// Queue's stall threshold; Whisper segments and pyannote steps arrive far more
+// often than this even on a slow CPU, so only a real hang should trip it.
+const UPLOAD_STALL_SEC = 5 * 60;
+
 const NewNoteForm = ({templates, savedParticipants}: Props) => {
     const auth = useAuth();
     const mdxEditorRef = React.useRef<MDXEditorMethods>(null)
@@ -50,12 +55,26 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     type Stage = null | 'decoding' | 'transcribing' | 'diarizing' | 'formatting';
     const [stage, setStage] = React.useState<Stage>(null);
     const [elapsed, setElapsed] = React.useState(0);
-    // Whisper transcription progress (0–1). Populated from the NDJSON stream
-    // every time a segment is decoded. null = the backend hasn't reported a
-    // value yet, render the spinner alone (e.g. while ffmpeg decodes the
-    // upload to WAV before Whisper starts).
-    const [transcribeProgress, setTranscribeProgress] = React.useState<number | null>(null);
+    // Progress (0–1) of the current upload stage, from the NDJSON stream:
+    // Whisper reports it per decoded segment, pyannote per diarization step.
+    // null = no value yet for this stage — render the spinner alone (e.g.
+    // while ffmpeg decodes the upload to WAV). Reset on every stage change.
+    const [stageProgress, setStageProgress] = React.useState<number | null>(null);
+    // Step detail for the current stage, e.g. "embeddings 340/1200".
+    const [stageDetail, setStageDetail] = React.useState<string | null>(null);
+    // Lets the user stop a long /api/transcribe. Aborting closes the stream,
+    // which also stops the backend's Whisper/pyannote work for it.
+    const transcribeAbortRef = React.useRef<AbortController | null>(null);
+    // When the transcribe stream last produced an event, and how long it's been
+    // quiet. A long recording on a slow CPU is fine as long as events keep
+    // coming; a long silence is what a hang looks like.
+    const lastEventAtRef = React.useRef(0);
+    const [quietSec, setQuietSec] = React.useState(0);
     const busy = stage !== null;
+    // The /api/transcribe part of the pipeline (formatting has its own stream
+    // and cancel). Stall = no stream event for UPLOAD_STALL_SEC.
+    const isUploadStage = stage === 'decoding' || stage === 'transcribing' || stage === 'diarizing';
+    const uploadStalled = isUploadStage && quietSec >= UPLOAD_STALL_SEC;
     const [markdown, setMarkdown] = React.useState('');
     // Streaming preview text from /api/getMarkdown. Updated on every NDJSON
     // chunk so the user sees the LLM's raw output materialize in real time,
@@ -151,6 +170,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         setElapsed(0);
         const id = setInterval(() => {
             setElapsed(Math.floor((Date.now() - start) / 1000));
+            setQuietSec(lastEventAtRef.current ? Math.floor((Date.now() - lastEventAtRef.current) / 1000) : 0);
         }, 250);
         return () => clearInterval(id);
     }, [isActive]);
@@ -385,7 +405,12 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         }
 
         setStage('transcribing');
-        setTranscribeProgress(null);
+        setStageProgress(null);
+        setStageDetail(null);
+        lastEventAtRef.current = Date.now();
+        setQuietSec(0);
+        const abort = new AbortController();
+        transcribeAbortRef.current = abort;
         const formData = new FormData();
         // Backend uses the filename's extension to pick a pydub decoder, so we
         // pass through the real filename for uploads (mp3/m4a/wav/...) and
@@ -411,6 +436,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     "Authorization": `Bearer ${auth.token}`,
                 },
                 body: formData,
+                signal: abort.signal,
             });
 
             // 413 is enforced by Flask before our handler runs and comes back
@@ -432,7 +458,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             // event is either {stage: "complete", ...} or {stage: "error", ...}.
             // We have to buffer across chunks because a JSON object can span
             // network reads.
-            type ProgressEvent = { stage: 'decoding' | 'transcribing' | 'diarizing'; progress?: number };
+            type ProgressEvent = { stage: 'decoding' | 'transcribing' | 'diarizing'; progress?: number; detail?: string };
             type TerminalEvent =
                 | { stage: 'complete'; raw_note: string; segments: { speaker: string; start: number; end: number; text: string }[] | null; words?: WordInfo[]; audio_file_id?: string }
                 | { stage: 'error'; error?: string; message?: string; raw_note?: string; words?: WordInfo[]; audio_file_id?: string };
@@ -442,6 +468,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             const decoder = new TextDecoder();
             let buffer = '';
             let finalEvent: TerminalEvent | null = null;
+            let streamStage: ProgressEvent['stage'] = 'transcribing';
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -458,11 +485,18 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         console.error('Bad NDJSON line from /api/transcribe:', line, e);
                         continue;
                     }
+                    lastEventAtRef.current = Date.now();
                     if (evt.stage === 'decoding' || evt.stage === 'transcribing' || evt.stage === 'diarizing') {
-                        setStage(evt.stage);
-                        if (evt.stage === 'transcribing' && typeof (evt as any).progress === 'number') {
-                            setTranscribeProgress((evt as any).progress);
+                        const pe = evt as ProgressEvent;
+                        if (pe.stage !== streamStage) {
+                            // New stage: its progress starts over.
+                            streamStage = pe.stage;
+                            setStage(pe.stage);
+                            setStageProgress(null);
+                            setStageDetail(null);
                         }
+                        if (typeof pe.progress === 'number') setStageProgress(pe.progress);
+                        if (pe.detail) setStageDetail(pe.detail);
                     } else {
                         // 'complete' or 'error' — terminal events. We don't
                         // break here because the server should have closed the
@@ -526,11 +560,21 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             setStage('formatting');
             await getMarkdown(finalEvent.raw_note);
         } catch (error: any) {
-            console.error('Upload failed:', error);
-            toast.error(`Upload failed: ${error.message}`);
+            if (error?.name === 'AbortError') {
+                toast.info('Transcription canceled.');
+            } else {
+                console.error('Upload failed:', error);
+                toast.error(`Upload failed: ${error.message}`);
+            }
             setStage(null);
+        } finally {
+            if (transcribeAbortRef.current === abort) transcribeAbortRef.current = null;
         }
     }
+
+    const cancelTranscription = () => {
+        transcribeAbortRef.current?.abort();
+    };
 
     const getMarkdownStructured = async (rawNote: string, signal?: AbortSignal) => {
         // Streaming path for structured (Studio) templates. Backend may run
@@ -1144,29 +1188,48 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         {stage === 'formatting' && 'Formatting note (LLM)...'}
                     </span>
                 </div>
-                {/* Determinate progress bar for Whisper. The other stages have
-                    no good progress signal (pyannote runs as a single pass;
-                    LLM token count is unknown ahead of time), so they keep
-                    the spinner-only treatment. */}
-                {stage === 'transcribing' && transcribeProgress !== null && (
+                {/* Determinate progress bar for Whisper and pyannote, both of
+                    which stream progress. Decoding is quick and LLM token count
+                    is unknown ahead of time, so those keep the spinner only. */}
+                {(stage === 'transcribing' || stage === 'diarizing') && stageProgress !== null && (
                     <div className="w-64 mt-1">
                         <div className="h-2 border-2 border-black bg-white overflow-hidden">
                             <div
-                                className="h-full bg-[#fd3777]"
+                                className={uploadStalled ? 'h-full bg-amber-400' : 'h-full bg-[#fd3777]'}
                                 style={{
-                                    width: `${Math.min(100, Math.round(transcribeProgress * 100))}%`,
+                                    width: `${Math.min(100, Math.round(stageProgress * 100))}%`,
                                     transition: 'width 120ms linear',
                                 }}
                             />
                         </div>
                         <div className="text-[10px] text-gray-600 tabular-nums text-center mt-0.5">
-                            {Math.round(transcribeProgress * 100)}%
+                            {Math.round(stageProgress * 100)}%
+                            {stage === 'diarizing' && stageDetail && ` · ${stageDetail}`}
                         </div>
                     </div>
                 )}
                 <span className="text-xs text-gray-600 tabular-nums">
                     {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')} elapsed
                 </span>
+                {uploadStalled && (
+                    <div className="mt-2 max-w-md border-2 border-black bg-amber-100 px-3 py-2 text-xs text-amber-900">
+                        <span className="font-bold">
+                            No update for {Math.floor(quietSec / 60)} min — transcription may be stuck.
+                        </span>{' '}
+                        Long recordings can be slow, but they normally keep updating. You can keep
+                        waiting or cancel. For recordings over an hour, the Upload Queue is safer: it
+                        runs in the background and picks up again after a restart.
+                    </div>
+                )}
+                {isUploadStage && (
+                    <button
+                        type="button"
+                        onClick={cancelTranscription}
+                        className="mt-1 text-xs font-bold uppercase tracking-wider underline text-[#fd3777] hover:text-black"
+                    >
+                        Cancel transcription
+                    </button>
+                )}
                 {stage === 'formatting' && (
                     <button
                         type="button"
