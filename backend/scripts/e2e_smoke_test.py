@@ -14,6 +14,8 @@ the create fails exactly as reported, then proves reconcile_schema() heals it.
 
     cd backend && source venv/bin/activate
     python scripts/e2e_smoke_test.py
+    python scripts/e2e_smoke_test.py --long-minutes 80          # longer fixture
+    python scripts/e2e_smoke_test.py --long-audio ~/visit.m4a   # + real engine run
 
 Exits non-zero if any check fails, so it can gate a release build. The LLM
 formatting pass (Ollama) is intentionally out of scope here — it needs a live
@@ -21,6 +23,7 @@ model; the verbatim getMarkdown path exercises the same streaming pipeline
 without that dependency. Point a separate HTTP check at a running instance to
 cover the full Ollama round-trip.
 """
+import argparse
 import json
 import os
 import secrets
@@ -34,6 +37,15 @@ warnings.filterwarnings("ignore")
 
 # Self-contained env: isolated data dir + key, no diarization prewarm. Must be
 # set before `app` is imported so create_app() picks them up.
+_parser = argparse.ArgumentParser(description="PrivateScribe end-to-end smoke test")
+_parser.add_argument("--long-minutes", type=int, default=66,
+                     help="length of the synthetic long-upload fixture (default 66)")
+_parser.add_argument("--long-audio", metavar="PATH",
+                     help="also run this real recording through the real STT engine (slow)")
+_parser.add_argument("--diarize", action="store_true",
+                     help="with --long-audio, also run speaker diarization")
+_ARGS = _parser.parse_args()
+
 _TMP = tempfile.mkdtemp(prefix="ps-e2e-")
 os.environ["PRIVATESCRIBE_DATA_DIR"] = _TMP
 os.environ.setdefault("SQLCIPHER_KEY", secrets.token_hex(32))
@@ -196,10 +208,220 @@ def main():
     print("\n[7] Recording-chunk key (encrypted client-side crash buffer)")
     _recording_chunk_key(client, auth)
 
-    print("\n[8] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
+    print(f"\n[8] Long-duration upload ({_ARGS.long_minutes} min) — direct + queued")
+    _long_duration_upload(app, client, auth)
+
+    print("\n[9] Interrupted-job recovery (backend restart mid-transcription)")
+    _interrupted_job_recovery(app, uid)
+
+    if _ARGS.long_audio:
+        print(f"\n[9b] Real-engine long recording: {_ARGS.long_audio}")
+        _real_long_audio(client, auth, _ARGS.long_audio)
+
+    # Last: it drops + recreates the template table under the app's feet.
+    print("\n[10] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
     _schema_drift_regression(app, client, auth, uid)
 
     return _summary_exit()
+
+
+# ---------------------------------------------------------------------------
+# Long-duration uploads
+# ---------------------------------------------------------------------------
+
+def _make_long_audio(minutes: int) -> str:
+    """Synthesize an N-minute mono AAC (.m4a) file with the bundled ffmpeg.
+
+    A recorder-style compressed file keeps the fixture small (~15 MB for an
+    hour) while still forcing the real decode path to expand it into a
+    full-length 16 kHz WAV (~120 MB for an hour) — which is where duration
+    limits, transcode timeouts and truncation would show up.
+    """
+    import subprocess
+    from app.services import ffmpeg as ffmpeg_service
+
+    exe = ffmpeg_service.get_ffmpeg() or ffmpeg_service.configure()
+    out = os.path.join(_TMP, f"long-{minutes}min.m4a")
+    subprocess.run(
+        [exe, "-nostdin", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", f"sine=frequency=440:sample_rate=16000:duration={minutes * 60}",
+         "-ac", "1", "-c:a", "aac", "-b:a", "32k", out],
+        check=True, timeout=300,
+    )
+    return out
+
+
+class _DurationProbeEngine:
+    """Stub STT engine: emits one segment per minute of the WAV it's handed.
+
+    It reads the *decoded* WAV the route produced, so the last segment's end
+    time is ground truth for "did the whole file make it through decode" —
+    a truncated transcode, a silently clipped upload or a stream that dies
+    partway all show up as a short timeline. No model, so a 66-minute file
+    runs in seconds.
+    """
+    name = "e2e-duration-probe"
+
+    def transcribe_streaming(self, wav_path, language="en", *, initial_prompt=None, batched=False):
+        import wave
+        with wave.open(wav_path, "rb") as w:
+            duration = w.getnframes() / float(w.getframerate())
+        segments, parts, t, i = [], [], 0.0, 0
+        while t < duration:
+            end = min(duration, t + 60.0)
+            text = f"minute {i}"
+            segments.append({"start": t, "end": end, "text": text})
+            parts.append(text)
+            yield "progress", min(1.0, end / duration)
+            t, i = end, i + 1
+        yield "result", (" ".join(parts), segments, [])
+
+
+def _long_duration_upload(app, client, auth):
+    """A long recording must make it through both upload paths end to end:
+    the streaming /api/transcribe (single note) and the background job queue
+    (batch upload). Guards the field report of a 66-min file stopping
+    partway on Windows after an 80-min one succeeded."""
+    import time
+    from app.services import stt
+
+    minutes = _ARGS.long_minutes
+    expected = minutes * 60.0
+    t0 = time.monotonic()
+    path = _make_long_audio(minutes)
+    size_mb = os.path.getsize(path) / 1e6
+    check(f"synthesized {minutes}-min fixture ({size_mb:.1f} MB)", os.path.getsize(path) > 0)
+
+    real_get_engine = stt.get_engine
+    probe = _DurationProbeEngine()
+    stt.get_engine = lambda name=None: probe
+    try:
+        # (a) Direct streaming upload — the New Note flow.
+        with open(path, "rb") as f:
+            r = client.post("/api/transcribe", headers=auth, data={
+                "file": (f, os.path.basename(path), "audio/mp4"),
+                "diarize": "false",
+            }, content_type="multipart/form-data")
+        events = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+        complete = next((e for e in events if e.get("stage") == "complete"), None)
+        errors = [e for e in events if e.get("stage") == "error"]
+        check("/api/transcribe on a long file streams a complete event (no error)",
+              r.status_code == 200 and complete is not None and not errors,
+              f"status={r.status_code} errors={errors} last={events[-1:] }")
+        progress = [e["progress"] for e in events if "progress" in e]
+        check("progress is monotonic and reaches 100%",
+              bool(progress) and progress == sorted(progress) and progress[-1] >= 0.999,
+              f"n={len(progress)} last={progress[-1:]}")
+        check(f"decoded timeline covers the full {minutes} min (no truncation)",
+              complete is not None
+              and f"minute {minutes - 1}" in (complete.get("raw_note") or ""),
+              f"tail={(complete or {}).get('raw_note', '')[-60:]!r}")
+        check("long upload stored as an encrypted audio file",
+              bool((complete or {}).get("audio_file_id")), complete and complete.get("audio_file_id"))
+
+        # (b) Queued batch upload — the Upload Queue flow. The worker thread
+        #     create_app() started picks it up; poll the job to completion.
+        with open(path, "rb") as f:
+            r = client.post("/api/jobs/transcribe", headers=auth, data={
+                "audio": (f, os.path.basename(path), "audio/mp4"),
+            }, content_type="multipart/form-data")
+        job = _json(r)
+        job_id = job.get("id")
+        check("POST /api/jobs/transcribe (long file) → 201",
+              r.status_code == 201 and bool(job_id), f"status={r.status_code} body={job}")
+        deadline = time.monotonic() + 300
+        seen_progress = set()
+        while job_id and time.monotonic() < deadline:
+            job = _json(client.get(f"/api/jobs/{job_id}", headers=auth))
+            seen_progress.add(job.get("progress"))
+            if job.get("status") in ("done", "failed", "canceled"):
+                break
+            time.sleep(0.5)
+        check("queued long job finishes 'done' (not stuck running)",
+              job.get("status") == "done",
+              f"status={job.get('status')} stage={job.get('stage')} "
+              f"progress={job.get('progress')} error={job.get('error')}")
+        note_ids = job.get("noteIds") or []
+        raw = ""
+        if note_ids:
+            raw = _json(client.get(f"/api/notes/{note_ids[0]}", headers=auth)).get("noteContentRaw") or ""
+        check(f"queued draft note covers the full {minutes} min",
+              f"minute {minutes - 1}" in raw, f"note_ids={note_ids} tail={raw[-60:]!r}")
+    finally:
+        stt.get_engine = real_get_engine
+    print(f"          ({time.monotonic() - t0:.1f}s for fixture + both paths)")
+
+
+def _interrupted_job_recovery(app, uid):
+    """A job left `running` by a dead process (app quit / crash / update
+    restart mid-transcription) must not sit at its last progress forever:
+    boot requeues it, and fails it once it has been interrupted too often."""
+    from app.models import Job
+    from app.services import job_queue
+
+    with app.app_context():
+        # No AudioFile needed: the worker only claims type="transcription", so
+        # these probe rows are never actually picked up once requeued.
+        fresh = Job(author_id=uid, type="e2e-recovery", status=Job.STATUS_RUNNING,
+                    attempts=1, progress=30, stage="transcribing")
+        spent = Job(author_id=uid, type="e2e-recovery", status=Job.STATUS_RUNNING,
+                    attempts=job_queue.MAX_ATTEMPTS, progress=30, stage="transcribing")
+        db.session.add_all([fresh, spent])
+        db.session.commit()
+        fresh_id, spent_id = fresh.id, spent.id
+
+    requeued, failed = job_queue.recover_interrupted_jobs(app)
+    with app.app_context():
+        fresh = db.session.get(Job, fresh_id)
+        spent = db.session.get(Job, spent_id)
+        check("interrupted job (attempt 1) is requeued with progress reset",
+              fresh.status == Job.STATUS_QUEUED and fresh.progress == 0,
+              f"status={fresh.status} progress={fresh.progress}")
+        check(f"job interrupted {job_queue.MAX_ATTEMPTS}x is failed with a reason (no crash loop)",
+              spent.status == Job.STATUS_FAILED and bool(spent.error_text),
+              f"status={spent.status} error={spent.error_text!r}")
+        check("recovery reports its counts", requeued >= 1 and failed >= 1,
+              f"requeued={requeued} failed={failed}")
+        # Tidy up so later sections see a clean queue.
+        db.session.delete(fresh)
+        db.session.delete(spent)
+        db.session.commit()
+
+
+def _real_long_audio(client, auth, path):
+    """Opt-in (--long-audio PATH): push a real recording through the real STT
+    engine and check the transcript reaches the end of the file. Slow — run it
+    on the target machine (e.g. a Windows box) with a real 60+ min recording."""
+    import time
+    import wave
+    from app.services import whisper
+
+    wav = os.path.join(_TMP, "real-long.wav")
+    whisper._transcode_to_wav(path, wav)
+    with wave.open(wav, "rb") as w:
+        duration = w.getnframes() / float(w.getframerate())
+    os.unlink(wav)
+
+    t0 = time.monotonic()
+    with open(path, "rb") as f:
+        r = client.post("/api/transcribe", headers=auth, data={
+            "file": (f, os.path.basename(path)),
+            "diarize": "true" if _ARGS.diarize else "false",
+        }, content_type="multipart/form-data")
+    events = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+    elapsed = time.monotonic() - t0
+    final = events[-1] if events else {}
+    check("real long recording streams a complete event",
+          final.get("stage") == "complete", f"final={ {k: final.get(k) for k in ('stage', 'error', 'message')} }")
+    segs = final.get("segments") or []
+    # Non-diarized responses don't return segments; fall back to the progress stream.
+    progress = [e["progress"] for e in events if "progress" in e]
+    last_end = max((s.get("end") or 0) for s in segs) if segs else (progress[-1] * duration if progress else 0)
+    coverage = last_end / duration if duration else 0
+    check(f"transcript reaches the end of the recording (≥90% of {duration / 60:.1f} min)",
+          coverage >= 0.90, f"last speech at {last_end / 60:.1f} min = {coverage:.0%}")
+    print(f"          ({elapsed / 60:.1f} min wall for {duration / 60:.1f} min audio, "
+          f"{len((final.get('raw_note') or '').split())} words)")
 
 
 def _append_recording_flow(app, client, auth, uid):

@@ -88,6 +88,16 @@ jobs:
           pip install -r backend/requirements.txt
           pip install pyinstaller==6.20.0
 
+      # Gate the build on the backend e2e suite, on each target OS. It includes
+      # a 66-min long-upload run through both /api/transcribe and the job queue
+      # (stub STT engine — no model download) plus interrupted-job recovery —
+      # added after a Windows report of a long upload stopping partway.
+      - name: Backend e2e smoke test (incl. long-duration upload)
+        working-directory: backend
+        env:
+          PYTHONIOENCODING: utf-8 # labels use →/≥; the Windows runner defaults to cp1252
+        run: python scripts/e2e_smoke_test.py
+
       - name: Install Node deps (root)
         run: npm ci
 

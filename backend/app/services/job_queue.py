@@ -60,6 +60,59 @@ def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, diariz
     return job
 
 
+# A job interrupted this many times (backend crash, app quit, update restart,
+# machine shutdown mid-transcription) is failed instead of requeued, so a file
+# that reliably takes the backend down can't crash-loop the worker on every boot.
+MAX_ATTEMPTS = 3
+
+
+def recover_interrupted_jobs(app) -> tuple[int, int]:
+    """Requeue (or fail) jobs left in `running` by a previous process.
+
+    There is exactly one worker and it lives in this process, so at boot any
+    row still marked running belongs to a worker that no longer exists. Without
+    this sweep such a job sits at its last progress forever: the worker only
+    claims `queued` rows and `running` can't be canceled — which is how a long
+    upload looks like it "stopped halfway" after the app restarted mid-job.
+
+    Returns ``(requeued, failed)``. Must run before the worker thread starts.
+    """
+    from app.extensions import db
+    from app.models import Job
+
+    requeued = failed = 0
+    with app.app_context():
+        try:
+            stuck = Job.query.filter_by(status=Job.STATUS_RUNNING).all()
+            for job in stuck:
+                if (job.attempts or 0) >= MAX_ATTEMPTS:
+                    job.status = Job.STATUS_FAILED
+                    job.error_text = (
+                        f"Transcription was interrupted {job.attempts} times "
+                        "(the app closed or the backend stopped mid-job). "
+                        "Re-upload the file to try again."
+                    )
+                    job.finished_at = datetime.utcnow()
+                    failed += 1
+                else:
+                    job.status = Job.STATUS_QUEUED
+                    job.stage = "queued (resuming after interruption)"
+                    job.progress = 0
+                    job.started_at = None
+                    requeued += 1
+            if stuck:
+                db.session.commit()
+                logger.warning(
+                    "Recovered %d interrupted job(s): %d requeued, %d failed.",
+                    len(stuck), requeued, failed,
+                )
+        except Exception:
+            # Never block boot on recovery (e.g. job table not migrated yet).
+            db.session.rollback()
+            logger.exception("Interrupted-job recovery failed")
+    return requeued, failed
+
+
 def start_worker(app):
     """Start the single worker thread (idempotent). Call once from create_app."""
     global _started
@@ -67,6 +120,7 @@ def start_worker(app):
         if _started:
             return
         _started = True
+    recover_interrupted_jobs(app)
     t = threading.Thread(target=_worker_loop, args=(app,), daemon=True, name="job-worker")
     t.start()
     logger.info("Job worker started.")
