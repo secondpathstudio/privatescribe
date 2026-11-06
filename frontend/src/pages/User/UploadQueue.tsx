@@ -15,6 +15,13 @@ type Job = {
   templateIds: string[];
   error: string | null;
   createdAt: string;
+  // Liveness (server-computed, so client clock skew can't fake a stall).
+  // secondsSinceHeartbeat is null unless the job is running.
+  secondsSinceHeartbeat: number | null;
+  stalled: boolean;
+  // The worker thread is still inside this (canceled) job, so jobs queued
+  // behind it can't start until it lets go — or the app is restarted.
+  workerHeld: boolean;
 };
 
 type Tpl = { id: string; name: string; templateType: string };
@@ -43,6 +50,17 @@ function fmtSize(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/** "just now" / "40s ago" / "7 min ago" for a heartbeat age in seconds. */
+function fmtAgo(sec: number): string {
+  if (sec < 10) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  return `${Math.floor(sec / 60)} min ago`;
+}
+
+// Poll fast while anything is in flight — including a canceled job the worker
+// hasn't let go of yet, so its "still stopping" state clears promptly.
+const isLive = (j: Job) => ACTIVE.has(j.status) || j.workerHeld;
 
 let _uid = 0;
 
@@ -133,7 +151,7 @@ export default function UploadQueue() {
         if (r.ok && !cancelled) {
           const data: Job[] = await r.json();
           setJobs(data);
-          timer = setTimeout(tick, data.some((j) => ACTIVE.has(j.status)) ? 2000 : 6000);
+          timer = setTimeout(tick, data.some(isLive) ? 2000 : 6000);
         } else if (!cancelled) {
           timer = setTimeout(tick, 6000);
         }
@@ -257,16 +275,47 @@ export default function UploadQueue() {
     }
   };
 
-  const cancel = async (id: string) => {
-    const r = await fetch(`${API_BASE}/api/jobs/${id}/cancel`, { method: "POST", headers: authHeader });
-    if (!r.ok) {
+  const cancel = async (job: Job) => {
+    // Canceling a running job throws away the work done so far; the recording
+    // itself is kept, so Retry can start it over without a re-upload.
+    if (job.status === "running" && !window.confirm(
+      `Stop transcribing "${job.label || "this recording"}"?\n\n` +
+      "Progress so far is discarded. The recording is kept, so you can Retry it later.",
+    )) return;
+    try {
+      const r = await fetch(`${API_BASE}/api/jobs/${job.id}/cancel`, { method: "POST", headers: authHeader });
       const d = await r.json().catch(() => ({}));
-      toast.error(d.error || "Couldn't cancel the job.");
+      if (!r.ok) {
+        toast.error(d.error || "Couldn't cancel the job.");
+      } else if (d.workerHeld) {
+        toast.info("Canceled — stopping the transcription. Files queued behind it start once it lets go.");
+      }
+    } catch {
+      toast.error("Couldn't reach the server.");
+    }
+    refresh();
+  };
+
+  const retry = async (job: Job) => {
+    try {
+      const r = await fetch(`${API_BASE}/api/jobs/${job.id}/retry`, { method: "POST", headers: authHeader });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast.error(d.error || "Couldn't retry the job.");
+      } else {
+        toast.success(`Re-queued ${job.label || "the recording"}.`);
+      }
+    } catch {
+      toast.error("Couldn't reach the server.");
     }
     refresh();
   };
 
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length;
+  // Something is occupying the single worker without making progress — every
+  // queued file is waiting behind it. Surface that at the top of the queue.
+  const blocker = jobs.find((j) => j.stalled || j.workerHeld);
+  const waitingCount = jobs.filter((j) => j.status === "queued").length;
 
   return (
     <div className="max-w-3xl px-6 py-8">
@@ -403,6 +452,17 @@ export default function UploadQueue() {
           {activeCount > 0 && <span className="text-xs text-muted-foreground">{activeCount} processing…</span>}
         </div>
 
+        {blocker && waitingCount > 0 && (
+          <div className="mt-3 border-2 border-black bg-amber-100 px-3 py-2 text-xs text-amber-900">
+            <span className="font-bold">
+              {waitingCount} file{waitingCount === 1 ? " is" : "s are"} waiting behind “{blocker.label || "a recording"}”,
+            </span>{" "}
+            which {blocker.workerHeld ? "is still stopping" : "isn’t making progress"}. Files transcribe
+            one at a time. If it doesn’t clear, restarting PrivateScribe frees the queue — the
+            unfinished files pick up where the queue left off.
+          </div>
+        )}
+
         {jobs.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">Nothing queued yet.</p>
         ) : (
@@ -413,10 +473,22 @@ export default function UploadQueue() {
                   <div className="min-w-0">
                     <div className="truncate font-bold">{j.label || "Recording"}</div>
                     {j.status === "running" && j.stage && (
-                      <div className="text-xs text-muted-foreground">{j.stage}…</div>
+                      <div className="text-xs text-muted-foreground">
+                        {j.stage}…
+                        {j.secondsSinceHeartbeat != null && (
+                          <span className={j.stalled ? "font-bold text-amber-800" : ""}>
+                            {" · "}updated {fmtAgo(j.secondsSinceHeartbeat)}
+                          </span>
+                        )}
+                      </div>
                     )}
                     {j.status === "failed" && j.error && (
                       <div className="text-xs text-red-700 break-words">{j.error}</div>
+                    )}
+                    {j.workerHeld && (
+                      <div className="text-xs text-muted-foreground">
+                        Still stopping… if this doesn’t clear, restart PrivateScribe.
+                      </div>
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -441,16 +513,40 @@ export default function UploadQueue() {
                         Review
                       </button>
                     )}
-                    {(j.status === "queued" || j.status === "awaiting_review") && (
-                      <button onClick={() => cancel(j.id)} className="text-xs font-bold underline hover:text-red-600">
+                    {(j.status === "queued" || j.status === "running" || j.status === "awaiting_review") && (
+                      <button onClick={() => cancel(j)} className="text-xs font-bold underline hover:text-red-600">
                         Cancel
+                      </button>
+                    )}
+                    {(j.status === "failed" || j.status === "canceled") && !j.workerHeld && (
+                      <button
+                        onClick={() => retry(j)}
+                        title="Transcribe this recording again from the stored audio — no re-upload."
+                        className="text-xs font-bold underline hover:text-[#fd3777]"
+                      >
+                        Retry
                       </button>
                     )}
                   </div>
                 </div>
                 {j.status === "running" && (
                   <div className="mt-2 h-2 w-full border-2 border-black bg-white">
-                    <div className="h-full bg-[#fd3777]" style={{ width: `${Math.min(100, Math.max(0, j.progress))}%` }} />
+                    <div
+                      className={["h-full", j.stalled ? "bg-amber-400" : "bg-[#fd3777]"].join(" ")}
+                      style={{ width: `${Math.min(100, Math.max(0, j.progress))}%` }}
+                    />
+                  </div>
+                )}
+                {j.status === "running" && j.stalled && (
+                  <div className="mt-2 border-2 border-black bg-amber-100 px-3 py-2 text-xs text-amber-900">
+                    <span className="font-bold">
+                      No progress for {Math.floor((j.secondsSinceHeartbeat ?? 0) / 60)} min — this may be stuck.
+                    </span>{" "}
+                    {j.stage?.startsWith("formatting")
+                      ? "Formatting a long transcript with the AI model can be slow on this computer. "
+                      : "Long recordings can be slow, but they normally keep updating. "}
+                    You can keep waiting, or Cancel and Retry it later. If it stays stuck, restarting
+                    PrivateScribe resumes it automatically.
                   </div>
                 )}
               </div>
