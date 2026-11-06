@@ -348,6 +348,12 @@ def diarize_path(
     return turns
 
 
+class ProgressAbort(Exception):
+    """Raise from a diarize_path progress callback to stop diarization.
+    Unlike any other callback error (logged and ignored), it propagates —
+    the job queue's cancel subclasses it."""
+
+
 # Share of total diarization wall time each pyannote step occupies, as
 # (start, end) fractions. Embeddings dominate on CPU; segmentation is the
 # other step that reports batch counts. The rest are near-instant markers.
@@ -387,6 +393,8 @@ def _progress_hook(progress: Callable[[float, str], None]) -> Callable:
         try:
             # float(): pyannote passes numpy counts; keep callers JSON-clean.
             progress(float(start + (end - start) * done), label)
+        except ProgressAbort:
+            raise
         except Exception:
             logger.exception("diarization progress callback failed")
 

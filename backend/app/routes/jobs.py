@@ -43,6 +43,10 @@ def _serialize(job: Job) -> dict:
         "heartbeatAt": job.heartbeat_at,
         "secondsSinceHeartbeat": _age(job),
         "stalled": job_queue.is_stalled(job),
+        # The worker thread is still inside this job even though it's no longer
+        # running (canceled, but not yet at a checkpoint — or hung). While true
+        # the jobs queued behind it can't start; an app restart frees it.
+        "workerHeld": job.status != Job.STATUS_RUNNING and job_queue.worker_holds(job.id),
     }
 
 
@@ -194,15 +198,77 @@ def approve_job(job_id):
 @cross_origin(origins="http://localhost:3000", supports_credentials=True)
 @jwt_required()
 def cancel_job(job_id):
-    """Cancel a still-queued job. A running job can't be interrupted mid-decode;
-    a done/failed one is a no-op error."""
+    """Cancel a queued, running, or awaiting-review job.
+
+    Canceling a running job is cooperative: the row flips to canceled now (so
+    the UI frees up immediately) and the worker stops at its next checkpoint —
+    a progress save, a stage change, or the final commit — discarding its
+    temp files and any not-yet-saved draft notes. A thread hung inside native
+    code never reaches a checkpoint; `workerHeld` in the response reports that,
+    and an app restart clears it. A done/failed job is a no-op error.
+    """
+    from sqlalchemy import update
+
     current_user = get_jwt_identity()
     job = Job.query.filter_by(id=job_id, author_id=current_user).first()
     if not job:
         return jsonify({"error": "Job not found"}), 404
-    if job.status not in (Job.STATUS_QUEUED, Job.STATUS_AWAITING_REVIEW):
+    cancelable = (Job.STATUS_QUEUED, Job.STATUS_RUNNING, Job.STATUS_AWAITING_REVIEW)
+    was = job.status
+    # Compare-and-set, so a cancel racing the worker's own finish can't flip a
+    # job that just completed (the worker CASes running -> done the same way).
+    res = db.session.execute(
+        update(Job)
+        .where(Job.id == job.id, Job.status.in_(cancelable))
+        .values(status=Job.STATUS_CANCELED, stage="canceled",
+                finished_at=datetime.utcnow())
+    )
+    if res.rowcount != 1:
+        db.session.rollback()
+        db.session.refresh(job)
         return jsonify({"error": f"Can't cancel a job that is {job.status}."}), 409
-    job.status = Job.STATUS_CANCELED
-    job.finished_at = datetime.utcnow()
     db.session.commit()
+    db.session.refresh(job)
+    log_action('job.cancel', user_id=current_user, resource_type='job',
+               resource_id=job.id, extra={'from_status': was})
+    return jsonify(_serialize(job))
+
+
+@bp.route('/<string:job_id>/retry', methods=['POST'])
+@cross_origin(origins="http://localhost:3000", supports_credentials=True)
+@jwt_required()
+def retry_job(job_id):
+    """Re-queue a failed or canceled job from its stored recording — no
+    re-upload. A held (reviewed) transcript is kept, so a job that failed
+    during formatting resumes at formatting rather than re-transcribing."""
+    current_user = get_jwt_identity()
+    job = Job.query.filter_by(id=job_id, author_id=current_user).first()
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    if job.status not in (Job.STATUS_FAILED, Job.STATUS_CANCELED):
+        return jsonify({"error": f"Only failed or canceled jobs can be retried (this one is {job.status})."}), 409
+    if job_queue.worker_holds(job.id):
+        # Requeuing now would let the stuck thread and a fresh claim both
+        # work the same job. Only a restart (which recovers it) is safe.
+        return jsonify({
+            "error": "This job is still held by the transcription worker. "
+                     "Restart the app, then retry.",
+        }), 409
+    audio = db.session.get(AudioFile, job.audio_file_id) if job.audio_file_id else None
+    if audio is None or not audio_storage.file_exists(audio.stored_filename):
+        return jsonify({"error": "The recording for this job is no longer stored, so it can't be retried. Upload it again."}), 409
+
+    was = job.status
+    job.status = Job.STATUS_QUEUED
+    job.stage = "queued (retry)"
+    job.progress = 0
+    job.error_text = None
+    job.attempts = 0  # user-initiated: a fresh interruption budget
+    job.started_at = None
+    job.finished_at = None
+    job.heartbeat_at = None
+    db.session.commit()
+    job_queue.wake()
+    log_action('job.retry', user_id=current_user, resource_type='job',
+               resource_id=job.id, extra={'from_status': was})
     return jsonify(_serialize(job))

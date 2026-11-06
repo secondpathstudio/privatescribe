@@ -217,8 +217,11 @@ def main():
     print("\n[10] Job liveness — heartbeat, stall flag, diarization progress")
     _job_liveness(app, client, auth, uid)
 
+    print("\n[11] Cancel + retry (incl. canceling a running job)")
+    _cancel_and_retry(app, client, auth, uid)
+
     if _ARGS.long_audio:
-        print(f"\n[11] Real-engine long recording: {_ARGS.long_audio}")
+        print(f"\n[11b] Real-engine long recording: {_ARGS.long_audio}")
         _real_long_audio(client, auth, _ARGS.long_audio)
 
     # Last: it drops + recreates the template table under the app's feet.
@@ -544,6 +547,138 @@ def _job_liveness(app, client, auth, uid):
             if note_ids else None) or []
     check("diarized draft note carries speaker-labeled segments",
           len({s.get("speaker") for s in segs}) == 2, [s.get("speaker") for s in segs])
+
+
+class _GatedEngine(_DurationProbeEngine):
+    """Probe engine that parks mid-transcription until released, so a test can
+    act on a job while the worker thread is genuinely inside it."""
+    name = "e2e-gated"
+
+    def __init__(self):
+        import threading
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def transcribe_streaming(self, wav_path, language="en", *, initial_prompt=None, batched=False):
+        first = True
+        for kind, payload in super().transcribe_streaming(wav_path, language):
+            yield kind, payload
+            if first:
+                first = False
+                self.entered.set()
+                self.release.wait(60)
+
+
+def _cancel_and_retry(app, client, auth, uid):
+    """Cancel must work on a *running* job (cooperatively, at the worker's
+    next checkpoint), never be overwritten by the worker finishing, and leave
+    no partial drafts; retry re-queues a failed/canceled job from its stored
+    recording, but refuses while the worker still holds it."""
+    import time
+    from app.models import AudioFile, Job, Note
+    from app.services import diarization, job_queue, stt
+
+    def wait_for(pred, timeout=60):
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            v = pred()
+            if v:
+                return v
+            time.sleep(0.2)
+        return None
+
+    gated = _GatedEngine()
+    real_engine, real_interval = stt.get_engine, job_queue.HEARTBEAT_SAVE_SEC
+    stt.get_engine = lambda name=None: gated
+    job_queue.HEARTBEAT_SAVE_SEC = 0  # every progress event is a checkpoint
+    try:
+        path = _make_long_audio(3)
+        with open(path, "rb") as f:
+            r = client.post("/api/jobs/transcribe", headers=auth, data={
+                "audio": (f, "cancel-me.m4a", "audio/mp4"),
+            }, content_type="multipart/form-data")
+        jid = _json(r).get("id")
+        check("gated job is running with the worker inside it",
+              gated.entered.wait(60) and _json(client.get(f"/api/jobs/{jid}", headers=auth)).get("status") == "running")
+
+        r = client.post(f"/api/jobs/{jid}/cancel", headers=auth)
+        body = _json(r)
+        check("cancel a RUNNING job → 200, canceled immediately",
+              r.status_code == 200 and body.get("status") == "canceled", f"status={r.status_code} body={body}")
+        check("while the thread is still inside it, workerHeld=true",
+              body.get("workerHeld") is True, body.get("workerHeld"))
+        r = client.post(f"/api/jobs/{jid}/retry", headers=auth)
+        check("retry while the worker still holds the job → 409 (no double-processing)",
+              r.status_code == 409, f"status={r.status_code} body={_json(r)}")
+
+        gated.release.set()  # let the thread run to its next checkpoint
+        released = wait_for(lambda: not _json(client.get(f"/api/jobs/{jid}", headers=auth)).get("workerHeld"))
+        job = _json(client.get(f"/api/jobs/{jid}", headers=auth))
+        check("worker stops at its next checkpoint and lets go", bool(released), job)
+        check("the cancel sticks — worker didn't overwrite it with done/failed",
+              job.get("status") == "canceled" and not job.get("error"),
+              f"status={job.get('status')} error={job.get('error')}")
+        with app.app_context():
+            audio = db.session.get(AudioFile, job.get("audioFileId"))
+            check("canceled job left no draft notes and no transcript group",
+                  not job.get("noteIds") and audio.transcript_group_id is None,
+                  f"noteIds={job.get('noteIds')} group={audio.transcript_group_id}")
+
+        # Retry the canceled job: requeued from the stored audio, runs to done.
+        r = client.post(f"/api/jobs/{jid}/retry", headers=auth)
+        body = _json(r)
+        check("retry a canceled job → 200, queued with progress/error reset",
+              r.status_code == 200 and body.get("status") == "queued"
+              and body.get("progress") == 0 and not body.get("error"),
+              f"status={r.status_code} body={body}")
+        job = wait_for(lambda: (lambda j: j if j.get("status") in ("done", "failed", "canceled") else None)(
+            _json(client.get(f"/api/jobs/{jid}", headers=auth))))
+        check("retried job completes with a draft note",
+              bool(job) and job.get("status") == "done" and len(job.get("noteIds") or []) == 1, job)
+    finally:
+        gated.release.set()
+        stt.get_engine, job_queue.HEARTBEAT_SAVE_SEC = real_engine, real_interval
+
+    # Terminal states: done can't be canceled or retried.
+    r = client.post(f"/api/jobs/{jid}/cancel", headers=auth)
+    check("cancel a done job → 409", r.status_code == 409, f"status={r.status_code}")
+    r = client.post(f"/api/jobs/{jid}/retry", headers=auth)
+    check("retry a done job → 409", r.status_code == 409, f"status={r.status_code}")
+
+    with app.app_context():
+        # A failed job whose recording is gone can't be retried.
+        orphan = Job(author_id=uid, type="e2e-cancel", status=Job.STATUS_FAILED, error_text="x")
+        # Worker CAS: running -> done misses once the user canceled.
+        raced = Job(author_id=uid, type="e2e-cancel", status=Job.STATUS_CANCELED)
+        db.session.add_all([orphan, raced])
+        db.session.commit()
+        orphan_id, raced_id = orphan.id, raced.id
+        won = job_queue._transition(raced_id, Job.STATUS_RUNNING, status=Job.STATUS_DONE)
+        db.session.commit()
+        check("worker's finish CAS misses on a canceled job",
+              won is False and db.session.get(Job, raced_id).status == Job.STATUS_CANCELED)
+    job_queue._mark_failed(app, raced_id, "late failure")
+    with app.app_context():
+        check("a late failure doesn't clobber a cancel",
+              db.session.get(Job, raced_id).status == Job.STATUS_CANCELED)
+    r = client.post(f"/api/jobs/{orphan_id}/retry", headers=auth)
+    check("retry with no stored recording → 409 with a re-upload hint",
+          r.status_code == 409 and "Upload it again" in (_json(r).get("error") or ""),
+          f"status={r.status_code} body={_json(r)}")
+
+    # Cancel raised inside a pyannote progress callback must propagate.
+    hook = diarization._progress_hook(lambda f, label: (_ for _ in ()).throw(job_queue.JobCanceled("x")))
+    try:
+        hook("embeddings", None, file={}, total=2, completed=1)
+        propagated = False
+    except job_queue.JobCanceled:
+        propagated = True
+    check("cancel propagates out of diarization's progress hook", propagated)
+
+    with app.app_context():
+        for i in (orphan_id, raced_id):
+            db.session.delete(db.session.get(Job, i))
+        db.session.commit()
 
 
 def _real_long_audio(client, auth, path):

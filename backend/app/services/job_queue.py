@@ -40,6 +40,10 @@ PROGRESS_DIARIZE_END = 70
 
 _started = False
 _start_lock = threading.Lock()
+# Id of the job the worker thread is processing right now (None when idle).
+# Lets the API say whether a canceled job's thread has actually let go — a
+# cooperative cancel can't interrupt a thread hung inside native code.
+_current_job_id: str | None = None
 _wake = threading.Event()
 
 
@@ -74,6 +78,51 @@ def is_stalled(job, now: datetime | None = None) -> bool:
     return age > limit
 
 
+def worker_holds(job_id: str) -> bool:
+    """True while the worker thread is still processing `job_id` — e.g. after
+    the user canceled it but the thread hasn't reached a checkpoint yet (or is
+    hung). The queue behind it can't move until this goes False."""
+    return job_id is not None and _current_job_id == job_id
+
+
+def _job_canceled_base():
+    # Subclass diarization's ProgressAbort so a cancel raised from inside a
+    # pyannote progress callback propagates instead of being swallowed.
+    from app.services.diarization import ProgressAbort
+    return ProgressAbort
+
+
+class JobCanceled(_job_canceled_base()):
+    """Raised at a worker checkpoint when the job is no longer `running`
+    (the user canceled it). Unwinds processing without marking it failed;
+    any uncommitted work (temp files, draft notes) is discarded."""
+
+
+def _raise_if_canceled(job_id: str) -> None:
+    """Checkpoint: stop if the job's row is no longer running."""
+    from app.extensions import db
+    from app.models import Job
+
+    status = db.session.query(Job.status).filter(Job.id == job_id).scalar()
+    if status != Job.STATUS_RUNNING:
+        raise JobCanceled(job_id)
+
+
+def _transition(job_id: str, from_status: str, **values) -> bool:
+    """Atomically move a job out of `from_status` (compare-and-set). Returns
+    False if the row was no longer in that state — i.e. a concurrent cancel
+    won — so the worker never overwrites a user's cancel with done/failed.
+    Runs in the caller's transaction; caller commits (or rolls back)."""
+    from sqlalchemy import update
+    from app.extensions import db
+    from app.models import Job
+
+    res = db.session.execute(
+        update(Job).where(Job.id == job_id, Job.status == from_status).values(**values)
+    )
+    return res.rowcount == 1
+
+
 class _ProgressWriter:
     """Throttled progress + heartbeat writes for the running job.
 
@@ -83,9 +132,10 @@ class _ProgressWriter:
     is deliberately no ticker thread, which would keep a hung job looking alive.
     """
 
-    def __init__(self, job, interval: float = HEARTBEAT_SAVE_SEC):
+    def __init__(self, job, interval: float | None = None):
         self.job = job
-        self.interval = interval
+        # Resolved at construction (not def time) so the module constant stays tunable.
+        self.interval = HEARTBEAT_SAVE_SEC if interval is None else interval
         self._last_save: float | None = None  # first update always saves
 
     def update(self, progress: float | None = None, stage: str | None = None,
@@ -98,6 +148,8 @@ class _ProgressWriter:
             self.job.stage = stage[:64]
         now = time.monotonic()
         if force or self._last_save is None or now - self._last_save >= self.interval:
+            # Every save doubles as a cancel checkpoint (cheap scalar SELECT).
+            _raise_if_canceled(self.job.id)
             self.job.heartbeat_at = datetime.utcnow()
             db.session.commit()
             self._last_save = now
@@ -236,11 +288,17 @@ def _run_one(app) -> bool:
         job_id = job.id
 
     # Process outside the claim transaction; its own context manages the session.
+    global _current_job_id
+    _current_job_id = job_id
     try:
         _process_transcription(app, job_id)
+    except JobCanceled:
+        logger.info("Job %s canceled; stopped at a checkpoint", job_id)
     except Exception as e:
         logger.exception("Job %s failed: %s", job_id, e)
         _mark_failed(app, job_id, str(e))
+    finally:
+        _current_job_id = None
     return True
 
 
@@ -250,12 +308,10 @@ def _mark_failed(app, job_id, message):
 
     with app.app_context():
         try:
-            job = db.session.get(Job, job_id)
-            if job is not None:
-                job.status = Job.STATUS_FAILED
-                job.error_text = (message or "")[:2000]
-                job.finished_at = datetime.utcnow()
-                db.session.commit()
+            # Only a still-running job fails — never clobber a user's cancel.
+            _transition(job_id, Job.STATUS_RUNNING, status=Job.STATUS_FAILED,
+                        error_text=(message or "")[:2000], finished_at=datetime.utcnow())
+            db.session.commit()
         except Exception:
             db.session.rollback()
             logger.exception("Could not mark job %s failed", job_id)
@@ -297,6 +353,7 @@ def _process_transcription(app, job_id):
             # 1. Decrypt the stored audio, then transcode to 16 kHz mono WAV (the
             #    upload may be mp3/m4a/webm) — exactly what /api/transcribe does
             #    via prepare_wav, so the model gets the format it expects.
+            _raise_if_canceled(job_id)
             job.stage = "decoding"
             job.heartbeat_at = datetime.utcnow()
             db.session.commit()
@@ -353,6 +410,8 @@ def _process_transcription(app, job_id):
                         if merged:
                             segments = merged
                             raw_text = diarization.segments_to_text(merged)
+                    except JobCanceled:
+                        raise
                     except Exception as e:
                         logger.warning("Job %s diarization failed, keeping flat transcript: %s", job_id, e)
             finally:
@@ -366,12 +425,15 @@ def _process_transcription(app, job_id):
             #     fixes the transcript once; approving re-queues the job (now
             #     with a held transcript), which resumes at the fan-out below.
             if job.review_before_format:
-                job.transcript = raw_text
-                job.transcript_segments = segments
-                job.transcript_words = words or None
-                job.status = Job.STATUS_AWAITING_REVIEW
-                job.stage = "awaiting review"
-                job.progress = PROGRESS_DIARIZE_END
+                if not _transition(
+                    job_id, Job.STATUS_RUNNING,
+                    status=Job.STATUS_AWAITING_REVIEW, stage="awaiting review",
+                    progress=PROGRESS_DIARIZE_END, heartbeat_at=datetime.utcnow(),
+                    transcript=raw_text, transcript_segments=segments,
+                    transcript_words=words or None,
+                ):
+                    db.session.rollback()
+                    raise JobCanceled(job_id)
                 db.session.commit()
                 logger.info("Job %s held for review", job_id)
                 return
@@ -389,8 +451,12 @@ def _process_transcription(app, job_id):
             if tpl is not None and not tpl.is_deleted and tpl.template_type == "simple":
                 templates.append(tpl)
         targets = templates if templates else [None]  # None => raw-transcript note
-        note_ids: list[str] = []
+        # Notes are built in memory and committed together with the final
+        # status change (one transaction), so a cancel mid-fan-out leaves no
+        # partial set of drafts behind.
+        notes: list = []
         for i, tpl in enumerate(targets):
+            _raise_if_canceled(job_id)
             job.stage = f"formatting ({i + 1}/{len(targets)})" if tpl else "saving"
             job.progress = PROGRESS_DIARIZE_END + int((i / len(targets)) * 25)
             # Stage transition = progress: bump the heartbeat so the long,
@@ -414,6 +480,7 @@ def _process_transcription(app, job_id):
             # Distinguish siblings by the template that produced each.
             name = f"{base} — {tpl.name}" if tpl is not None and len(targets) > 1 else base
             note = Note(
+                id=str(uuid.uuid4()),
                 note_content_raw=raw_text,
                 note_content_markdown=markdown,
                 note_content_segments=segments,
@@ -430,19 +497,21 @@ def _process_transcription(app, job_id):
                 author_id=author_id,
                 status="draft",
             )
-            db.session.add(note)
-            db.session.flush()
-            note_ids.append(note.id)
+            notes.append(note)
 
+        # Finish atomically: flip running -> done (compare-and-set) and write
+        # the notes + audio link in the same transaction. If the user canceled
+        # meanwhile, the CAS misses and everything here is rolled back.
+        note_ids = [n.id for n in notes]
+        if not _transition(job_id, Job.STATUS_RUNNING, status=Job.STATUS_DONE,
+                           stage="done", progress=100, note_ids=note_ids,
+                           finished_at=datetime.utcnow(), heartbeat_at=datetime.utcnow()):
+            db.session.rollback()
+            raise JobCanceled(job_id)
+        db.session.add_all(notes)
         # Link the audio to this transcript group if it wasn't already.
         if audio.transcript_group_id is None:
             audio.transcript_group_id = group_id
             audio.finalized_at = datetime.utcnow()
-
-        job.note_ids = note_ids
-        job.status = Job.STATUS_DONE
-        job.stage = "done"
-        job.progress = 100
-        job.finished_at = datetime.utcnow()
         db.session.commit()
         logger.info("Job %s done -> %d note(s)", job_id, len(note_ids))
