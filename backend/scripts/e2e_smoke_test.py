@@ -205,6 +205,9 @@ def main():
     print("\n[6] Model-selection override + raw-save safety net")
     _model_selection_and_raw_save(app, client, auth, uid, tmpl_id)
 
+    print("\n[6b] LLM context window — explicit num_ctx, overflow falls back to raw")
+    _llm_context_window(app, client, auth, uid, tmpl_id)
+
     print("\n[7] Recording-chunk key (encrypted client-side crash buffer)")
     _recording_chunk_key(client, auth)
 
@@ -1041,6 +1044,147 @@ def _model_selection_and_raw_save(app, client, auth, uid, simple_tmpl_id):
     g = _json(client.get(f"/api/notes/{rawsave_id}", headers=auth))
     check("raw-only note preserves the transcript body",
           g.get("noteContentRaw") == raw, f"raw={g.get('noteContentRaw')!r}")
+
+
+def _llm_context_window(app, client, auth, uid, simple_tmpl_id):
+    """Ollama's default window (~2k tokens) silently dropped most of a long
+    transcript — and a long enough one left no room to reply: an empty note.
+    Every formatting call must now ask for NUM_CTX, a transcript that can't
+    fit must be caught before the call, and Ollama running out of room after
+    the call must fall back to the raw transcript, flagged as an overflow (not
+    as Ollama being down). Fake `chat`, so no live model is needed."""
+    import time
+    from types import SimpleNamespace
+    import app.services.ollama_client as oc
+    from app.services import job_queue, stt
+
+    details = {"note_date": datetime.utcnow().isoformat(), "participants": []}
+    tpl = SimpleNamespace(name="Visit", content="# Visit\n\n{{Summarize the visit}}")
+    short = "Speaker 1: How are the headaches? Speaker 2: Better this week."
+    hour = ("Speaker 1: So how have the headaches been since we last talked? Speaker 2: A bit "
+            "better, two or three a week, mostly mornings, ibuprofen helps some. ") * 220  # ~35k chars ≈ 1h
+    huge = hour * 3
+
+    calls = []
+    script = {"done_reason": "stop", "prompt_eval_count": 500, "content": "# Visit\n\nFormatted."}
+
+    def fake_chat(**kw):
+        calls.append(kw)
+        if kw.get("stream"):
+            def gen():
+                yield {"message": {"content": script["content"]}, "done": False}
+                yield {"message": {"content": ""}, "done": True,
+                       "done_reason": script["done_reason"], "prompt_eval_count": script["prompt_eval_count"]}
+            return gen()
+        return {"message": {"content": script["content"]}, "done_reason": script["done_reason"],
+                "prompt_eval_count": script["prompt_eval_count"]}
+
+    real_chat, real_installed = oc.chat, oc.is_model_installed
+    oc.chat = fake_chat
+    oc.is_model_installed = lambda name: True
+    try:
+        # (a) Every call asks for the explicit window.
+        out = oc.generate_markdown(tpl, short, details, "gemma3:4b")
+        check("generate_markdown sends num_ctx=NUM_CTX (16k)",
+              calls and calls[-1]["options"].get("num_ctx") == oc.NUM_CTX == 16384,
+              calls[-1]["options"] if calls else None)
+        check("a normal reply comes back unchanged", out == script["content"], out)
+
+        # (b) Pre-call estimate: an hour fits, three hours is caught before any call.
+        hour_msgs = oc._build_markdown_messages(tpl, hour, details)
+        try:
+            est = oc.ensure_fits(hour_msgs)
+            fits_hour = True
+        except oc.ContextOverflow:
+            est, fits_hour = None, False
+        check(f"an hour-long transcript fits the window (est {est} tokens)", fits_hour)
+        n = len(calls)
+        try:
+            oc.generate_markdown(tpl, huge, details, "gemma3:4b")
+            raised = False
+        except oc.ContextOverflow:
+            raised = True
+        check("an oversized transcript raises ContextOverflow before calling Ollama",
+              raised and len(calls) == n, f"raised={raised} new_calls={len(calls) - n}")
+
+        # (c) Post-call backstop: Ollama says it ran out of room.
+        for label, reason, count, want_cut in [
+                ("reply ran out of room", "length", 4000, True),
+                ("prompt filled the window", "stop", oc.NUM_CTX, False)]:
+            script.update(done_reason=reason, prompt_eval_count=count)
+            try:
+                oc.generate_markdown(tpl, short, details, "gemma3:4b")
+                err = None
+            except oc.ContextOverflow as e:
+                err = e
+            check(f"post-call overflow detected + cause named ({label})",
+                  err is not None and err.reply_cut is want_cut
+                  and (("ran out of room" in str(err)) if want_cut else ("too long" in str(err))),
+                  str(err))
+        script.update(done_reason="stop", prompt_eval_count=500)
+
+        # (d) /api/getMarkdown: overflow is a distinct error code, not an outage.
+        def stream(raw):
+            r = client.post("/api/getMarkdown", headers=auth, json={
+                "raw_note": raw, "note_details": {**details, "template_id": simple_tmpl_id}})
+            return [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+
+        ev = stream(short)
+        check("getMarkdown streams normally when it fits",
+              ev[-1].get("stage") == "complete" and calls[-1]["options"].get("num_ctx") == oc.NUM_CTX, ev[-1:])
+        ev = stream(huge)
+        check("getMarkdown: oversized → error event with code context_overflow, no chunks",
+              ev[-1].get("error") == "context_overflow" and not any(e.get("stage") == "chunk" for e in ev),
+              ev)
+        script.update(done_reason="length")
+        ev = stream(short)
+        check("getMarkdown: Ollama ran out of room mid-stream → context_overflow",
+              ev[-1].get("error") == "context_overflow", ev[-1:])
+        script.update(done_reason="stop")
+
+        # (e) Structured per-field: one overflow ends the run (raw fallback),
+        #     instead of every field flagged blank in turn.
+        sid = _json(client.post("/api/templates", headers=auth, json={
+            "name": "E2E Ctx Structured", "templateType": "structured", "llmModel": "gemma3:4b",
+            "structured": {"strictness": 100, "sections": [{"id": "s1", "title": "S", "fields": [
+                {"id": f"f{i}", "type": "paragraph", "label": f"F{i}", "variableKey": f"f{i}",
+                 "required": False, "autoFill": True, "showInSummary": True} for i in range(3)]}]},
+        })).get("id")
+        r = client.post("/api/notes/run-structured", headers=auth, json={
+            "raw_note": huge, "template_id": sid, "note_details": {**details, "template_id": sid}})
+        ev = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+        check("run-structured: oversized → one context_overflow error, not per-field flags",
+              ev and ev[-1].get("error") == "context_overflow"
+              and sum(1 for e in ev if e.get("stage") == "field_error") == 0,
+              [e.get("stage") for e in ev])
+
+        # (f) Queued job: an overflow keeps the full transcript as the draft body.
+        script.update(done_reason="length")
+        probe = _DurationProbeEngine()
+        real_engine = stt.get_engine
+        stt.get_engine = lambda name=None: probe
+        try:
+            path = _make_long_audio(2)
+            with open(path, "rb") as f:
+                r = client.post("/api/jobs/transcribe", headers=auth, data={
+                    "audio": (f, "overflow.m4a", "audio/mp4"), "templateIds": simple_tmpl_id,
+                }, content_type="multipart/form-data")
+            jid = _json(r).get("id")
+            job, end = {}, time.monotonic() + 120
+            while jid and time.monotonic() < end:
+                job = _json(client.get(f"/api/jobs/{jid}", headers=auth))
+                if job.get("status") in ("done", "failed", "canceled"):
+                    break
+                time.sleep(0.3)
+        finally:
+            stt.get_engine = real_engine
+        note = _json(client.get(f"/api/notes/{(job.get('noteIds') or [''])[0]}", headers=auth))
+        check("queued job on overflow: draft keeps the full raw transcript as its body",
+              job.get("status") == "done" and note.get("noteContentMarkdown") == note.get("noteContentRaw")
+              and "minute 1" in (note.get("noteContentMarkdown") or ""),
+              f"status={job.get('status')} md={str(note.get('noteContentMarkdown'))[:60]!r}")
+    finally:
+        oc.chat, oc.is_model_installed = real_chat, real_installed
 
 
 def _recording_chunk_key(client, auth):

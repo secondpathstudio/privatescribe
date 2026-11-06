@@ -470,6 +470,11 @@ def _process_transcription(app, job_id):
                 details = {"note_date": (audio_created or datetime.utcnow()).isoformat(), "participants": []}
                 try:
                     markdown = ollama_client.generate_markdown(tpl, raw_text, details, model_name)
+                except ollama_client.ContextOverflow as e:
+                    # Too long for one pass: keep the full transcript rather
+                    # than a draft built from part of it.
+                    logger.warning("Job %s template %s: %s", job_id, tpl.id, e)
+                    markdown = raw_text
                 except Exception as e:
                     # Don't lose the transcript over a formatting failure — keep
                     # the raw text as this draft's body.

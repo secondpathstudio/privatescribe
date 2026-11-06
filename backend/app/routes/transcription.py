@@ -505,6 +505,11 @@ def get_markdown():
                 extra={'model': model_name, 'mode': 'stream'},
             )
             db.session.commit()
+        except ollama_client.ContextOverflow as e:
+            # Not an outage: the transcript is too long for one pass. A
+            # distinct code so the client keeps "Ollama is down" out of it.
+            logger.warning(f"Formatting skipped, transcript too long: {e}")
+            yield json.dumps({"stage": "error", "error": e.code, "message": str(e)}) + "\n"
         except Exception as e:
             # Mid-stream failure (Ollama disconnected, timeout, etc). The
             # status code is already 200, so we surface the error inline.
@@ -668,6 +673,9 @@ def run_structured():
                 wire_event = {"stage": kind, **event}
                 yield json.dumps(wire_event) + "\n"
 
+        except ollama_client.ContextOverflow as e:
+            logger.warning(f"Structured run skipped, transcript too long: {e}")
+            yield json.dumps({"stage": "error", "error": e.code, "message": str(e)}) + "\n"
         except Exception as e:
             logger.error(f"Structured run failure: {type(e).__name__}: {e}")
             yield json.dumps({"stage": "error", "message": str(e)}) + "\n"

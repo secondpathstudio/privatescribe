@@ -1,4 +1,4 @@
-import { API_BASE } from "@/lib/api";
+import { API_BASE, isContextOverflow } from "@/lib/api";
 import { flagOllamaDown } from "@/lib/ollama";
 import { completeActiveRecordingSession } from "@/lib/recording-store";
 import { toast } from "sonner";
@@ -598,6 +598,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             let accumulated = '';
             let finalMarkdown: string | null = null;
             let streamError: string | null = null;
+            let streamErrorCode: string | null = null;
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
@@ -613,7 +614,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     } else if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
                     } else if (evt.stage === 'error') {
-                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                        streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
                 }
             }
@@ -623,11 +624,11 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
                     } else if (evt.stage === 'error') {
-                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                        streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
                 } catch { /* ignore */ }
             }
-            if (streamError) { flagOllamaDown(); throw new Error(streamError); }
+            if (streamError) { if (!isContextOverflow(streamErrorCode)) flagOllamaDown(); throw new Error(streamError); }
             const formattedMarkdown = finalMarkdown ?? accumulated;
 
             const saveResponse = await fetch(`${API_BASE}/api/notes`, {
@@ -717,13 +718,14 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         let accumulated = '';
         let finalMarkdown: string | null = null;
         let streamError: string | null = null;
+        let streamErrorCode: string | null = null;
         const handle = (line: string) => {
             if (!line.trim()) return;
             let evt: any;
             try { evt = JSON.parse(line); } catch { return; }
             if (evt.stage === 'chunk' && typeof evt.delta === 'string') accumulated += evt.delta;
             else if (evt.stage === 'complete' && typeof evt.markdown === 'string') finalMarkdown = evt.markdown;
-            else if (evt.stage === 'error') streamError = evt.message || 'AI formatting failed mid-stream.';
+            else if (evt.stage === 'error') { streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null; }
         };
         while (true) {
             const { done, value } = await reader.read();
@@ -734,7 +736,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             for (const line of lines) handle(line);
         }
         if (buf.trim()) handle(buf);
-        if (streamError) { flagOllamaDown(); throw new Error(streamError); }
+        if (streamError) { if (!isContextOverflow(streamErrorCode)) flagOllamaDown(); throw new Error(streamError); }
         return finalMarkdown ?? accumulated ?? rawNote;
     };
 

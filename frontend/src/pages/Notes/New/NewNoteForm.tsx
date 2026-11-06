@@ -1,4 +1,4 @@
-import { API_BASE } from "@/lib/api";
+import { API_BASE, isContextOverflow } from "@/lib/api";
 import { flagOllamaDown } from "@/lib/ollama";
 import { toast } from "sonner";
 import React, { FormEvent, useEffect } from 'react'
@@ -622,6 +622,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             let buffer = '';
             let finalMarkdown: string | null = null;
             let errorMessage: string | null = null;
+            let errorCode: string | null = null;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -697,6 +698,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         finalMarkdown = evt.markdown as string;
                     } else if (evt.stage === 'error') {
                         errorMessage = evt.message || 'Structured run failed';
+                        errorCode = evt.error ?? null;
                     }
                 }
             }
@@ -705,7 +707,8 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                 // Keep the recording: drop the raw transcript into the editor
                 // so the user can save it manually instead of losing it.
                 fallBackToRawTranscript(rawNote);
-                toast.error(`Structured run failed: ${errorMessage}`);
+                if (isContextOverflow(errorCode)) toast.warning(errorMessage);
+                else toast.error(`Structured run failed: ${errorMessage}`);
                 return;
             }
             if (finalMarkdown === null) {
@@ -820,6 +823,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             let accumulated = '';
             let finalMarkdown: string | null = null;
             let streamError: string | null = null;
+            let streamErrorCode: string | null = null;
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -840,7 +844,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     } else if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
                     } else if (evt.stage === 'error') {
-                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                        streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
                     // 'start' is informational; ignored.
                 }
@@ -851,16 +855,19 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
                     } else if (evt.stage === 'error') {
-                        streamError = evt.message || 'AI formatting failed mid-stream.';
+                        streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
                 } catch { /* ignore */ }
             }
 
             if (streamError) {
                 setStreamingPreview('');
-                flagOllamaDown();
+                // Too long for one pass isn't an outage — keep Ollama's status alone.
+                const overflow = isContextOverflow(streamErrorCode);
+                if (!overflow) flagOllamaDown();
                 fallBackToRawTranscript(rawNote);
-                toast.error(streamError);
+                if (overflow) toast.warning(streamError);
+                else toast.error(streamError);
                 return;
             }
             if (finalMarkdown === null) {

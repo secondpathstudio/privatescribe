@@ -150,3 +150,12 @@ export const API_BASE: string =
   getServerUrl() ??
   import.meta.env.VITE_API_BASE ??
   browserDefaultBase();
+
+/** Error code the formatting streams (/api/getMarkdown, /api/notes/run-structured)
+ *  send when a transcript is too long for the LLM's context window. Not an
+ *  outage: Ollama is fine, so callers must not flag it as down. The full raw
+ *  transcript is kept as the note text. */
+export const CONTEXT_OVERFLOW = "context_overflow";
+
+export const isContextOverflow = (code: string | null | undefined): boolean =>
+  code === CONTEXT_OVERFLOW;

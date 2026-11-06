@@ -6,6 +6,7 @@ generate_markdown() is the contract for how templates are filled in:
 the raw transcript; everything else is preserved literally. Editing the system
 prompt here changes template behavior across the app.
 """
+import math
 import os
 import secrets
 from datetime import date, datetime
@@ -22,7 +23,104 @@ DEFAULT_OLLAMA_MODEL = "gemma3:4b"
 # request handler already treats the resulting timeout exception the same as
 # "Ollama unavailable" — 503 + echo the raw transcript back. Override with the
 # OLLAMA_CHAT_TIMEOUT_SECONDS env var; 0 / unset uses the default below.
-DEFAULT_CHAT_TIMEOUT_SECONDS = 300.0
+# 15 min: with NUM_CTX below, an hour-long visit is a ~12k-token prompt, and a
+# CPU-only box can spend several minutes just reading it before replying.
+DEFAULT_CHAT_TIMEOUT_SECONDS = 900.0
+# ---------------------------------------------------------------------------
+# Context window
+#
+# Ollama only gives a model the context it's asked for (`num_ctx`), and its
+# default is tiny (~2k tokens on a typical machine). Anything past that is
+# silently dropped: a long transcript used to reach the model as its first
+# few minutes, and a long enough one left no room to reply at all — an empty
+# note, no error. So every formatting call asks for NUM_CTX explicitly, a
+# transcript that can't fit is caught *before* the call (no minutes wasted on
+# a prompt that would be cut), and Ollama's own counts are checked after it.
+# ---------------------------------------------------------------------------
+
+# Working window for every formatting call. 16k fits ~an hour of conversation
+# plus the template and the reply. Costs RAM for the KV cache; Ollama reloads
+# a model when this changes, so it's one fixed value rather than per-request.
+NUM_CTX = 16384
+# Tokens kept free for the model's reply (the note itself, plus any thinking).
+REPLY_RESERVE_TOKENS = 2048
+# Characters per token for the pre-call estimate. Measured ~4.0 on English
+# conversation; 3.5 leaves headroom for drug names, numbers, other tokenizers.
+# The post-call check backstops an estimate that's still off.
+CHARS_PER_TOKEN = 3.5
+
+
+class ContextOverflow(Exception):
+    """The prompt doesn't fit in NUM_CTX — formatting would be incomplete.
+
+    Callers fall back to the full raw transcript (never a silently truncated
+    note). Raised before the call when the estimate says it won't fit, or
+    after it when Ollama reports it ran out of room.
+    """
+
+    code = "context_overflow"
+
+    def __init__(self, *, estimated_tokens: int | None = None,
+                 prompt_eval_count: int | None = None, reply_cut: bool = False):
+        self.estimated_tokens = estimated_tokens
+        self.prompt_eval_count = prompt_eval_count
+        self.reply_cut = reply_cut
+        kept = " The full transcript was kept as the note text so nothing is lost."
+        if reply_cut:
+            # The transcript fit; the model's reply (or its hidden reasoning,
+            # on a thinking model) used up the rest of the window.
+            msg = ("The AI model ran out of room before finishing the note — it read the "
+                   "whole transcript, but its reply didn't fit. A non-thinking model "
+                   "usually avoids this." + kept)
+        else:
+            size = estimated_tokens or prompt_eval_count
+            about = f" (about {size:,} tokens; the limit is {NUM_CTX:,})" if size else ""
+            msg = f"This transcript is too long for the AI model to format in one pass{about}." + kept
+        super().__init__(msg)
+
+
+def llm_options(temperature: float) -> dict:
+    """Ollama options for a formatting call — always with an explicit window."""
+    return {"temperature": temperature, "num_ctx": NUM_CTX}
+
+
+def estimate_tokens(messages: list[dict]) -> int:
+    """Conservative token estimate for a chat prompt (chars / CHARS_PER_TOKEN,
+    plus a little per-message framing)."""
+    chars = sum(len(m.get("content") or "") for m in messages)
+    return math.ceil(chars / CHARS_PER_TOKEN) + 8 * len(messages)
+
+
+def ensure_fits(messages: list[dict]) -> int:
+    """Raise ContextOverflow if the prompt plus reply room won't fit NUM_CTX.
+    Returns the estimate. The batching pass will hook in here."""
+    est = estimate_tokens(messages)
+    if est + REPLY_RESERVE_TOKENS > NUM_CTX:
+        raise ContextOverflow(estimated_tokens=est)
+    return est
+
+
+def check_response_fit(prompt_eval_count, done_reason) -> None:
+    """Post-call backstop: raise ContextOverflow if Ollama ran out of room.
+
+    With no num_predict cap set, done_reason == "length" can only mean the
+    context filled up (the reply was cut, or never started). A prompt that
+    alone reached the window was itself truncated.
+    """
+    if (prompt_eval_count or 0) >= NUM_CTX - 32:
+        raise ContextOverflow(prompt_eval_count=prompt_eval_count)
+    if done_reason == "length":
+        raise ContextOverflow(prompt_eval_count=prompt_eval_count, reply_cut=True)
+
+
+def _resp_field(resp, key):
+    """Read a field off an ollama ChatResponse object or a plain dict."""
+    val = getattr(resp, key, None)
+    if val is None and isinstance(resp, dict):
+        val = resp.get(key)
+    return val
+
+
 # Control-plane calls (listing installed models) should fail fast if the
 # daemon is wedged — they're used as preflight checks before the real work.
 CONTROL_TIMEOUT_SECONDS = 10.0
@@ -373,12 +471,16 @@ def _build_markdown_messages(template, raw_note: str, note_details: dict) -> lis
 
 
 def generate_markdown(template, raw_note: str, note_details: dict, model_name: str) -> str:
-    """Run the template-fill prompt against `model_name` and return the model's output."""
-    response = chat(
-        model=model_name,
-        messages=_build_markdown_messages(template, raw_note, note_details),
-        options={"temperature": 0.2},
-    )
+    """Run the template-fill prompt against `model_name` and return the model's output.
+
+    Raises ContextOverflow (before calling, or after if Ollama ran out of
+    room) rather than return a note built from part of the transcript.
+    """
+    messages = _build_markdown_messages(template, raw_note, note_details)
+    ensure_fits(messages)
+    response = chat(model=model_name, messages=messages, options=llm_options(0.2))
+    check_response_fit(_resp_field(response, "prompt_eval_count"),
+                       _resp_field(response, "done_reason"))
     return response["message"]["content"]
 
 
@@ -391,13 +493,12 @@ def generate_markdown_stream(template, raw_note: str, note_details: dict, model_
     if the daemon disappears mid-stream — callers in routes/ should wrap
     this in a try/except and emit an error event on the wire.
     """
-    stream = chat(
-        model=model_name,
-        messages=_build_markdown_messages(template, raw_note, note_details),
-        options={"temperature": 0.2},
-        stream=True,
-    )
+    messages = _build_markdown_messages(template, raw_note, note_details)
+    ensure_fits(messages)  # before streaming starts: no deltas, clean fallback
+    stream = chat(model=model_name, messages=messages, options=llm_options(0.2), stream=True)
+    last = None
     for chunk in stream:
+        last = chunk
         # ollama 0.4.x yields ChatResponse objects with .message.content
         # (the incremental delta, not the cumulative content). Older shapes
         # may yield a dict; handle both.
@@ -411,3 +512,9 @@ def generate_markdown_stream(template, raw_note: str, note_details: dict, model_
             content = msg.get("content")
         if content:
             yield content
+    # Ollama's counts ride on the final chunk. If it ran out of room the
+    # deltas already sent are a partial note — raise so the caller discards
+    # them and falls back to the raw transcript.
+    if last is not None:
+        check_response_fit(_resp_field(last, "prompt_eval_count"),
+                           _resp_field(last, "done_reason"))

@@ -300,16 +300,27 @@ def run_per_field(
             user = _build_field_user_prompt(field, transcript, prior_fills)
 
             t0 = time.monotonic()
+            messages = [
+                {'role': 'system', 'content': system},
+                {'role': 'user', 'content': user},
+            ]
             try:
+                ollama_client.ensure_fits(messages)
                 resp = ollama_client.chat(
                     model=model_name,
-                    messages=[
-                        {'role': 'system', 'content': system},
-                        {'role': 'user', 'content': user},
-                    ],
-                    options={'temperature': lvl.runtime.temperature},
+                    messages=messages,
+                    options=ollama_client.llm_options(lvl.runtime.temperature),
+                )
+                ollama_client.check_response_fit(
+                    ollama_client._resp_field(resp, 'prompt_eval_count'),
+                    ollama_client._resp_field(resp, 'done_reason'),
                 )
                 raw = resp['message']['content']
+            except ollama_client.ContextOverflow:
+                # Every field carries the whole transcript, so if one can't
+                # fit none will — end the run (raw-transcript fallback)
+                # instead of flagging each field blank in turn.
+                raise
             except Exception as e:
                 yield {
                     'kind': 'field_error',
