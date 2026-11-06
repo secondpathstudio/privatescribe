@@ -64,6 +64,11 @@ class Job(db.Model):
     stage = db.Column(db.String(64), nullable=True)
     error_text = db.Column(db.Text, nullable=True)
     attempts = db.Column(db.Integer, nullable=False, default=0)
+    # Liveness: bumped only when the worker makes real progress (a decoded
+    # segment, a diarization step), never by a timer — so if the work thread
+    # hangs this goes stale and the queue UI can say "may be stuck". Nullable
+    # so schema_reconcile can add it to existing databases.
+    heartbeat_at = db.Column(db.DateTime, nullable=True)
 
     # Display label (original filename) for the queue list.
     label = db.Column(db.String(512), nullable=True)

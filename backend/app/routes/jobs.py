@@ -37,7 +37,18 @@ def _serialize(job: Job) -> dict:
         "createdAt": job.created_at,
         "startedAt": job.started_at,
         "finishedAt": job.finished_at,
+        # Liveness for the queue UI. The age and stall verdict are computed
+        # here, against the server clock, so a LAN client with a skewed clock
+        # can't misreport a healthy job as stuck (or vice versa).
+        "heartbeatAt": job.heartbeat_at,
+        "secondsSinceHeartbeat": _age(job),
+        "stalled": job_queue.is_stalled(job),
     }
+
+
+def _age(job: Job) -> int | None:
+    age = job_queue.heartbeat_age_seconds(job)
+    return None if age is None else int(age)
 
 
 def _serialize_detail(job: Job) -> dict:

@@ -214,12 +214,15 @@ def main():
     print("\n[9] Interrupted-job recovery (backend restart mid-transcription)")
     _interrupted_job_recovery(app, uid)
 
+    print("\n[10] Job liveness — heartbeat, stall flag, diarization progress")
+    _job_liveness(app, client, auth, uid)
+
     if _ARGS.long_audio:
-        print(f"\n[9b] Real-engine long recording: {_ARGS.long_audio}")
+        print(f"\n[11] Real-engine long recording: {_ARGS.long_audio}")
         _real_long_audio(client, auth, _ARGS.long_audio)
 
     # Last: it drops + recreates the template table under the app's feet.
-    print("\n[10] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
+    print("\n[12] Regression guard — schema-drift self-heal (the v1.0→v2.0 bug)")
     _schema_drift_regression(app, client, auth, uid)
 
     return _summary_exit()
@@ -386,6 +389,161 @@ def _interrupted_job_recovery(app, uid):
         db.session.delete(fresh)
         db.session.delete(spent)
         db.session.commit()
+
+
+def _job_liveness(app, client, auth, uid):
+    """The queue UI must be able to tell slow-but-working from hung: the job
+    API reports a server-computed stall verdict off a heartbeat that only
+    real work advances, and diarization (previously a silent 62%) now
+    reports progress through pyannote's hook."""
+    import time
+    from datetime import timedelta
+    from app.models import Job
+    from app.services import diarization, job_queue, stt
+
+    # (a) Stall verdict, via the API, for backdated heartbeats. Probe rows use a
+    #     non-transcription type so the worker never claims them.
+    now = datetime.utcnow()
+    cases = [
+        ("fresh heartbeat → not stalled", "transcribing", timedelta(seconds=10), False),
+        ("no progress past STALL_AFTER_SEC → stalled", "transcribing",
+         timedelta(seconds=job_queue.STALL_AFTER_SEC + 60), True),
+        ("formatting gets the longer LLM threshold → not stalled", "formatting (1/1)",
+         timedelta(seconds=job_queue.STALL_AFTER_SEC + 60), False),
+        ("formatting past FORMAT_STALL_AFTER_SEC → stalled", "formatting (1/1)",
+         timedelta(seconds=job_queue.FORMAT_STALL_AFTER_SEC + 60), True),
+    ]
+    probe_ids = []
+    with app.app_context():
+        for _label, stage, ago, _want in cases:
+            j = Job(author_id=uid, type="e2e-liveness", status=Job.STATUS_RUNNING,
+                    stage=stage, progress=30, started_at=now - ago, heartbeat_at=now - ago)
+            db.session.add(j)
+            db.session.flush()
+            probe_ids.append(j.id)
+        db.session.commit()
+    for (label, _stage, ago, want), jid in zip(cases, probe_ids):
+        body = _json(client.get(f"/api/jobs/{jid}", headers=auth))
+        age = body.get("secondsSinceHeartbeat")
+        check(f"stall flag: {label}",
+              body.get("stalled") is want and isinstance(age, int)
+              and abs(age - ago.total_seconds()) < 30,
+              f"stalled={body.get('stalled')} age={age} body_keys={sorted(body)[:6]}")
+    with app.app_context():
+        for jid in probe_ids:
+            db.session.delete(db.session.get(Job, jid))
+        db.session.commit()
+
+    # (b) Throttled writer: the first update saves, later ones inside the
+    #     interval don't, force=True always does.
+    with app.app_context():
+        j = Job(author_id=uid, type="e2e-liveness", status=Job.STATUS_RUNNING, progress=0)
+        db.session.add(j)
+        db.session.commit()
+        w = job_queue._ProgressWriter(j, interval=3600)
+        w.update(5, "transcribing")
+        first = j.heartbeat_at
+        time.sleep(0.01)
+        w.update(10)
+        unthrottled = j.heartbeat_at
+        time.sleep(0.01)
+        w.update(20, "labeling speakers", force=True)
+        forced = j.heartbeat_at
+        check("progress writer: first update saves a heartbeat", first is not None)
+        check("progress writer: updates inside the interval don't commit",
+              unthrottled == first, f"{first} vs {unthrottled}")
+        check("progress writer: force=True commits (stage transition)",
+              forced is not None and forced > first, f"{first} vs {forced}")
+        db.session.delete(j)
+        db.session.commit()
+
+    # (c) pyannote hook adapter: realistic call sequence → monotonic 0..1.
+    seen = []
+    hook = diarization._progress_hook(lambda f, label: seen.append((f, label)))
+    hook("segmentation", None, file={}, total=4, completed=0)
+    hook("segmentation", None, file={}, total=4, completed=4)
+    hook("segmentation", object(), file={})
+    hook("speaker_counting", object(), file={})
+    for i in range(0, 11):
+        hook("embeddings", None, file={}, total=10, completed=i)
+    hook("embeddings", object(), file={})
+    hook("discrete_diarization", object(), file={})
+    hook("unknown_future_step", object(), file={})  # ignored, not an error
+    fracs = [f for f, _ in seen]
+    check("diarization hook: fractions are monotonic and end at 1.0",
+          fracs == sorted(fracs) and fracs[-1] == 1.0 and fracs[0] == 0.0, fracs)
+    check("diarization hook: batched steps carry counts in the label",
+          any(label == "embeddings 5/10" for _, label in seen), [l for _, l in seen])
+    boom = diarization._progress_hook(lambda f, label: 1 / 0)
+    try:
+        boom("embeddings", None, file={}, total=2, completed=1)
+        swallowed = True
+    except Exception:
+        swallowed = False
+    check("diarization hook: a failing progress callback can't abort diarization", swallowed)
+
+    # (d) End to end through the worker: a diarized queued job reports
+    #     progress from inside diarization, inside its 55-70 band.
+    updates = []
+    real_update = job_queue._ProgressWriter.update
+
+    def spy_update(self, progress=None, stage=None, *, force=False):
+        updates.append((self.job.progress if progress is None else int(progress),
+                        stage or self.job.stage))
+        return real_update(self, progress, stage, force=force)
+
+    def fake_diarize(path, num_speakers=None, max_speakers=None, progress=None):
+        hook = diarization._progress_hook(progress) if progress else None
+        if hook:
+            hook("segmentation", object(), file={})
+            for i in range(0, 5):
+                hook("embeddings", None, file={}, total=4, completed=i)
+            hook("discrete_diarization", object(), file={})
+        return [{"start": 0.0, "end": 60.0, "speaker": "SPEAKER_00"},
+                {"start": 60.0, "end": 120.0, "speaker": "SPEAKER_01"}]
+
+    real = (stt.get_engine, diarization.is_available, diarization.diarize_path)
+    probe = _DurationProbeEngine()
+    stt.get_engine = lambda name=None: probe
+    diarization.is_available = lambda: True
+    diarization.diarize_path = fake_diarize
+    job_queue._ProgressWriter.update = spy_update
+    try:
+        path = _make_long_audio(2)
+        with open(path, "rb") as f:
+            r = client.post("/api/jobs/transcribe", headers=auth, data={
+                "audio": (f, "two-speakers.m4a", "audio/mp4"), "diarize": "true",
+            }, content_type="multipart/form-data")
+        job_id = _json(r).get("id")
+        deadline = time.monotonic() + 120
+        job = {}
+        while job_id and time.monotonic() < deadline:
+            job = _json(client.get(f"/api/jobs/{job_id}", headers=auth))
+            if job.get("status") in ("done", "failed", "canceled"):
+                break
+            time.sleep(0.3)
+    finally:
+        stt.get_engine, diarization.is_available, diarization.diarize_path = real
+        job_queue._ProgressWriter.update = real_update
+    check("diarized queued job finishes done", job.get("status") == "done",
+          f"status={job.get('status')} error={job.get('error')}")
+    check("finished job reports no stall + no heartbeat age",
+          job.get("stalled") is False and job.get("secondsSinceHeartbeat") is None,
+          f"stalled={job.get('stalled')} age={job.get('secondsSinceHeartbeat')}")
+    diar = [(p, st) for p, st in updates if (st or "").startswith("labeling speakers")]
+    check("worker reports progress from inside diarization",
+          len(diar) >= 5 and any("embeddings" in st for _, st in diar),
+          [st for _, st in diar])
+    check("diarization progress stays in its 55-70 band",
+          bool(diar) and all(job_queue.PROGRESS_TRANSCRIBE_END <= p <= job_queue.PROGRESS_DIARIZE_END
+                             for p, _ in diar), [p for p, _ in diar])
+    check("overall progress never goes backwards",
+          [p for p, _ in updates] == sorted(p for p, _ in updates), [p for p, _ in updates])
+    note_ids = job.get("noteIds") or []
+    segs = (_json(client.get(f"/api/notes/{note_ids[0]}", headers=auth)).get("noteContentSegments")
+            if note_ids else None) or []
+    check("diarized draft note carries speaker-labeled segments",
+          len({s.get("speaker") for s in segs}) == 2, [s.get("speaker") for s in segs])
 
 
 def _real_long_audio(client, auth, path):

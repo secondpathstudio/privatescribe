@@ -30,7 +30,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from app.paths import data_dir
 
@@ -307,8 +307,14 @@ def diarize_path(
     audio_path: str,
     num_speakers: Optional[int] = None,
     max_speakers: Optional[int] = None,
+    progress: Optional[Callable[[float, str], None]] = None,
 ) -> list[dict]:
     """Run diarization on a WAV file. Returns [{start, end, speaker}, ...] in time order.
+
+    `progress`, if given, is called as ``progress(fraction_0_to_1, label)`` as
+    pyannote works through its steps (see _progress_hook). On a long CPU run
+    this is the only sign of life during diarization, so callers use it both
+    to move a progress bar and as a liveness heartbeat.
 
     `speaker` is the raw pyannote label (e.g. SPEAKER_00); merge_segments() relabels
     them into user-friendly Speaker N strings.
@@ -328,6 +334,8 @@ def diarize_path(
         # natural floor (at least one person spoke if there's any audio).
         kwargs["min_speakers"] = 1
         kwargs["max_speakers"] = max_speakers
+    if progress is not None:
+        kwargs["hook"] = _progress_hook(progress)
     annotation = pipeline(audio_path, **kwargs)
 
     turns = []
@@ -338,6 +346,51 @@ def diarize_path(
             "speaker": label,
         })
     return turns
+
+
+# Share of total diarization wall time each pyannote step occupies, as
+# (start, end) fractions. Embeddings dominate on CPU; segmentation is the
+# other step that reports batch counts. The rest are near-instant markers.
+_STEP_SPANS = {
+    "segmentation": (0.0, 0.2),
+    "speaker_counting": (0.2, 0.2),
+    "embeddings": (0.2, 0.95),
+    "discrete_diarization": (0.95, 1.0),
+}
+_STEP_LABELS = {
+    "segmentation": "segmenting",
+    "speaker_counting": "counting speakers",
+    "embeddings": "embeddings",
+    "discrete_diarization": "finishing",
+}
+
+
+def _progress_hook(progress: Callable[[float, str], None]) -> Callable:
+    """Adapt pyannote's pipeline hook to ``progress(fraction, label)``.
+
+    pyannote 3.x calls ``hook(step_name, step_artifact, file=..., total=...,
+    completed=...)`` — with counts while a batched step runs, and once with
+    just the artifact when a step finishes. A failing progress callback must
+    never abort diarization, so errors are logged and swallowed.
+    """
+    def hook(step_name, step_artifact=None, file=None, total=None, completed=None):
+        start, end = _STEP_SPANS.get(step_name, (None, None))
+        if start is None:
+            return
+        label = _STEP_LABELS.get(step_name, step_name)
+        if total and completed is not None:
+            done = min(1.0, completed / total)
+            label = f"{label} {min(completed, total)}/{total}"
+        else:
+            # Artifact-only call = step finished.
+            done = 1.0
+        try:
+            # float(): pyannote passes numpy counts; keep callers JSON-clean.
+            progress(float(start + (end - start) * done), label)
+        except Exception:
+            logger.exception("diarization progress callback failed")
+
+    return hook
 
 
 def _overlap(a_start: float, a_end: float, b_start: float, b_end: float) -> float:

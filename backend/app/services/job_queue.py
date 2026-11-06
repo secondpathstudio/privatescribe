@@ -21,6 +21,23 @@ logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_SEC = 2.0
 
+# Liveness. Progress is written to the DB at most this often (each write also
+# bumps heartbeat_at), so a long file updates the queue UI steadily without a
+# commit per Whisper segment.
+HEARTBEAT_SAVE_SEC = 5.0
+# A running job with no heartbeat for this long is reported as `stalled`.
+# Generous next to HEARTBEAT_SAVE_SEC: real work on the slowest CPU still
+# produces a segment / diarization batch well inside it.
+STALL_AFTER_SEC = 5 * 60
+# LLM formatting is one blocking Ollama call per template with no progress
+# callback, so the heartbeat can't advance during it; allow it much longer
+# before calling it stalled (a big transcript on a CPU-only box is slow).
+FORMAT_STALL_AFTER_SEC = 30 * 60
+
+# Progress bands (0-100) for the stages of a queued transcription.
+PROGRESS_TRANSCRIBE_END = 55
+PROGRESS_DIARIZE_END = 70
+
 _started = False
 _start_lock = threading.Lock()
 _wake = threading.Event()
@@ -29,6 +46,61 @@ _wake = threading.Event()
 def wake():
     """Nudge the worker to look for work now (e.g. after an approval)."""
     _wake.set()
+
+
+def heartbeat_age_seconds(job, now: datetime | None = None) -> float | None:
+    """Seconds since the job last made progress, or None if not running.
+
+    Computed server-side so a LAN client's clock skew can't fake a stall.
+    Falls back to started_at for a row that predates the heartbeat column.
+    """
+    from app.models import Job
+
+    if job.status != Job.STATUS_RUNNING:
+        return None
+    last = job.heartbeat_at or job.started_at
+    if last is None:
+        return None
+    return max(0.0, ((now or datetime.utcnow()) - last).total_seconds())
+
+
+def is_stalled(job, now: datetime | None = None) -> bool:
+    """True when a running job hasn't made progress for longer than its
+    stage's threshold — slow-but-working never trips it, a hung thread does."""
+    age = heartbeat_age_seconds(job, now)
+    if age is None:
+        return False
+    limit = FORMAT_STALL_AFTER_SEC if (job.stage or "").startswith("formatting") else STALL_AFTER_SEC
+    return age > limit
+
+
+class _ProgressWriter:
+    """Throttled progress + heartbeat writes for the running job.
+
+    Every call updates the in-memory row; the DB commit (which is what the
+    queue UI polls) happens at most every HEARTBEAT_SAVE_SEC, or immediately
+    with ``force=True`` (stage transitions). Only real work calls this — there
+    is deliberately no ticker thread, which would keep a hung job looking alive.
+    """
+
+    def __init__(self, job, interval: float = HEARTBEAT_SAVE_SEC):
+        self.job = job
+        self.interval = interval
+        self._last_save: float | None = None  # first update always saves
+
+    def update(self, progress: float | None = None, stage: str | None = None,
+               *, force: bool = False) -> None:
+        from app.extensions import db
+
+        if progress is not None:
+            self.job.progress = max(0, min(100, int(progress)))
+        if stage is not None:
+            self.job.stage = stage[:64]
+        now = time.monotonic()
+        if force or self._last_save is None or now - self._last_save >= self.interval:
+            self.job.heartbeat_at = datetime.utcnow()
+            db.session.commit()
+            self._last_save = now
 
 
 def enqueue_transcription(author_id, audio_file_id, *, template_ids=None, diarize=False,
@@ -99,6 +171,7 @@ def recover_interrupted_jobs(app) -> tuple[int, int]:
                     job.stage = "queued (resuming after interruption)"
                     job.progress = 0
                     job.started_at = None
+                    job.heartbeat_at = None
                     requeued += 1
             if stuck:
                 db.session.commit()
@@ -155,6 +228,7 @@ def _run_one(app) -> bool:
         # Single worker → no claim race; mark running so the queue UI reflects it.
         job.status = Job.STATUS_RUNNING
         job.started_at = datetime.utcnow()
+        job.heartbeat_at = job.started_at
         job.attempts = (job.attempts or 0) + 1
         job.stage = "starting"
         job.progress = 0
@@ -223,6 +297,9 @@ def _process_transcription(app, job_id):
             # 1. Decrypt the stored audio, then transcode to 16 kHz mono WAV (the
             #    upload may be mp3/m4a/webm) — exactly what /api/transcribe does
             #    via prepare_wav, so the model gets the format it expects.
+            job.stage = "decoding"
+            job.heartbeat_at = datetime.utcnow()
+            db.session.commit()
             src_fd, src_path = tempfile.mkstemp(suffix=".upload")
             os.close(src_fd)
             wav_fd, audio_path = tempfile.mkstemp(suffix=".wav")
@@ -237,20 +314,16 @@ def _process_transcription(app, job_id):
                 #    the expensive shared step; formatting fans out per template.
                 effective_vocab = vocabulary.get_effective_vocabulary(author_id)
                 raw_text, words, whisper_segments = "", [], []
-                last_pct = 0
-                job.stage = "transcribing"
-                db.session.commit()
+                writer = _ProgressWriter(job)
+                writer.update(0, "transcribing", force=True)
                 for kind, payload in stt.get_engine().transcribe_streaming(
                     audio_path,
                     initial_prompt=vocabulary.build_whisper_prompt(effective_vocab),
                     batched=True,
                 ):
                     if kind == "progress":
-                        pct = int(float(payload) * 60)  # reserve 60-100 for diarize/format/save
-                        if pct >= last_pct + 10:
-                            last_pct = pct
-                            job.progress = pct
-                            db.session.commit()
+                        # Bands: transcribe 0-55, diarize 55-70, format/save 70-100.
+                        writer.update(float(payload) * PROGRESS_TRANSCRIBE_END)
                     elif kind == "result":
                         raw_text, whisper_segments, words = payload
 
@@ -267,11 +340,15 @@ def _process_transcription(app, job_id):
                 #     Best-effort: on failure we keep the non-diarized transcript.
                 segments = None
                 if job.diarize and diarization.is_available():
-                    job.stage = "labeling speakers"
-                    job.progress = 62
-                    db.session.commit()
+                    writer.update(PROGRESS_TRANSCRIBE_END, "labeling speakers", force=True)
+                    span = PROGRESS_DIARIZE_END - PROGRESS_TRANSCRIBE_END
+
+                    def _on_diarize(frac, label):
+                        writer.update(PROGRESS_TRANSCRIBE_END + frac * span,
+                                      f"labeling speakers ({label})")
+
                     try:
-                        turns = diarization.diarize_path(audio_path)
+                        turns = diarization.diarize_path(audio_path, progress=_on_diarize)
                         merged = diarization.merge_segments(whisper_segments, turns)
                         if merged:
                             segments = merged
@@ -294,7 +371,7 @@ def _process_transcription(app, job_id):
                 job.transcript_words = words or None
                 job.status = Job.STATUS_AWAITING_REVIEW
                 job.stage = "awaiting review"
-                job.progress = 65
+                job.progress = PROGRESS_DIARIZE_END
                 db.session.commit()
                 logger.info("Job %s held for review", job_id)
                 return
@@ -315,7 +392,10 @@ def _process_transcription(app, job_id):
         note_ids: list[str] = []
         for i, tpl in enumerate(targets):
             job.stage = f"formatting ({i + 1}/{len(targets)})" if tpl else "saving"
-            job.progress = 70 + int((i / len(targets)) * 25)
+            job.progress = PROGRESS_DIARIZE_END + int((i / len(targets)) * 25)
+            # Stage transition = progress: bump the heartbeat so the long,
+            # callback-less Ollama call below starts with a fresh clock.
+            job.heartbeat_at = datetime.utcnow()
             db.session.commit()
 
             markdown = raw_text
