@@ -190,14 +190,21 @@ def chat(**kwargs):
     callers that already catch "Ollama unavailable" pick it up unchanged.
     Shared by generate_markdown() here and the per-field runner in
     structured_runtime so both paths get the watchdog.
+
+    Also turns off "thinking": filling a template needs no reasoning, and a
+    thinking model (qwen3, qwen3.5, ...) would otherwise spend the context
+    window on hidden reasoning and return an empty note. Models without
+    thinking accept and ignore the flag. gpt-oss only takes levels and keeps
+    reasoning — check_response_fit's reply_cut backstop catches that case.
     """
+    kwargs.setdefault("think", False)
     return _get_chat_client().chat(**kwargs)
 
 
 def _normalize_progress(chunk) -> dict:
     """Convert a pull-stream chunk (object or dict) into a plain JSON-safe dict.
 
-    ollama 0.4.x yields ProgressResponse objects with `.status`, `.digest`,
+    ollama 0.4+ yields ProgressResponse objects with `.status`, `.digest`,
     `.total`, `.completed` attrs; older versions yielded dicts.
     """
     out = {}

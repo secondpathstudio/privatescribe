@@ -1186,6 +1186,36 @@ def _llm_context_window(app, client, auth, uid, simple_tmpl_id):
     finally:
         oc.chat, oc.is_model_installed = real_chat, real_installed
 
+    # (g) Thinking is turned off on every formatting call: a thinking model
+    #     otherwise burns the window on hidden reasoning → empty note. Patch
+    #     the client underneath chat() so the real wrapper runs.
+    seen = []
+
+    class _RecordingClient:
+        def chat(self, **kw):
+            seen.append(kw)
+            resp = {"message": {"content": "ok"}, "done_reason": "stop", "prompt_eval_count": 10}
+            return iter([resp]) if kw.get("stream") else resp
+
+    real_client, real_installed = oc._chat_client, oc.is_model_installed
+    oc._chat_client, oc.is_model_installed = _RecordingClient(), (lambda name: True)
+    try:
+        oc.generate_markdown(tpl, short, details, "qwen3.5:2b")
+        list(oc.generate_markdown_stream(tpl, short, details, "qwen3.5:2b"))
+        sid2 = _json(client.post("/api/templates", headers=auth, json={
+            "name": "E2E Think Structured", "templateType": "structured", "llmModel": "qwen3.5:2b",
+            "structured": {"strictness": 100, "sections": [{"id": "s1", "title": "S", "fields": [
+                {"id": "f0", "type": "paragraph", "label": "F0", "variableKey": "f0",
+                 "required": False, "autoFill": True, "showInSummary": True}]}]},
+        })).get("id")
+        client.post("/api/notes/run-structured", headers=auth, json={
+            "raw_note": short, "template_id": sid2, "note_details": {**details, "template_id": sid2}}).get_data()
+        check("every formatting call sends think=False (blocking, streaming, structured)",
+              len(seen) >= 3 and all(kw.get("think") is False for kw in seen),
+              [kw.get("think") for kw in seen])
+    finally:
+        oc._chat_client, oc.is_model_installed = real_client, real_installed
+
 
 def _recording_chunk_key(client, auth):
     """Guard the contract behind the frontend's encrypted crash-durability
