@@ -93,7 +93,8 @@ def estimate_tokens(messages: list[dict]) -> int:
 
 def ensure_fits(messages: list[dict]) -> int:
     """Raise ContextOverflow if the prompt plus reply room won't fit NUM_CTX.
-    Returns the estimate. The batching pass will hook in here."""
+    Returns the estimate. Callers that can, read a too-long transcript in
+    parts first (services/llm_batching.py) so this passes."""
     est = estimate_tokens(messages)
     if est + REPLY_RESERVE_TOKENS > NUM_CTX:
         raise ContextOverflow(estimated_tokens=est)
@@ -432,8 +433,13 @@ def format_context(note_details: dict) -> str:
     return "\n".join(lines) if lines else "(no additional context provided)"
 
 
-def _build_markdown_messages(template, raw_note: str, note_details: dict) -> list[dict]:
+def _build_markdown_messages(template, raw_note: str, note_details: dict,
+                             condensed_parts: int | None = None) -> list[dict]:
     """Compose the system+user messages for a template-fill run.
+
+    `condensed_parts` set means `raw_note` isn't the transcript but notes
+    llm_batching took from it in that many parts; the user message says so
+    (the system prompt — the template contract — is the same either way).
 
     Shared between generate_markdown (blocking) and generate_markdown_stream
     (streaming) so both paths use the exact same prompt. The random nonce
@@ -470,20 +476,30 @@ def _build_markdown_messages(template, raw_note: str, note_details: dict) -> lis
             "content": (
                 "### context\n"
                 f"{format_context(note_details)}\n\n"
-                "### raw note\n"
-                f"{raw_note}"
+                + (
+                    "### raw note\n"
+                    if not condensed_parts else
+                    "### notes from the recording\n"
+                    f"The recording was too long to read at once, so it was read in "
+                    f"{condensed_parts} consecutive parts and detailed notes were taken "
+                    "from each part, in order. Treat these notes as the transcript. "
+                    "Neighboring parts overlap slightly, so a point may appear twice — "
+                    "include it once.\n\n"
+                )
+                + f"{raw_note}"
             ),
         },
     ]
 
 
-def generate_markdown(template, raw_note: str, note_details: dict, model_name: str) -> str:
+def generate_markdown(template, raw_note: str, note_details: dict, model_name: str,
+                      condensed_parts: int | None = None) -> str:
     """Run the template-fill prompt against `model_name` and return the model's output.
 
     Raises ContextOverflow (before calling, or after if Ollama ran out of
     room) rather than return a note built from part of the transcript.
     """
-    messages = _build_markdown_messages(template, raw_note, note_details)
+    messages = _build_markdown_messages(template, raw_note, note_details, condensed_parts)
     ensure_fits(messages)
     response = chat(model=model_name, messages=messages, options=llm_options(0.2))
     check_response_fit(_resp_field(response, "prompt_eval_count"),
@@ -491,7 +507,8 @@ def generate_markdown(template, raw_note: str, note_details: dict, model_name: s
     return response["message"]["content"]
 
 
-def generate_markdown_stream(template, raw_note: str, note_details: dict, model_name: str):
+def generate_markdown_stream(template, raw_note: str, note_details: dict, model_name: str,
+                             condensed_parts: int | None = None):
     """Streaming variant of generate_markdown.
 
     Yields plain string deltas (content fragments) as Ollama produces them.
@@ -500,7 +517,7 @@ def generate_markdown_stream(template, raw_note: str, note_details: dict, model_
     if the daemon disappears mid-stream — callers in routes/ should wrap
     this in a try/except and emit an error event on the wire.
     """
-    messages = _build_markdown_messages(template, raw_note, note_details)
+    messages = _build_markdown_messages(template, raw_note, note_details, condensed_parts)
     ensure_fits(messages)  # before streaming starts: no deltas, clean fallback
     stream = chat(model=model_name, messages=messages, options=llm_options(0.2), stream=True)
     last = None

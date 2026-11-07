@@ -13,7 +13,7 @@ from app.extensions import db, limiter
 from app.models import AudioFile, Template
 from app.services.template_access import template_shared_with_user
 from app.security.auth import require_admin
-from app.services import audio_storage, ollama_client
+from app.services import audio_storage, llm_batching, ollama_client
 from app.services import dictation_markers, settings as settings_service
 from app.services import structured_runtime, vocabulary
 from app.services.audit import log_action
@@ -406,9 +406,16 @@ def get_markdown():
     """Stream the LLM's template-fill output as NDJSON.
 
     Wire events (one JSON object per line):
+      {"stage": "condensing", "progress": 0..1, "part": i, "parts": n,
+       "round": r, "detail": "Reading part i of n"}
+                                               — only for a transcript too long
+                                                 for one pass: it's read in
+                                                 parts first (llm_batching)
       {"stage": "start"}                       — emitted before the first delta
       {"stage": "chunk", "delta": "..."}       — N of these, in order
-      {"stage": "complete", "markdown": "..."} — the full joined output
+      {"stage": "complete", "markdown": "...", "condensedParts": n | null}
+                                               — the full joined output; n set
+                                                 when it was made from parts
       {"stage": "error", "message": "..."}     — fatal mid-stream error
 
     Preflight errors (no template, template not found, Ollama unreachable,
@@ -487,22 +494,48 @@ def get_markdown():
     @stream_with_context
     def generate():
         try:
+            # Too long for one pass: read it in parts first, reporting each.
+            # Fits (the usual case): this loop yields only the result.
+            llm_text, condensed_parts = raw_note, None
+            for kind, payload in llm_batching.condense_iter(
+                raw_note, model_name, llm_batching.template_fits(template, note_details)
+            ):
+                if kind == "result":
+                    if payload.rounds:
+                        llm_text, condensed_parts = payload.text, payload.parts
+                    continue
+                parts = max(payload["parts"], 1)
+                yield json.dumps({
+                    "stage": "condensing",
+                    "progress": round(payload["part"] / parts, 3),
+                    "part": payload["part"],
+                    "parts": payload["parts"],
+                    "round": payload["round"],
+                    "detail": (f"Reading part {min(payload['part'] + 1, parts)} of {parts}"
+                               if payload["round"] == 1 else
+                               f"Condensing notes, part {min(payload['part'] + 1, parts)} of {parts}"),
+                }) + "\n"
+
             yield json.dumps({"stage": "start"}) + "\n"
             buffer: list[str] = []
             for delta in ollama_client.generate_markdown_stream(
-                template, raw_note, note_details, model_name
+                template, llm_text, note_details, model_name, condensed_parts
             ):
                 buffer.append(delta)
                 yield json.dumps({"stage": "chunk", "delta": delta}) + "\n"
             full_markdown = "".join(buffer)
-            yield json.dumps({"stage": "complete", "markdown": full_markdown}) + "\n"
+            yield json.dumps({
+                "stage": "complete", "markdown": full_markdown,
+                "condensedParts": condensed_parts,
+            }) + "\n"
 
             log_action(
                 'markdown.generate',
                 user_id=current_user,
                 resource_type='template',
                 resource_id=template_id,
-                extra={'model': model_name, 'mode': 'stream'},
+                extra={'model': model_name, 'mode': 'stream',
+                       'condensed_parts': condensed_parts},
             )
             db.session.commit()
         except ollama_client.ContextOverflow as e:

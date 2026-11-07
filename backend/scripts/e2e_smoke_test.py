@@ -208,6 +208,9 @@ def main():
     print("\n[6b] LLM context window — explicit num_ctx, overflow falls back to raw")
     _llm_context_window(app, client, auth, uid, tmpl_id)
 
+    print("\n[6c] Long transcripts read in parts (map-reduce batching)")
+    _llm_batching(app, client, auth, tmpl_id)
+
     print("\n[7] Recording-chunk key (encrypted client-side crash buffer)")
     _recording_chunk_key(client, auth)
 
@@ -1132,8 +1135,14 @@ def _llm_context_window(app, client, auth, uid, simple_tmpl_id):
         ev = stream(short)
         check("getMarkdown streams normally when it fits",
               ev[-1].get("stage") == "complete" and calls[-1]["options"].get("num_ctx") == oc.NUM_CTX, ev[-1:])
-        ev = stream(huge)
-        check("getMarkdown: oversized → error event with code context_overflow, no chunks",
+        # Too long even to read in parts (batching itself is covered in [6c]).
+        from app.services import llm_batching
+        real_rounds, llm_batching.MAX_ROUNDS = llm_batching.MAX_ROUNDS, 0
+        try:
+            ev = stream(huge)
+        finally:
+            llm_batching.MAX_ROUNDS = real_rounds
+        check("getMarkdown: can't fit even in parts → error event context_overflow, no chunks",
               ev[-1].get("error") == "context_overflow" and not any(e.get("stage") == "chunk" for e in ev),
               ev)
         script.update(done_reason="length")
@@ -1215,6 +1224,167 @@ def _llm_context_window(app, client, auth, uid, simple_tmpl_id):
               [kw.get("think") for kw in seen])
     finally:
         oc._chat_client, oc.is_model_installed = real_client, real_installed
+
+
+def _llm_batching(app, client, auth, simple_tmpl_id):
+    """A transcript too long for one pass is split at turn/sentence
+    boundaries, each part becomes notes, and the template is filled once from
+    those notes in order — so facts from the start, middle and end all reach
+    the note. Fake `chat`: extraction calls keep only the NEEDLE lines."""
+    from types import SimpleNamespace
+    import app.services.ollama_client as oc
+    from app.services import llm_batching as lb
+
+    details = {"note_date": datetime.utcnow().isoformat(), "participants": []}
+    tpl = SimpleNamespace(name="Visit", content="# Visit\n\n{{Summarize the visit}}")
+    turn = ("Speaker 1: So how have the headaches been since we last talked? Speaker 2: A bit "
+            "better, two or three a week, mostly mornings, ibuprofen helps some.")
+
+    def transcript(turns, needles, sep="\n"):
+        lines = [turn] * turns
+        for pos, label in needles:
+            lines[int(pos * (turns - 1))] = f"Speaker 1: NEEDLE-{label} noted at this point."
+        return sep.join(lines)
+
+    # (a) Splitting: whole lines, in order, every line covered, parts within budget, overlap.
+    dia = "\n".join(f"Speaker {i % 2 + 1}: turn {i} " + "word " * 25 for i in range(2000))
+    parts = lb.split_transcript(dia)
+    lines = dia.splitlines()
+    seen, last_idx, in_order = set(), -1, True
+    for p in parts:
+        idx = [lines.index(l) for l in p.splitlines()]
+        in_order &= idx == sorted(idx) and idx[0] <= last_idx + 1
+        last_idx = idx[-1]
+        seen.update(idx)
+    check(f"split: {len(parts)} parts, all cut between turns, in order, nothing skipped",
+          len(parts) > 1 and in_order and seen == set(range(len(lines))))
+    check("split: every part within the size budget",
+          all(lb._tokens(p) <= lb.PART_TOKENS + 50 for p in parts), [lb._tokens(p) for p in parts])
+    check("split: each part re-reads the end of the one before (overlap)",
+          all(parts[i + 1].splitlines()[0] in parts[i].splitlines() for i in range(len(parts) - 1)))
+    flat = " ".join(f"Sentence {i} of an undiarized transcript." for i in range(9000))
+    fparts = lb.split_transcript(flat)
+    check("split: an undiarized transcript (one long line) is cut at sentence ends",
+          len(fparts) > 1 and all(p.rstrip().endswith(".") for p in fparts)
+          and all(lb._tokens(p) <= lb.PART_TOKENS + 50 for p in fparts), len(fparts))
+
+    calls = []
+    behavior = {"too_big_once": set(), "echo_all": False, "keep_frac": 0.0}
+
+    def fake_chat(**kw):
+        calls.append(kw)
+        system, user = kw["messages"][0]["content"], kw["messages"][1]["content"]
+        if system == lb.EXTRACT_SYSTEM_PROMPT:
+            section = user.split("### section\n", 1)[1]
+            key = section[:80]
+            if key in behavior["too_big_once"]:
+                behavior["too_big_once"].discard(key)
+                return {"message": {"content": "- cut off"}, "done_reason": "length",
+                        "prompt_eval_count": 100}
+            kept = [l for l in section.splitlines() if "NEEDLE" in l or "--- Part" in l]
+            filler = section[:int(len(section) * behavior["keep_frac"])]
+            keep = section if behavior["echo_all"] else "\n".join(
+                [f"- {l}" for l in kept] + ([f"- {filler}"] if filler else []))
+            return {"message": {"content": keep or "(nothing substantive in this section)"},
+                    "done_reason": "stop", "prompt_eval_count": 100}
+        body = user
+        if kw.get("stream"):
+            return iter([{"message": {"content": "# Visit\n\n" + body[-50:]}},
+                         {"message": {"content": ""}, "done": True, "done_reason": "stop",
+                          "prompt_eval_count": 100}])
+        return {"message": {"content": body}, "done_reason": "stop", "prompt_eval_count": 100}
+
+    real_chat, real_installed = oc.chat, oc.is_model_installed
+    oc.chat, oc.is_model_installed = fake_chat, (lambda name: True)
+    try:
+        fits = lb.template_fits(tpl, details)
+        # (b) Short transcript: no batching, no extra calls.
+        evs = list(lb.condense_iter(turn * 5, "m", fits))
+        check("condense: a transcript that fits is passed through untouched (0 calls)",
+              len(evs) == 1 and evs[0][1].rounds == 0 and evs[0][1].text == turn * 5 and not calls)
+
+        # (c) ~3-hour transcript with facts at start, middle, end.
+        three_h = transcript(660, [(0, "START"), (0.5, "MIDDLE"), (1, "END")])
+        evs = list(lb.condense_iter(three_h, "m", fits))
+        res = evs[-1][1]
+        progress = [p for k, p in evs if k == "progress"]
+        extract_calls = [c for c in calls if c["messages"][0]["content"] == lb.EXTRACT_SYSTEM_PROMPT]
+        check(f"condense: ~3h transcript read in {res.parts} parts, one call each",
+              res.rounds == 1 and res.parts >= 3 and len(extract_calls) == res.parts, (res.parts, len(extract_calls)))
+        check("condense: start, middle and end facts all survive, in order",
+              0 <= res.text.find("NEEDLE-START") < res.text.find("NEEDLE-MIDDLE") < res.text.find("NEEDLE-END"))
+        check("condense: notes are labeled Part i of n, in order",
+              all(f"--- Part {i} of {res.parts} ---" in res.text for i in range(1, res.parts + 1)))
+        check("condense: progress reported per part, ending at n of n",
+              progress[0]["part"] == 0 and progress[-1]["part"] == progress[-1]["parts"] == res.parts
+              and [p["part"] for p in progress] == list(range(res.parts + 1)), progress)
+        check("condense: each part call fits the window and caps its reply",
+              all(oc.estimate_tokens(c["messages"]) + lb.EXTRACT_REPLY_TOKENS <= oc.NUM_CTX
+                  and c["options"].get("num_predict") == lb.EXTRACT_REPLY_TOKENS
+                  and c["options"].get("num_ctx") == oc.NUM_CTX for c in extract_calls))
+        check("condense: the result fits the final template-fill prompt", fits(res.text))
+
+        # (d) A part whose notes get cut off is split in half and redone — never kept cut off.
+        calls.clear()
+        first = lb.split_transcript(three_h)[0]
+        behavior["too_big_once"].add(first[:80])
+        res2 = list(lb.condense_iter(three_h, "m", fits))[-1][1]
+        check("condense: notes cut off at the reply cap → that part is split and reread",
+              res2.parts > res.parts and "cut off" not in res2.text
+              and "NEEDLE-START" in res2.text, res2.parts)
+
+        # (e) ~8h: the notes alone are still too long → a second round (notes of notes).
+        calls.clear()
+        behavior["keep_frac"] = 0.4
+        eight_h = transcript(1760, [(0, "START"), (0.5, "MIDDLE"), (1, "END")])
+        evs = list(lb.condense_iter(eight_h, "m", fits))
+        res3 = evs[-1][1]
+        rounds_seen = sorted({p["round"] for k, p in evs if k == "progress"})
+        check(f"condense: ~8h needs a second round ({res3.parts} parts, then notes of notes)",
+              res3.rounds == 2 and rounds_seen == [1, 2] and fits(res3.text), (res3.rounds, rounds_seen))
+        check("condense: facts from start, middle and end survive both rounds, in order",
+              0 <= res3.text.find("NEEDLE-START") < res3.text.find("NEEDLE-MIDDLE") < res3.text.find("NEEDLE-END"))
+        behavior["keep_frac"] = 0.0
+
+        # (f) Notes as long as their input can't converge.
+        calls.clear()
+        behavior["echo_all"] = True  # notes as long as the input → can't shrink
+        try:
+            list(lb.condense_iter(three_h, "m", fits))
+            stuck = False
+        except oc.ContextOverflow:
+            stuck = True
+        check("condense: notes that don't shrink the text → ContextOverflow, not a loop", stuck)
+        behavior["echo_all"] = False
+
+        # (g) /api/getMarkdown end to end.
+        calls.clear()
+        r = client.post("/api/getMarkdown", headers=auth, json={
+            "raw_note": three_h, "note_details": {**details, "template_id": simple_tmpl_id}})
+        ev = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+        stages = [e.get("stage") for e in ev]
+        cond = [e for e in ev if e.get("stage") == "condensing"]
+        check("getMarkdown: long transcript → condensing events, then the note streams",
+              cond and stages.index("start") > stages.index("condensing") and stages[-1] == "complete"
+              and "chunk" in stages, stages[:3] + ["…"] + stages[-3:])
+        check("getMarkdown: condensing progress climbs to 1.0 with a readable label",
+              cond[-1]["progress"] == 1.0 and cond[0]["detail"].startswith("Reading part 1 of")
+              and all(a["progress"] <= b["progress"] for a, b in zip(cond, cond[1:])), cond[:2])
+        final = [c for c in calls if c["messages"][0]["content"] != lb.EXTRACT_SYSTEM_PROMPT]
+        user_msg = final[-1]["messages"][1]["content"] if final else ""
+        check("getMarkdown: the final call reads the notes (labeled as such), not the raw transcript",
+              len(final) == 1 and "### notes from the recording" in user_msg
+              and "NEEDLE-END" in user_msg and turn not in user_msg)
+        check("getMarkdown: complete reports how many parts it was read in",
+              ev[-1].get("condensedParts") == len(cond) - 1, ev[-1].get("condensedParts"))
+        r = client.post("/api/getMarkdown", headers=auth, json={
+            "raw_note": turn, "note_details": {**details, "template_id": simple_tmpl_id}})
+        ev = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+        check("getMarkdown: a normal transcript has no condensing step and condensedParts null",
+              not any(e.get("stage") == "condensing" for e in ev)
+              and ev[-1].get("stage") == "complete" and ev[-1].get("condensedParts") is None)
+    finally:
+        oc.chat, oc.is_model_installed = real_chat, real_installed
 
 
 def _recording_chunk_key(client, auth):
