@@ -400,6 +400,31 @@ def ollama_health():
         return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"}), 503
 
 
+def _condense_stream(text: str, model_name: str, fits, out: dict):
+    """Read a too-long transcript in parts (llm_batching), yielding one
+    NDJSON `condensing` event per part. Sets out["text"] to what the
+    template-fill pass should read and out["parts"] to the part count (None
+    when the transcript fit as-is — the usual case, which yields nothing).
+    Raises ContextOverflow when even that won't fit."""
+    out["text"], out["parts"] = text, None
+    for kind, payload in llm_batching.condense_iter(text, model_name, fits):
+        if kind == "result":
+            if payload.rounds:
+                out["text"], out["parts"] = payload.text, payload.parts
+            continue
+        parts = max(payload["parts"], 1)
+        nxt = min(payload["part"] + 1, parts)
+        yield json.dumps({
+            "stage": "condensing",
+            "progress": round(payload["part"] / parts, 3),
+            "part": payload["part"],
+            "parts": payload["parts"],
+            "round": payload["round"],
+            "detail": (f"Reading part {nxt} of {parts}" if payload["round"] == 1
+                       else f"Condensing notes, part {nxt} of {parts}"),
+        }) + "\n"
+
+
 @bp.route('/api/getMarkdown', methods=['POST'])
 @jwt_required()
 def get_markdown():
@@ -495,26 +520,10 @@ def get_markdown():
     def generate():
         try:
             # Too long for one pass: read it in parts first, reporting each.
-            # Fits (the usual case): this loop yields only the result.
-            llm_text, condensed_parts = raw_note, None
-            for kind, payload in llm_batching.condense_iter(
-                raw_note, model_name, llm_batching.template_fits(template, note_details)
-            ):
-                if kind == "result":
-                    if payload.rounds:
-                        llm_text, condensed_parts = payload.text, payload.parts
-                    continue
-                parts = max(payload["parts"], 1)
-                yield json.dumps({
-                    "stage": "condensing",
-                    "progress": round(payload["part"] / parts, 3),
-                    "part": payload["part"],
-                    "parts": payload["parts"],
-                    "round": payload["round"],
-                    "detail": (f"Reading part {min(payload['part'] + 1, parts)} of {parts}"
-                               if payload["round"] == 1 else
-                               f"Condensing notes, part {min(payload['part'] + 1, parts)} of {parts}"),
-                }) + "\n"
+            cond = {}
+            yield from _condense_stream(
+                raw_note, model_name, llm_batching.template_fits(template, note_details), cond)
+            llm_text, condensed_parts = cond["text"], cond["parts"]
 
             yield json.dumps({"stage": "start"}) + "\n"
             buffer: list[str] = []
@@ -595,7 +604,9 @@ def run_structured():
         {"stage": "field_complete", "fieldId", "value", "confidence", "flagged", "latencyMs"}
         {"stage": "field_skipped",  "fieldId", "reason"}
         {"stage": "field_error",    "fieldId", "message"}
-      {"stage": "complete", "markdown": str}
+      {"stage": "condensing", ...}  — only for a transcript too long for one
+                                      pass (see /api/getMarkdown), before fields
+      {"stage": "complete", "markdown": str, "condensedParts": int | None}
       {"stage": "error", "message": str}  (terminal)
     """
     body = request.get_json(silent=True) or {}
@@ -674,6 +685,7 @@ def run_structured():
                 "fieldCount": field_count,
             }) + "\n"
 
+            cond = {}
             if mode == 'single-call':
                 # Reuse the existing single-pass pipeline. Compile the field
                 # tree to a markdown skeleton with {{instructions}} and route
@@ -683,27 +695,38 @@ def run_structured():
                 fake_template = SimpleNamespace(name=template.name, content=skeleton)
                 details = dict(note_details)
                 details['author_id'] = current_user
+                # Too long for one pass: read it in parts first.
+                yield from _condense_stream(
+                    raw_note, model_name, llm_batching.template_fits(fake_template, details), cond)
                 raw_markdown = ollama_client.generate_markdown(
-                    fake_template, raw_note, details, model_name
+                    fake_template, cond["text"], details, model_name, cond["parts"]
                 )
                 # llama 3.2 sometimes echoes the ###TEMPLATE### framing tokens
                 # from the system prompt. Strip them so the user never sees
                 # the prompt scaffolding.
                 markdown = structured_runtime.sanitize_single_call_output(raw_markdown)
-                yield json.dumps({"stage": "complete", "markdown": markdown}) + "\n"
+                yield json.dumps({"stage": "complete", "markdown": markdown,
+                                  "condensedParts": cond["parts"]}) + "\n"
                 return
 
-            # per-field mode
+            # per-field mode: every field reads the whole transcript, so the
+            # biggest field prompt decides whether it needs reading in parts.
+            yield from _condense_stream(
+                raw_note, model_name,
+                structured_runtime.per_field_fits(structured, template_strictness), cond)
             for event in structured_runtime.run_per_field(
                 structured=structured,
-                transcript=raw_note,
+                transcript=cond["text"],
                 model_name=model_name,
                 template_strictness=template_strictness,
+                condensed_parts=cond["parts"],
             ):
                 # Rewrite the internal `kind` -> wire `stage` for consistency
                 # with /api/transcribe's NDJSON convention.
                 kind = event.pop('kind')
                 wire_event = {"stage": kind, **event}
+                if kind == 'complete':
+                    wire_event["condensedParts"] = cond["parts"]
                 yield json.dumps(wire_event) + "\n"
 
         except ollama_client.ContextOverflow as e:

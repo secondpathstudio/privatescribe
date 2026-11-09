@@ -224,12 +224,26 @@ def _build_field_user_prompt(
     field: dict,
     transcript: str,
     prior_fills: list[tuple[str, str]],
+    condensed_parts: int | None = None,
 ) -> str:
-    """User message: transcript + prior filled fields + this field's instruction."""
+    """User message: transcript + prior filled fields + this field's instruction.
+
+    `condensed_parts` set means `transcript` is notes llm_batching took from
+    a too-long recording in that many parts, and the heading says so.
+    """
     instruction = _field_instruction(field)
     label = field.get('label') or field.get('variableKey') or 'this field'
 
-    parts = [f"### Transcript\n{transcript.strip()}"]
+    if condensed_parts:
+        parts = [
+            "### Transcript (as notes)\n"
+            f"The recording was too long to read at once, so it was read in {condensed_parts} "
+            "consecutive parts and detailed notes were taken from each part, in order. Treat "
+            "these notes as the transcript.\n\n"
+            f"{transcript.strip()}"
+        ]
+    else:
+        parts = [f"### Transcript\n{transcript.strip()}"]
 
     if prior_fills:
         # Chained context — earlier fields' filled values give later fields
@@ -255,11 +269,43 @@ def _strip_to_value(raw: str) -> str:
     return s
 
 
+# Room kept in each per-field prompt for the "already filled fields" context
+# (the last 6 fills) when deciding whether a transcript fits.
+PRIOR_FILLS_RESERVE_TOKENS = 1500
+
+
+def _autofill_fields(structured: dict):
+    for section in structured.get('sections') or []:
+        for field in section.get('fields') or []:
+            if field.get('autoFill') is not False:
+                yield field
+
+
+def per_field_fits(structured: dict, template_strictness: int):
+    """`fits` for llm_batching.condense_iter in per-field mode: would the
+    largest field's prompt, with this text, room for earlier fills and a
+    reply, fit the window? Every field carries the whole text, so the
+    biggest one decides."""
+    prompts = [
+        _per_field_system_prompt(f, level_for(effective_strictness(f, template_strictness)).name)
+        + _build_field_user_prompt(f, "", [], condensed_parts=1)
+        for f in _autofill_fields(structured)
+    ]
+    overhead = max((ollama_client.estimate_tokens([{"content": p}]) for p in prompts), default=0)
+
+    def fits(text: str) -> bool:
+        need = (ollama_client.estimate_tokens([{"content": text}]) + overhead
+                + PRIOR_FILLS_RESERVE_TOKENS + ollama_client.REPLY_RESERVE_TOKENS)
+        return need <= ollama_client.NUM_CTX
+    return fits
+
+
 def run_per_field(
     structured: dict,
     transcript: str,
     model_name: str,
     template_strictness: int,
+    condensed_parts: int | None = None,
 ) -> Iterator[dict]:
     """Yield one event per stage of a per-field run.
 
@@ -297,7 +343,7 @@ def run_per_field(
             eff = effective_strictness(field, template_strictness)
             lvl = level_for(eff)
             system = _per_field_system_prompt(field, lvl.name)
-            user = _build_field_user_prompt(field, transcript, prior_fills)
+            user = _build_field_user_prompt(field, transcript, prior_fills, condensed_parts)
 
             t0 = time.monotonic()
             messages = [

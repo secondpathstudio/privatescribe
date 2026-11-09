@@ -211,6 +211,9 @@ def main():
     print("\n[6c] Long transcripts read in parts (map-reduce batching)")
     _llm_batching(app, client, auth, tmpl_id)
 
+    print("\n[6d] Reading in parts — structured templates and queued uploads")
+    _llm_batching_structured_and_jobs(app, client, auth, tmpl_id)
+
     print("\n[7] Recording-chunk key (encrypted client-side crash buffer)")
     _recording_chunk_key(client, auth)
 
@@ -1159,10 +1162,14 @@ def _llm_context_window(app, client, auth, uid, simple_tmpl_id):
                 {"id": f"f{i}", "type": "paragraph", "label": f"F{i}", "variableKey": f"f{i}",
                  "required": False, "autoFill": True, "showInSummary": True} for i in range(3)]}]},
         })).get("id")
-        r = client.post("/api/notes/run-structured", headers=auth, json={
-            "raw_note": huge, "template_id": sid, "note_details": {**details, "template_id": sid}})
-        ev = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
-        check("run-structured: oversized → one context_overflow error, not per-field flags",
+        real_rounds, llm_batching.MAX_ROUNDS = llm_batching.MAX_ROUNDS, 0
+        try:
+            r = client.post("/api/notes/run-structured", headers=auth, json={
+                "raw_note": huge, "template_id": sid, "note_details": {**details, "template_id": sid}})
+            ev = [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+        finally:
+            llm_batching.MAX_ROUNDS = real_rounds
+        check("run-structured: can't fit even in parts → one context_overflow error, not per-field flags",
               ev and ev[-1].get("error") == "context_overflow"
               and sum(1 for e in ev if e.get("stage") == "field_error") == 0,
               [e.get("stage") for e in ev])
@@ -1385,6 +1392,179 @@ def _llm_batching(app, client, auth, simple_tmpl_id):
               and ev[-1].get("stage") == "complete" and ev[-1].get("condensedParts") is None)
     finally:
         oc.chat, oc.is_model_installed = real_chat, real_installed
+
+
+class _TextEngine:
+    """Stub STT engine that 'transcribes' any file as a fixed text."""
+    name = "e2e-text"
+
+    def __init__(self, text):
+        self.text = text
+
+    def transcribe_streaming(self, wav_path, language="en", *, initial_prompt=None, batched=False):
+        yield "progress", 1.0
+        yield "result", (self.text, [{"start": 0.0, "end": 1.0, "text": self.text}], [])
+
+
+def _llm_batching_structured_and_jobs(app, client, auth, simple_tmpl_id):
+    """Step 2 of batching: structured templates (single-call and per-field)
+    and queued uploads read a too-long transcript in parts too. A job that
+    formats it through several templates reads it once, reports each part as
+    progress, and can be canceled between parts."""
+    import threading
+    import time
+    import app.services.ollama_client as oc
+    from app.services import job_queue, llm_batching as lb, stt
+
+    details = {"note_date": datetime.utcnow().isoformat(), "participants": []}
+    turn = ("Speaker 1: So how have the headaches been since we last talked? Speaker 2: A bit "
+            "better, two or three a week, mostly mornings, ibuprofen helps some.")
+    lines = [turn] * 660
+    lines[0] = "Speaker 2: NEEDLE-START penicillin allergy."
+    lines[-1] = "Speaker 1: NEEDLE-END start propranolol."
+    long_text = "\n".join(lines)
+
+    calls = []
+    gate = {"block_on": None, "entered": threading.Event(), "release": threading.Event()}
+
+    def is_extract(kw):
+        return kw["messages"][0]["content"] == lb.EXTRACT_SYSTEM_PROMPT
+
+    def fake_chat(**kw):
+        calls.append(kw)
+        if is_extract(kw):
+            n = sum(1 for c in calls if is_extract(c))
+            if gate["block_on"] == n:
+                gate["entered"].set()
+                gate["release"].wait(30)
+            section = kw["messages"][1]["content"]
+            kept = [f"- {l}" for l in section.splitlines() if "NEEDLE" in l or "--- Part" in l]
+            return {"message": {"content": "\n".join(kept) or "(nothing substantive in this section)"},
+                    "done_reason": "stop", "prompt_eval_count": 100}
+        user = kw["messages"][1]["content"]
+        found = " ".join(w for w in ("NEEDLE-START", "NEEDLE-END") if w in user)
+        resp = {"message": {"content": f"filled: {found}"}, "done_reason": "stop", "prompt_eval_count": 100}
+        return iter([resp]) if kw.get("stream") else resp
+
+    def structured_tmpl(name, mode_fields):
+        return _json(client.post("/api/templates", headers=auth, json={
+            "name": name, "templateType": "structured", "llmModel": "gemma3:4b",
+            "structured": {"strictness": 100, "mode": mode_fields[0], "sections": [{"id": "s1", "title": "S", "fields": [
+                {"id": f"f{i}", "type": "paragraph", "label": f"F{i}", "variableKey": f"f{i}",
+                 "required": False, "autoFill": True, "showInSummary": True} for i in range(mode_fields[1])]}]},
+        })).get("id")
+
+    def run_structured(sid, text):
+        r = client.post("/api/notes/run-structured", headers=auth, json={
+            "raw_note": text, "template_id": sid, "note_details": {**details, "template_id": sid}})
+        return [json.loads(l) for l in r.get_data(as_text=True).splitlines() if l.strip()]
+
+    real_chat, real_installed, real_engine = oc.chat, oc.is_model_installed, stt.get_engine
+    real_update = job_queue._ProgressWriter.update
+    oc.chat, oc.is_model_installed = fake_chat, (lambda name: True)
+    try:
+        # (a) Structured, both modes.
+        from app.routes import transcription as tr
+        for label in ("single-call", "per-field"):
+            sid = structured_tmpl(f"E2E Batch {label}", ("single" if label == "single-call" else "per-field", 3))
+            real_mode = tr._structured_mode_for_template
+            tr._structured_mode_for_template = lambda t, m=label: m
+            calls.clear()
+            try:
+                ev = run_structured(sid, long_text)
+            finally:
+                tr._structured_mode_for_template = real_mode
+            stages = [e.get("stage") for e in ev]
+            extracts = [c for c in calls if is_extract(c)]
+            fills = [c for c in calls if not is_extract(c)]
+            check(f"run-structured ({label}): long transcript → condensing, then the fill, then complete",
+                  "condensing" in stages and stages[-1] == "complete"
+                  and ev[-1].get("condensedParts") == len(extracts) > 1, stages[:3] + ["…"] + stages[-2:])
+            check(f"run-structured ({label}): every fill call reads the notes, not the raw transcript",
+                  fills and all("NEEDLE-START" in c["messages"][1]["content"]
+                                and "NEEDLE-END" in c["messages"][1]["content"]
+                                and turn not in c["messages"][1]["content"] for c in fills),
+                  len(fills))
+            if label == "per-field":
+                check("run-structured (per-field): transcript read in parts once, not once per field",
+                      len(fills) == 3 and len(extracts) == ev[-1].get("condensedParts"), (len(fills), len(extracts)))
+                check("run-structured (per-field): fields are told they're reading notes",
+                      all("### Transcript (as notes)" in c["messages"][1]["content"] for c in fills))
+
+        # (b) Queued upload through two templates: read once, shared, progress per part.
+        tid2 = _json(client.post("/api/templates", headers=auth, json={
+            "name": "E2E Batch Second", "content": "# Second\n\n{{Summarize}}", "llmModel": "gemma3:4b",
+        })).get("id")
+        from app.models import Template
+        with app.app_context():
+            for t in (simple_tmpl_id, tid2):
+                Template.query.get(t).llm_model = "gemma3:4b"
+            from app.extensions import db as _db
+            _db.session.commit()
+        stt.get_engine = lambda name=None: _TextEngine(long_text)
+        stages_seen = []
+
+        def spy(self, progress=None, stage=None, *, force=False):
+            if stage:
+                stages_seen.append(stage)
+            return real_update(self, progress, stage, force=force)
+
+        job_queue._ProgressWriter.update = spy
+        path = _make_long_audio(1)
+
+        def submit():
+            with open(path, "rb") as f:
+                r = client.post("/api/jobs/transcribe", headers=auth, data={
+                    "audio": (f, "long-visit.m4a", "audio/mp4"), "templateIds": [simple_tmpl_id, tid2],
+                }, content_type="multipart/form-data")
+            return _json(r).get("id")
+
+        def wait(jid, until=("done", "failed", "canceled")):
+            job, end = {}, time.monotonic() + 120
+            while time.monotonic() < end:
+                job = _json(client.get(f"/api/jobs/{jid}", headers=auth))
+                if job.get("status") in until:
+                    break
+                time.sleep(0.2)
+            return job
+
+        calls.clear()
+        job = wait(submit())
+        extracts = [c for c in calls if is_extract(c)]
+        fills = [c for c in calls if not is_extract(c)]
+        part_stages = [s for s in stages_seen if "· part" in s]
+        check("queued job: long transcript through 2 templates → done with 2 drafts",
+              job.get("status") == "done" and len(job.get("noteIds") or []) == 2, job.get("status"))
+        check("queued job: transcript read in parts once and shared by both templates",
+              len(extracts) > 1 and len(fills) == 2
+              and len(extracts) == len(lb.split_transcript(long_text)), (len(extracts), len(fills)))
+        notes = [_json(client.get(f"/api/notes/{nid}", headers=auth)) for nid in job.get("noteIds") or []]
+        check("queued job: both drafts built from the notes (start and end facts present)",
+              notes and all(n.get("noteContentMarkdown") == "filled: NEEDLE-START NEEDLE-END"
+                            and n.get("noteContentRaw") == long_text for n in notes),
+              [n.get("noteContentMarkdown") for n in notes])
+        check("queued job: each part shows in the job's stage ('formatting (1/2) · part i of n')",
+              part_stages and part_stages[0].startswith("formatting (1/2) · part 1 of"), part_stages[:3])
+
+        # (c) Cancel between parts: no drafts, job ends canceled.
+        calls.clear()
+        gate.update(block_on=2)
+        gate["entered"].clear(); gate["release"].clear()
+        jid = submit()
+        entered = gate["entered"].wait(60)
+        r = client.post(f"/api/jobs/{jid}/cancel", headers=auth)
+        gate["release"].set()
+        job = wait(jid, until=("canceled", "done", "failed"))
+        time.sleep(0.5)
+        extracts = [c for c in calls if is_extract(c)]
+        check("queued job: cancel while reading parts → canceled, no drafts, stops reading",
+              entered and r.status_code == 200 and job.get("status") == "canceled"
+              and not job.get("noteIds") and len(extracts) <= 3, (job.get("status"), len(extracts)))
+        gate.update(block_on=None)
+    finally:
+        oc.chat, oc.is_model_installed, stt.get_engine = real_chat, real_installed, real_engine
+        job_queue._ProgressWriter.update = real_update
+        gate["release"].set()
 
 
 def _recording_chunk_key(client, auth):

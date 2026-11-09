@@ -29,9 +29,10 @@ HEARTBEAT_SAVE_SEC = 5.0
 # Generous next to HEARTBEAT_SAVE_SEC: real work on the slowest CPU still
 # produces a segment / diarization batch well inside it.
 STALL_AFTER_SEC = 5 * 60
-# LLM formatting is one blocking Ollama call per template with no progress
-# callback, so the heartbeat can't advance during it; allow it much longer
-# before calling it stalled (a big transcript on a CPU-only box is slow).
+# LLM formatting is one blocking Ollama call per template (or per part, for a
+# transcript read in parts) with no progress callback, so the heartbeat can't
+# advance during a call; allow it much longer before calling it stalled (a big
+# transcript on a CPU-only box is slow).
 FORMAT_STALL_AFTER_SEC = 30 * 60
 
 # Progress bands (0-100) for the stages of a queued transcription.
@@ -324,7 +325,7 @@ def _process_transcription(app, job_id):
 
     from app.extensions import db
     from app.models import AudioFile, Job, Note, Template, User
-    from app.services import audio_storage, diarization, dictation_markers, ollama_client
+    from app.services import audio_storage, diarization, dictation_markers, llm_batching, ollama_client
     from app.services import settings as settings_service
     from app.services import stt, vocabulary, whisper
 
@@ -455,6 +456,10 @@ def _process_transcription(app, job_id):
         # status change (one transaction), so a cancel mid-fan-out leaves no
         # partial set of drafts behind.
         notes: list = []
+        # Notes taken from a too-long transcript, shared across templates that
+        # use the same model (the extraction is general, so it's done once).
+        condensed_cache: dict = {}
+        fmt_writer = _ProgressWriter(job)
         for i, tpl in enumerate(targets):
             _raise_if_canceled(job_id)
             job.stage = f"formatting ({i + 1}/{len(targets)})" if tpl else "saving"
@@ -468,10 +473,32 @@ def _process_transcription(app, job_id):
             if tpl is not None:
                 model_name = tpl.llm_model or settings_service.get_llm_model()
                 details = {"note_date": (audio_created or datetime.utcnow()).isoformat(), "participants": []}
+                slot_start = PROGRESS_DIARIZE_END + (i / len(targets)) * 25
+                slot = 25 / len(targets)
                 try:
-                    markdown = ollama_client.generate_markdown(tpl, raw_text, details, model_name)
+                    # Too long for one pass: read it in parts first. Each
+                    # part is real progress (heartbeat + cancel checkpoint).
+                    llm_text, parts = raw_text, None
+                    for kind, payload in llm_batching.condense_iter(
+                            raw_text, model_name, llm_batching.template_fits(tpl, details),
+                            cache=condensed_cache):
+                        if kind == "result":
+                            if payload.rounds:
+                                llm_text, parts = payload.text, payload.parts
+                            continue
+                        total = max(payload["parts"], 1)
+                        nxt = min(payload["part"] + 1, total)
+                        fmt_writer.update(
+                            progress=slot_start + slot * 0.8 * payload["part"] / total,
+                            stage=f"formatting ({i + 1}/{len(targets)}) · part {nxt} of {total}",
+                            force=True)
+                    if parts:
+                        fmt_writer.update(stage=f"formatting ({i + 1}/{len(targets)})", force=True)
+                    markdown = ollama_client.generate_markdown(tpl, llm_text, details, model_name, parts)
+                except JobCanceled:
+                    raise
                 except ollama_client.ContextOverflow as e:
-                    # Too long for one pass: keep the full transcript rather
+                    # Too long even in parts: keep the full transcript rather
                     # than a draft built from part of it.
                     logger.warning("Job %s template %s: %s", job_id, tpl.id, e)
                     markdown = raw_text

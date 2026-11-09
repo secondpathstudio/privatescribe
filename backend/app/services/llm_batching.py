@@ -181,9 +181,15 @@ def _extract_all(part: str, model_name: str, on_done):
         return out
 
 
-def condense_iter(text: str, model_name: str, fits):
+def condense_iter(text: str, model_name: str, fits, cache: dict | None = None):
     """Shrink `text` until `fits(text)` — the caller's check that the final
     template-fill prompt has room — reading it in parts.
+
+    `cache` (a dict the caller keeps for one recording) lets several notes
+    made from the same transcript share the work: the extraction is general,
+    so notes taken for one template serve the next one with the same model.
+    If they don't fit a bigger template, they're condensed further from
+    there rather than read again from the start.
 
     A generator so a streaming route can report progress as it goes. Yields
         ("progress", {"part": done, "parts": total, "round": r})
@@ -195,6 +201,9 @@ def condense_iter(text: str, model_name: str, fits):
     current = text
     first_parts = 0
     rounds = 0
+    if cache is not None and model_name in cache and not fits(current):
+        hit = cache[model_name]
+        current, first_parts, rounds = hit.text, hit.parts, hit.rounds
     while not fits(current):
         if rounds == MAX_ROUNDS:
             raise ollama_client.ContextOverflow(estimated_tokens=_tokens(current))
@@ -227,7 +236,10 @@ def condense_iter(text: str, model_name: str, fits):
             # would loop forever.
             raise ollama_client.ContextOverflow(estimated_tokens=_tokens(current))
         current = condensed
-    yield "result", Condensed(text=current, parts=first_parts, rounds=rounds)
+    result = Condensed(text=current, parts=first_parts, rounds=rounds)
+    if cache is not None and rounds:
+        cache[model_name] = result
+    yield "result", result
 
 
 def template_fits(template, note_details: dict):
