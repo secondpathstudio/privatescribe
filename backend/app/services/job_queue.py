@@ -470,6 +470,7 @@ def _process_transcription(app, job_id):
             db.session.commit()
 
             markdown = raw_text
+            note_parts = None  # set when this draft was formatted from parts
             if tpl is not None:
                 model_name = tpl.llm_model or settings_service.get_llm_model()
                 details = {"note_date": (audio_created or datetime.utcnow()).isoformat(), "participants": []}
@@ -495,6 +496,7 @@ def _process_transcription(app, job_id):
                     if parts:
                         fmt_writer.update(stage=f"formatting ({i + 1}/{len(targets)})", force=True)
                     markdown = ollama_client.generate_markdown(tpl, llm_text, details, model_name, parts)
+                    note_parts = parts
                 except JobCanceled:
                     raise
                 except ollama_client.ContextOverflow as e:
@@ -517,6 +519,7 @@ def _process_transcription(app, job_id):
                 note_content_markdown=markdown,
                 note_content_segments=segments,
                 note_content_words=words or None,
+                condensed_parts=note_parts,
                 note_type="text",
                 note_date=audio_created or datetime.utcnow(),
                 name=name,

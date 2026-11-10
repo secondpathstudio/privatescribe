@@ -91,6 +91,10 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
     // reading the ref dodges that stale-closure trap.
     const [whisperWords, setWhisperWords] = React.useState<WordInfo[]>([]);
     const whisperWordsRef = React.useRef<WordInfo[]>([]);
+    // How many parts the AI read a too-long transcript in (from the format
+    // stream's `complete` event); saved with the note so its page can say so.
+    // A ref for the same stale-closure reason as whisperWordsRef.
+    const condensedPartsRef = React.useRef<number | null>(null);
     const updateWhisperWords = React.useCallback((next: WordInfo[]) => {
         whisperWordsRef.current = next;
         setWhisperWords(next);
@@ -227,6 +231,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
             ...formValues,
             noteContentMarkdown: markdownToSave,
             noteContentWords: currentWords.length ? currentWords : null,
+            condensedParts: condensedPartsRef.current,
         };
         console.log(
             '[NewNoteForm save] whisperWordsRef len=', currentWords.length,
@@ -639,6 +644,11 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         console.error('Bad NDJSON line from run-structured:', line, e);
                         continue;
                     }
+                    if (evt.stage === 'condensing') {
+                        trackCondensing(evt);
+                        continue;
+                    }
+                    if (evt.stage !== 'started') endCondensing();
                     if (evt.stage === 'started') {
                         setStructuredProgress({ mode: evt.mode, fields: {}, order: [] });
                     } else if (evt.stage === 'field_start') {
@@ -696,6 +706,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         });
                     } else if (evt.stage === 'complete') {
                         finalMarkdown = evt.markdown as string;
+                        condensedPartsRef.current = evt.condensedParts ?? null;
                     } else if (evt.stage === 'error') {
                         errorMessage = evt.message || 'Structured run failed';
                         errorCode = evt.error ?? null;
@@ -749,11 +760,26 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         formattingAbortRef.current?.abort();
     };
 
+    // A transcript too long for one AI pass is read in parts first; the
+    // format streams report each part as a `condensing` event. Show it as a
+    // progress bar, then drop back to the plain spinner once the note itself
+    // starts coming through.
+    const trackCondensing = (evt: { progress?: number; detail?: string }) => {
+        if (typeof evt.progress === 'number') setStageProgress(evt.progress);
+        if (evt.detail) setStageDetail(evt.detail);
+    };
+    const endCondensing = () => {
+        setStageProgress(null);
+        setStageDetail(null);
+    };
+
     const getMarkdown = async (rawNote: string) => {
         // Caller sets stage='formatting' before invoking this so the spinner
         // label is correct from the moment the request goes out. We only
         // need to clear it in our finally.
         setStage('formatting');
+        endCondensing();
+        condensedPartsRef.current = null;
         form.setValue('noteContentMarkdown', '');
         mdxEditorRef.current?.setMarkdown('');
 
@@ -838,15 +864,19 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         console.error('Bad NDJSON line from /api/getMarkdown:', line, e);
                         continue;
                     }
-                    if (evt.stage === 'chunk' && typeof evt.delta === 'string') {
+                    if (evt.stage === 'condensing') {
+                        trackCondensing(evt);
+                    } else if (evt.stage === 'start') {
+                        endCondensing();
+                    } else if (evt.stage === 'chunk' && typeof evt.delta === 'string') {
                         accumulated += evt.delta;
                         setStreamingPreview(accumulated);
                     } else if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
+                        condensedPartsRef.current = evt.condensedParts ?? null;
                     } else if (evt.stage === 'error') {
                         streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
-                    // 'start' is informational; ignored.
                 }
             }
             if (buffer.trim()) {
@@ -854,6 +884,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                     const evt = JSON.parse(buffer);
                     if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
+                        condensedPartsRef.current = evt.condensedParts ?? null;
                     } else if (evt.stage === 'error') {
                         streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
@@ -903,6 +934,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
         } finally {
             formattingAbortRef.current = null;
             setStage(null);
+            endCondensing();
             // Keep structuredProgress around so the user can see the final
             // per-field summary even after the run completes; the form reset /
             // new-note action clears it.
@@ -1192,13 +1224,16 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         {stage === 'decoding' && 'Decoding audio (ffmpeg)...'}
                         {stage === 'transcribing' && 'Transcribing audio (Whisper)...'}
                         {stage === 'diarizing' && 'Identifying speakers (pyannote)...'}
-                        {stage === 'formatting' && 'Formatting note (LLM)...'}
+                        {stage === 'formatting' && (stageDetail
+                            ? 'Long recording — the AI is reading it in parts...'
+                            : 'Formatting note (LLM)...')}
                     </span>
                 </div>
                 {/* Determinate progress bar for Whisper and pyannote, both of
-                    which stream progress. Decoding is quick and LLM token count
-                    is unknown ahead of time, so those keep the spinner only. */}
-                {(stage === 'transcribing' || stage === 'diarizing') && stageProgress !== null && (
+                    which stream progress, and for the AI reading a too-long
+                    transcript in parts. Decoding is quick and the note's own
+                    length is unknown ahead of time, so those keep the spinner only. */}
+                {(stage === 'transcribing' || stage === 'diarizing' || stage === 'formatting') && stageProgress !== null && (
                     <div className="w-64 mt-1">
                         <div className="h-2 border-2 border-black bg-white overflow-hidden">
                             <div
@@ -1211,7 +1246,7 @@ const NewNoteForm = ({templates, savedParticipants}: Props) => {
                         </div>
                         <div className="text-[10px] text-gray-600 tabular-nums text-center mt-0.5">
                             {Math.round(stageProgress * 100)}%
-                            {stage === 'diarizing' && stageDetail && ` · ${stageDetail}`}
+                            {(stage === 'diarizing' || stage === 'formatting') && stageDetail && ` · ${stageDetail}`}
                         </div>
                     </div>
                 )}

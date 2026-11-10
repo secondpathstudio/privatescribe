@@ -35,6 +35,11 @@ class Note(db.Model):
     # alongside the raw transcript:
     #   {"Speaker 1": {"participantId": "<uuid>"|null, "name": "Dr. Jane Smith"}}
     speaker_labels = db.Column(db.JSON, nullable=True)
+    # How many parts the AI read the transcript in when it formatted this note
+    # (services/llm_batching.py) — set only for a recording too long for one
+    # pass, so the note page can tell the reader to check the note against the
+    # transcript. None for the usual single-pass note.
+    condensed_parts = db.Column(db.Integer, nullable=True)
     # Approval timestamp. Null while the note is in draft (raw transcript
     # editable, highlights visible). Set when the user clicks Approve, at
     # which point the raw transcript becomes immutable forever — the regular

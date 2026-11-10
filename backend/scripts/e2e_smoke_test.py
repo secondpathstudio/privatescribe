@@ -1543,6 +1543,9 @@ def _llm_batching_structured_and_jobs(app, client, auth, simple_tmpl_id):
               notes and all(n.get("noteContentMarkdown") == "filled: NEEDLE-START NEEDLE-END"
                             and n.get("noteContentRaw") == long_text for n in notes),
               [n.get("noteContentMarkdown") for n in notes])
+        check("queued job: both drafts record how many parts the AI read them in",
+              notes and all(n.get("condensedParts") == len(extracts) for n in notes),
+              [n.get("condensedParts") for n in notes])
         check("queued job: each part shows in the job's stage ('formatting (1/2) · part i of n')",
               part_stages and part_stages[0].startswith("formatting (1/2) · part 1 of"), part_stages[:3])
 
@@ -1561,6 +1564,25 @@ def _llm_batching_structured_and_jobs(app, client, auth, simple_tmpl_id):
               entered and r.status_code == 200 and job.get("status") == "canceled"
               and not job.get("noteIds") and len(extracts) <= 3, (job.get("status"), len(extracts)))
         gate.update(block_on=None)
+
+        # (d) Notes API stores the part count; a plain edit keeps it, a
+        #     re-format reports it (or clears it); junk is ignored.
+        base = {"authorName": "E2E", "noteDate": details["note_date"], "noteContentRaw": "raw",
+                "noteContentMarkdown": "md", "participants": []}
+        made = _json(client.post("/api/notes", headers=auth, json={**base, "condensedParts": 6}))
+        got = _json(client.get(f"/api/notes/{made.get('id')}", headers=auth))
+        check("POST /api/notes saves condensedParts and GET returns it",
+              made.get("condensedParts") == 6 and got.get("condensedParts") == 6, (made.get("condensedParts"), got.get("condensedParts")))
+        client.put(f"/api/notes/{made['id']}", headers=auth, json={"noteContentMarkdown": "edited"})
+        kept = _json(client.get(f"/api/notes/{made['id']}", headers=auth)).get("condensedParts")
+        client.put(f"/api/notes/{made['id']}", headers=auth, json={"noteContentMarkdown": "reformatted", "condensedParts": None})
+        cleared = _json(client.get(f"/api/notes/{made['id']}", headers=auth)).get("condensedParts")
+        check("PUT: a plain edit keeps condensedParts; a single-pass re-format clears it",
+              kept == 6 and cleared is None, (kept, cleared))
+        junk = [_json(client.post("/api/notes", headers=auth, json={**base, "condensedParts": v})).get("condensedParts")
+                for v in ("lots", True, -2, 0)]
+        plain = _json(client.post("/api/notes", headers=auth, json=base)).get("condensedParts")
+        check("condensedParts: junk values and a normal note store null", junk == [None] * 4 and plain is None, (junk, plain))
     finally:
         oc.chat, oc.is_model_installed, stt.get_engine = real_chat, real_installed, real_engine
         job_queue._ProgressWriter.update = real_update

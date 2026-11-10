@@ -42,6 +42,8 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const [showRetranscribe, setShowRetranscribe] = React.useState(false);
     const [retranscribeTemplateId, setRetranscribeTemplateId] = React.useState('');
     const [retranscribing, setRetranscribing] = React.useState(false);
+    // "Reading part 2 of 6" while a too-long transcript is read in parts.
+    const [retranscribeDetail, setRetranscribeDetail] = React.useState<string | null>(null);
     // "Add recording" (append) state. Lets the user record more audio onto a
     // still-open draft; the new transcript is merged onto the existing one and
     // the note is re-formatted. Gated by the admin appendRecordingEnabled flag.
@@ -597,6 +599,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             let buf = '';
             let accumulated = '';
             let finalMarkdown: string | null = null;
+            let condensedParts: number | null = null;
             let streamError: string | null = null;
             let streamErrorCode: string | null = null;
             while (true) {
@@ -609,10 +612,15 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     if (!line.trim()) continue;
                     let evt: any;
                     try { evt = JSON.parse(line); } catch { continue; }
-                    if (evt.stage === 'chunk' && typeof evt.delta === 'string') {
+                    if (evt.stage === 'condensing') {
+                        setRetranscribeDetail(evt.detail ?? null);
+                    } else if (evt.stage === 'start') {
+                        setRetranscribeDetail(null);
+                    } else if (evt.stage === 'chunk' && typeof evt.delta === 'string') {
                         accumulated += evt.delta;
                     } else if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
+                        condensedParts = evt.condensedParts ?? null;
                     } else if (evt.stage === 'error') {
                         streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
@@ -623,6 +631,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     const evt = JSON.parse(buf);
                     if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
                         finalMarkdown = evt.markdown;
+                        condensedParts = evt.condensedParts ?? null;
                     } else if (evt.stage === 'error') {
                         streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null;
                     }
@@ -647,6 +656,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     noteDate: note.noteDate,
                     noteContentRaw: note.noteContentRaw,
                     noteContentMarkdown: formattedMarkdown,
+                    condensedParts,
                     noteType: note.noteType,
                     noteTemplate: retranscribeTemplateId,
                     participants: note.participants,
@@ -666,6 +676,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             toast.error(`Re-transcribe failed: ${e.message}`);
         } finally {
             setRetranscribing(false);
+            setRetranscribeDetail(null);
         }
     };
 
@@ -677,7 +688,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
     const formatMergedTranscript = async (
         rawNote: string,
         labels: SpeakerLabels,
-    ): Promise<string> => {
+    ): Promise<{ markdown: string; condensedParts: number | null }> => {
         const templateId = note?.noteTemplate || undefined;
         const noteDetails = {
             note_date: note?.noteDate,
@@ -707,7 +718,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     err.message || err.error ||
                     'AI formatting unavailable — saving the combined transcript so you can format it manually.',
                 );
-                return rawNote;
+                return { markdown: rawNote, condensedParts: null };
             }
             throw new Error(err.error || `Formatting failed (${res.status})`);
         }
@@ -717,14 +728,20 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         let buf = '';
         let accumulated = '';
         let finalMarkdown: string | null = null;
+        let condensedParts: number | null = null;
         let streamError: string | null = null;
         let streamErrorCode: string | null = null;
         const handle = (line: string) => {
             if (!line.trim()) return;
             let evt: any;
             try { evt = JSON.parse(line); } catch { return; }
-            if (evt.stage === 'chunk' && typeof evt.delta === 'string') accumulated += evt.delta;
-            else if (evt.stage === 'complete' && typeof evt.markdown === 'string') finalMarkdown = evt.markdown;
+            if (evt.stage === 'condensing') setAppendStage(`Re-formatting… ${evt.detail ?? ''}`.trim());
+            else if (evt.stage === 'start' || evt.stage === 'started') setAppendStage('Re-formatting…');
+            else if (evt.stage === 'chunk' && typeof evt.delta === 'string') accumulated += evt.delta;
+            else if (evt.stage === 'complete' && typeof evt.markdown === 'string') {
+                finalMarkdown = evt.markdown;
+                condensedParts = evt.condensedParts ?? null;
+            }
             else if (evt.stage === 'error') { streamError = evt.message || 'AI formatting failed mid-stream.'; streamErrorCode = evt.error ?? null; }
         };
         while (true) {
@@ -737,7 +754,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
         }
         if (buf.trim()) handle(buf);
         if (streamError) { if (!isContextOverflow(streamErrorCode)) flagOllamaDown(); throw new Error(streamError); }
-        return finalMarkdown ?? accumulated ?? rawNote;
+        return { markdown: finalMarkdown ?? accumulated ?? rawNote, condensedParts };
     };
 
     // Record more audio onto this draft note. Pipeline: transcribe the new
@@ -850,7 +867,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
             // 3. Re-format the full combined transcript with the note's template.
             setAppendStage('Re-formatting…');
             const mergedRaw: string = apData.noteContentRaw ?? '';
-            const finalMarkdown = await formatMergedTranscript(
+            const { markdown: finalMarkdown, condensedParts } = await formatMergedTranscript(
                 mergedRaw, apData.speakerLabels ?? speakerLabels,
             );
 
@@ -863,6 +880,8 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                     ...form.getValues(),
                     noteContentRaw: mergedRaw,
                     noteContentMarkdown: finalMarkdown,
+                    // Whether the re-formatted body was made from parts.
+                    condensedParts,
                 }),
             });
             if (!putRes.ok) {
@@ -1200,6 +1219,18 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                 )}
             </div>
         )}
+
+        {/* The AI read this recording in parts (too long for one pass), so
+            the note is built from notes on each part — worth a check. */}
+        {note?.condensedParts ? (
+            <div className="mt-4 border-2 border-black bg-amber-100 px-3 py-2 text-sm text-amber-900">
+                <span className="font-bold">
+                    This recording was long, so the AI read it in {note.condensedParts} parts.
+                </span>{' '}
+                The note was written from notes on each part. Check it against the raw transcript
+                before you finalize it.
+            </div>
+        ) : null}
 
         {/* Tabs Component for Raw Transcript and Markdown Editor */}
         {/* only show tabs when there is a raw transcript and markdown */}
@@ -1607,7 +1638,7 @@ const SingleNoteForm = ({ note, templates, savedParticipants, siblings = [] }: P
                                 backgroundColor='#fd3777'
                                 textColor='#ffffff'
                             >
-                                {retranscribing ? 'Re-transcribing…' : 'Format & Save as New Note'}
+                                {retranscribing ? (retranscribeDetail ?? 'Re-transcribing…') : 'Format & Save as New Note'}
                             </NeoButton>
                             <NeoButton
                                 type='button'

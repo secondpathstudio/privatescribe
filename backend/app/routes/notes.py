@@ -43,6 +43,17 @@ def _clean_name(raw) -> str | None:
     return s[:NOTE_NAME_MAX_LEN]
 
 
+def _clean_condensed_parts(raw) -> int | None:
+    """A positive part count from the client, else None (single-pass note)."""
+    if isinstance(raw, bool):
+        return None
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return n if 0 < n <= 1000 else None
+
+
 def _clean_speaker_labels(raw, segments, author_id):
     """Validate an incoming speakerLabels map against a note's diarized segments.
 
@@ -209,6 +220,8 @@ def create_note():
         # transcription stream. Optional — older clients and pasted-text
         # notes won't supply it.
         note_content_words=incoming_words,
+        # Set when the AI read a too-long transcript in parts to format it.
+        condensed_parts=_clean_condensed_parts(data.get('condensedParts')),
         note_type='text',
         note_date=note_date,
         name=_clean_name(data.get('name')),
@@ -263,6 +276,7 @@ def create_note():
         "noteContentSegments": new_note.note_content_segments,
         "speakerLabels": new_note.speaker_labels,
         "noteContentWords": new_note.note_content_words,
+        "condensedParts": new_note.condensed_parts,
         "approvedAt": new_note.approved_at,
         "status": new_note.status,
         "signedAt": new_note.signed_at,
@@ -324,6 +338,7 @@ def get_note(id):
         "noteContentSegments": note.note_content_segments,
         "speakerLabels": note.speaker_labels,
         "noteContentWords": note.note_content_words,
+        "condensedParts": note.condensed_parts,
         "approvedAt": note.approved_at,
         "status": note.status,
         "signedAt": note.signed_at,
@@ -528,6 +543,11 @@ def update_note(id):
     # a new note instead.
     note.note_content_markdown = data.get('noteContentMarkdown', note.note_content_markdown)
     note.note_type = data.get('noteType', note.note_type)
+    # Re-formatting (e.g. after appending a recording) reports whether the new
+    # body was made from parts; a plain edit doesn't send the key. A signed
+    # note's body can't change, so neither can this.
+    if 'condensedParts' in data and note.status != 'signed':
+        note.condensed_parts = _clean_condensed_parts(data.get('condensedParts'))
     if 'name' in data:
         note.name = _clean_name(data.get('name'))
     note.updated_at = datetime.utcnow()
@@ -606,6 +626,7 @@ def update_note(id):
             "noteContentMarkdown": note.note_content_markdown,
             "noteContentSegments": note.note_content_segments,
             "noteContentWords": note.note_content_words,
+            "condensedParts": note.condensed_parts,
             "approvedAt": note.approved_at,
             "status": note.status,
             "signedAt": note.signed_at,
